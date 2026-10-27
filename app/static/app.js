@@ -600,7 +600,7 @@ function positionFragmentSwap() {
 function renderSwapOptions() {
   const query = $('swap-search').value.trim().toLowerCase();
   const candidates = fragmentSwapCandidates.filter(f => f.name.toLowerCase().includes(query));
-  $('swap-options').innerHTML = candidates.length ? candidates.map(f => `<button class="swap-option" role="option" data-swap-id="${f.id}"><div><span class="swap-name">${esc(f.name)}${reverseCompFlag(f,true)}</span><span class="swap-location">${esc(plateLabel(f.plate_id))} / ${esc(f.well)} · ${fmt(f.physical_length,0)} bp</span></div><div class="swap-ends">${fusionEnds(f.digest.left_overhang,f.digest.right_overhang)}</div></button>`).join('') : `<div class="swap-empty">${query ? 'No matching alternatives' : 'No compatible alternatives'}</div>`;
+  $('swap-options').innerHTML = candidates.length ? candidates.map(f => `<button class="swap-option" role="option" data-swap-id="${f.id}"><div><span class="swap-name">${esc(f.name)}${reverseCompFlag(f,true)}</span>${f.swap_backbone_mismatches?.length?`<span class="badge warn" title="${esc(f.swap_backbone_mismatches.join(" · "))}">Backbone mismatch</span>`:""}<span class="swap-location">${esc(plateLabel(f.plate_id))} / ${esc(f.well)} · ${fmt(f.physical_length,0)} bp</span></div><div class="swap-ends">${fusionEnds(f.digest.left_overhang,f.digest.right_overhang)}</div></button>`).join('') : `<div class="swap-empty">${query ? 'No matching alternatives' : 'No alternatives'}</div>`;
   $('swap-options').querySelectorAll('[data-swap-id]').forEach(button => button.onclick = event => {
     event.stopPropagation();
     const index = state.swapIndex;
@@ -619,12 +619,7 @@ function renderSwapOptions() {
 function compatibleFragmentAlternatives(index) {
   const current = state.parts[index];
   if (!current) return [];
-  const ends = backboneEnds();
-  const closed = chainTopology() === 'circular';
-  const left = index ? state.parts[index - 1].digest.right_overhang : $('backbone').value ? ends.left : closed ? state.parts.at(-1).digest.right_overhang : current.digest.left_overhang;
-  const right = index + 1 < state.parts.length ? state.parts[index + 1].digest.left_overhang : $('backbone').value ? ends.right : closed ? state.parts[0].digest.left_overhang : current.digest.right_overhang;
-  const used = new Set(state.parts.map(f => f.id));
-  return /^[ACGT]{4}$/.test(left || '') && /^[ACGT]{4}$/.test(right || '') ? state.fragments.filter(f=>f.digest.valid&&!used.has(f.id)).map(f=>FragmentOrientation.match(f,left,right)).filter(Boolean).sort((a,b) => a.name.localeCompare(b.name) || a.plate_id.localeCompare(b.plate_id) || a.well.localeCompare(b.well)) : [];
+  return FragmentOrientation.alternatives(state.parts,state.fragments,index,{...backboneEnds(),hasBackbone:!!$('backbone').value,closed:chainTopology()==='circular'});
 }
 
 function openFragmentSwap(index, anchor) {
@@ -745,7 +740,7 @@ function renderParts() {
     const linker = fragmentLinker(previous, f.digest.left_overhang);
     previous = f.digest.right_overhang;
     const variants = compatibleFragmentAlternatives(index).length;
-    const variantLabel = `${variants} compatible alternative${variants === 1 ? '' : 's'}`;
+    const variantLabel = `${variants} alternative${variants === 1 ? '' : 's'}`;
     const details = `${f.name} · ${plateLabel(f.plate_id)} / ${f.well} · ${fmt(f.physical_length,0)} bp`;
     return `<div class="fragment-step">${linker}<div class="fragment-parent-group"><div class="fragment-tile" draggable="true" data-order="${index}"><button class="fragment-check pending" data-fragment-check="${index}" type="button" aria-label="Checking ${esc(f.name)}" aria-describedby="fragment-check-tooltip">…</button>${reverseCompFlag(f)}<button class="fragment-open" data-swap-index="${index}" aria-label="Swap ${esc(f.name)}${variants ? ', ' + variantLabel : ''}" aria-haspopup="dialog" aria-expanded="false" aria-controls="fragment-swap" title="${esc(details)}"><span class="part-name">${esc(f.name)}</span><span class="fragment-footer"><span class="fragment-meta">${esc(f.well)} · ${fmt(f.physical_length,0)} bp</span>${variants ? `<span class="fragment-variants" title="${variantLabel}">${variants} variant${variants === 1 ? '' : 's'}</span>` : ''}</span></button>${nestedCardIndicator(f)}<button class="fragment-remove" data-remove="${index}" aria-label="Remove ${esc(f.name)}" title="Remove ${esc(f.name)}">${inventoryIcon('close')}</button></div></div>${index===state.parts.length-1?fragmentLinker(previous,ends.right):''}</div>`;
   }).join('') : '<div class="empty-state">No fragments</div>';
