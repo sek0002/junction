@@ -1,0 +1,13 @@
+/* Installation and touch layouts. The logo itself has no background tile. */
+.brand-mark,[data-theme="dark"] .brand-mark{background:transparent;border-radius:0;padding:0;overflow:visible}
+.install-app{color:var(--green);flex-shrink:0}
+.install-dialog{width:min(450px,calc(100vw - 30px));max-height:90dvh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:var(--surface,#fff);color:var(--ink)}
+.install-dialog .panel-heading{margin-bottom:12px}.install-logo{display:block;margin:12px auto 22px}.install-steps{display:grid;grid-template-columns:105px 1fr;gap:15px 12px;font-size:12px}.install-steps dt{font-weight:650}.install-steps dd{margin:0;color:var(--muted)}
+@supports(padding:env(safe-area-inset-bottom)){body{padding-bottom:env(safe-area-inset-bottom)}.topbar{padding-top:env(safe-area-inset-top)}}
+@media(max-width:600px){.header-actions{gap:9px}.header-actions .local{display:none}.brand{font-size:22px;gap:8px}.topbar{padding-left:16px;padding-right:16px;gap:10px}.topbar nav{width:100%;overflow-x:auto;flex-wrap:nowrap;justify-content:flex-end}.nav{flex-shrink:0}.theme-toggle{width:36px;height:36px;padding:7px}.theme-toggle span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.subtabs{overflow-x:auto}.subtab{white-space:nowrap}.assembly-fields{gap:12px}.assembly-fields>div{min-width:0}.assembly-fields>div:first-child{flex-basis:100%}.assembly-fields select,.assembly-fields input,.google-search input,.numeric-grid input,.unit-input input{font-size:16px}.install-dialog{padding:18px}.install-steps{grid-template-columns:85px 1fr;gap:14px 10px}}
+@media print{.install-app,.install-dialog{display:none!important}}
+.install-app[hidden]{display:none!important}
+
+/* The mark is the first letter of the wordmark. */
+.topbar .brand{gap:.025em}
+.topbar .brand-mark{width:.64em;height:1.04em;flex-shrink:0;transform:translateY(.025em)}

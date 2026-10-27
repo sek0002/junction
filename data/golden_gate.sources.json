@@ -1,0 +1,22 @@
+{
+  "plate_files": [
+    "inventory_sources/platemap_pSHPs0314B2111016N_.csv",
+    "inventory_sources/platemap_pSHPs0405B231201IQ_.csv",
+    "inventory_sources/platemap_pSHPs0921B1498017B.xlsx",
+    "inventory_sources/platemap_pSHPs0921B1498027B.xlsx",
+    "inventory_sources/platemap_pSHPs0622B228801IQ_.xlsx",
+    "inventory_sources/platemap_pSHPs0711B5402016N_.xlsx",
+    "inventory_sources/platemap_pSHPs0726B1170017B_.csv"
+  ],
+  "genbank_files": [],
+  "retired_plate_ids": [
+    "pSHPs0309B323501IQ"
+  ],
+  "precalculated_plate_files": [
+    "inventory_sources/platemap_pSHPs0921B1498017B.xlsx",
+    "inventory_sources/platemap_pSHPs0921B1498027B.xlsx",
+    "inventory_sources/platemap_pSHPs0622B228801IQ_.xlsx",
+    "inventory_sources/platemap_pSHPs0711B5402016N_.xlsx",
+    "inventory_sources/platemap_pSHPs0726B1170017B_.csv"
+  ]
+}

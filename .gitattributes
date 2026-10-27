@@ -1,0 +1,13 @@
+# Preserve supplied plate files byte-for-byte, including their line endings.
+*.csv -text whitespace=cr-at-eol
+*.xlsx -text
+*.gb -text
+*.png -text
+*.py text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.sh text eol=lf
+*.command text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf

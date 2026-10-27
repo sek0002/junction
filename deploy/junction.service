@@ -1,0 +1,27 @@
+[Unit]
+Description=Junction Golden Gate workbench
+After=network.target
+
+[Service]
+Type=exec
+User=junction
+Group=junction
+WorkingDirectory=/opt/junction
+EnvironmentFile=/etc/junction/junction.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StateDirectory=junction
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/junction/.venv/bin/python /opt/junction/scripts/serve.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/junction
+
+[Install]
+WantedBy=multi-user.target

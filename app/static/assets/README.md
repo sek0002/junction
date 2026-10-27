@@ -1,0 +1,9 @@
+# Junction mark
+
+## Current J design
+
+Generated from scratch using the built-in image generation tool, with no reference images. `junction-mark-v4-generated.png` preserves the original generated transparent image. The clean SVG master follows its J silhouette and stepped golden connector, using solid fills to remove the raster output's edge speckles and subtle shading. Production uses `junction-mark-v4.svg`. `junction-mark-v4-4096.png` and the versioned install icons are exports from this vector master; the 4096 PNG is not a native 4096 imagegen output. The generated source is retained separately.
+
+Final prompt: Use case: logo-brand. Create a completely new logo from scratch for Junction, a Golden Gate DNA assembly app. Icon only, no wordmark. A bold instantly readable capital J formed from two or three modular DNA-like geometric segments joining through a small complementary stepped sticky-end junction. The symbol should communicate ordered DNA fragment assembly into a plasmid, while remaining primarily a clear J silhouette with a generous rounded lower hook. A small warm golden joining segment connects forest green and sage green pieces. Flat solid colours, clean precise vector-like shapes, consistent thickness, sophisticated restrained scientific software branding, clear negative space. One centered mark on a square transparent canvas with balanced padding, designed to remain sharp and recognisable at 32 px. No printed nucleotides, helix ladder, scissors, lab equipment, extra lettering, text, shadows, gradients, glow, border, opaque background, mockup or multiple options. This is an entirely new design; do not reuse the previous circular G logo. High resolution transparent output.
+
+The header uses `junction-letter-j-v4.svg`, the same logo with its viewBox fitted to the mark, as the first letter before “unction”. The complete link retains the accessible name “Junction”.
