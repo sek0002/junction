@@ -14,14 +14,19 @@ if [[ "$junction_dir" != /opt/junction ]]; then
   echo 'Clone the repository to /opt/junction before installing this service.' >&2
   exit 1
 fi
-python3 -c 'import sys; assert sys.version_info >= (3,10), "Python 3.10+ is required"'
+junction_python=$(bash "$junction_dir/scripts/select-python.sh")
+printf 'Using Python: %s\n' "$junction_python"
+if [[ -x "$junction_dir/.venv/bin/python" ]] && ! "$junction_dir/.venv/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo 'The existing /opt/junction/.venv uses an older Python. Move that directory aside, then rerun this installer.' >&2
+  exit 1
+fi
 if ! id junction >/dev/null 2>&1; then
   useradd --system --user-group --home-dir /var/lib/junction --no-create-home --shell /usr/sbin/nologin junction
 fi
 install -d -m 0700 -o junction -g junction /var/lib/junction
 install -d -m 0755 /etc/junction
 if [[ ! -x "$junction_dir/.venv/bin/python" ]]; then
-  python3 -m venv "$junction_dir/.venv"
+  "$junction_python" -m venv "$junction_dir/.venv"
 fi
 "$junction_dir/.venv/bin/python" -m pip install -r "$junction_dir/requirements.txt"
 "$junction_dir/.venv/bin/python" "$junction_dir/scripts/configure_service.py" "$@"

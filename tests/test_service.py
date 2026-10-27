@@ -1,6 +1,9 @@
 """Service configuration preserves its chosen port and keeps state outside Git."""
 import importlib.util
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,6 +18,28 @@ configure=load('configure_service');serve=load('serve')
 
 
 class ServiceTests(unittest.TestCase):
+    def test_installer_finds_supported_python_when_default_is_old(self):
+        with tempfile.TemporaryDirectory() as folder:
+            old=Path(folder)/'python3';new=Path(folder)/'python3.11'
+            old.write_text('#!/bin/sh\nexit 1\n');old.chmod(0o755)
+            new.write_text('#!/bin/sh\nexit 0\n');new.chmod(0o755)
+            env={**os.environ,'PATH':folder};env.pop('JUNCTION_PYTHON',None)
+            command=[shutil.which('bash'),str(ROOT/'scripts/select-python.sh')]
+            result=subprocess.run(command,env=env,text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(result.stdout.strip(),str(new))
+            # An explicit old interpreter must fail rather than silently switch.
+            env['JUNCTION_PYTHON']=str(old)
+            result=subprocess.run(command,env=env,text=True,capture_output=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('Python 3.10+',result.stderr)
+            env['JUNCTION_PYTHON']=str(new)
+            self.assertEqual(subprocess.run(command,env=env,text=True,capture_output=True).stdout.strip(),str(new))
+            new.unlink();env.pop('JUNCTION_PYTHON')
+            result=subprocess.run(command,env=env,text=True,capture_output=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('JUNCTION_PYTHON=',result.stderr)
+
     def test_random_port_is_selected_once_and_existing_configuration_is_preserved(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'junction.env'

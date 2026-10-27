@@ -18,6 +18,16 @@ sudo bash scripts/install-systemd.sh
 
 On another distribution, install equivalent Git, Python and venv packages, then use the same clone and installer commands. The checkout must be `/opt/junction` for the supplied unit.
 
+The installer checks `python3`, then versioned executables from `python3.14` down to `python3.10`. If your default Python is older, install a supported version and its matching venv package from your distribution, or upgrade the server OS. Package availability depends on the release; check `cat /etc/os-release` first. Do not replace the system `python3` executable.
+
+To select an installed interpreter explicitly (example path):
+
+```sh
+sudo env JUNCTION_PYTHON=/usr/bin/python3.11 bash scripts/install-systemd.sh
+```
+
+If an existing `/opt/junction/.venv` uses an older Python, stop Junction and move that directory aside before rerunning the installer. This recreates only the application environment; the database remains in `/var/lib/junction`.
+
 The installer creates a dedicated `junction` service account, installs Python dependencies into `/opt/junction/.venv`, writes `/etc/systemd/system/junction.service`, and enables the service. Re-running it preserves the existing environment file. It does not copy your development database to the server.
 
 Read the chosen port and service status:
