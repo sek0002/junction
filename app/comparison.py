@@ -164,18 +164,23 @@ def compare_record(record,fragments,references,enzyme='auto',infer=True):
     candidates=[dict(item) for item in references];metadata={};inferred=[]
     if infer:
         for mode in modes:
-            generated=infer_database_candidates(query,fragments,enzyme=mode,max_candidates=64,max_parts=20)
+            generated=infer_database_candidates(query,fragments,enzyme=mode,max_candidates=64,max_parts=20,backbones=references)
             metadata[mode]=generated['metadata']
             inferred.extend(dict(p,assembly_enzymes=[mode],source='inferred from plate fragments') for p in generated['candidates'])
         candidates.extend(inferred)
     combined={}
     for candidate in candidates:
         key=_reference_key(candidate)
+        paths=[]
+        if candidate.get('parts'):
+            paths=[{field:candidate[field] for field in ('name','source','parts','fragment_ids','part_orientations','backbone_id','slot_id','assembly_enzymes') if field in candidate}]
         if key not in combined:
-            combined[key]=dict(candidate,aliases=[{'name':candidate['name'],'source':candidate['source']}],assembly_enzymes=list(candidate.get('assembly_enzymes',[])))
+            combined[key]=dict(candidate,aliases=[{'name':candidate['name'],'source':candidate['source']}],assembly_enzymes=list(candidate.get('assembly_enzymes',[])),assembly_paths=paths)
         else:
             match=combined[key];match['aliases'].append({'name':candidate['name'],'source':candidate['source']})
             match['assembly_enzymes']=list(dict.fromkeys(match['assembly_enzymes']+candidate.get('assembly_enzymes',[])))
+            match['assembly_paths'].extend(paths)
+            if not match.get('parts') and candidate.get('parts'):match['parts']=candidate['parts']
     ranked=rank_candidates(query,combined.values(),limit=5) if combined else []
     # A high-identity circular reference can establish circular context for FASTA.
     circular=bool(record.get('circular') or ranked and ranked[0].get('circular') and ranked[0]['identity']>=.95)
@@ -189,4 +194,4 @@ def compare_record(record,fragments,references,enzyme='auto',infer=True):
             'basis':'Auto tests all assembly modes. Retained recognition sites alone do not identify the assembly enzyme.'},
         'fragment_matches':fragments_result['matches'],'fragment_search':fragments_result['metadata'],
         'source_counts':dict(Counter(p['source'] for p in references)),
-        'note':'Closest alignments within saved plasmids, valid build-list/recipe assemblies, and a bounded fragment-graph search. Fragment matches can overlap and do not establish a unique assembly.'}
+        'note':'Closest alignments within saved plasmids, valid build-list/recipe assemblies, and a bounded search of oriented fragments and retained backbone cassettes. Fragment matches can overlap and do not establish a unique assembly.'}

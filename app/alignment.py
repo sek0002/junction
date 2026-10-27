@@ -268,12 +268,29 @@ def compare_sequences(reference: str, query: str, circular: bool = True) -> dict
     trials.sort(key=lambda item: (-item[0], item[1] != "+", item[2]))
     best = None
     for _, orientation, rotation, rotated, _ in trials[:2]:
-        ar, aq = _align(reference, rotated)
-        matches = sum(a == b for a, b in zip(ar, aq))
-        edits = len(ar) - matches
-        key = (matches - edits, matches / max(1, len(ar)))
-        if best is None or key > best[0]:
-            best = (key, orientation, rotation, ar, aq)
+        pending = [(rotation, rotated)]
+        tried = set()
+        while pending and len(tried) < 3:
+            rotation, rotated = pending.pop(0)
+            if rotation in tried:
+                continue
+            tried.add(rotation)
+            ar, aq = _align(reference, rotated)
+            matches = sum(a == b for a, b in zip(ar, aq))
+            edits = len(ar) - matches
+            key = (matches - edits, matches / max(1, len(ar)))
+            if best is None or key > best[0]:
+                best = (key, orientation, rotation, ar, aq)
+            # Indels shift the strongest rotation vote. A reference prefix can
+            # then appear as a deletion at one end and an insertion at the other.
+            # Move that identical sequence across the circular seam and realign.
+            if circular:
+                deleted = len(aq) - len(aq.lstrip('-'))
+                inserted = len(ar) - len(ar.lstrip('-'))
+                if deleted and ar[-deleted:] == '-' * deleted and ar[:deleted] == aq[-deleted:]:
+                    pending.append(((rotation-deleted) % len(query), rotated[-deleted:]+rotated[:-deleted]))
+                if inserted and aq[-inserted:] == '-' * inserted and aq[:inserted] == ar[-inserted:]:
+                    pending.append(((rotation+inserted) % len(query), rotated[inserted:]+rotated[:inserted]))
     assert best is not None
     (score, identity), orientation, rotation, ar, aq = best
     changes, blocks = _summarize(ar, aq, rotation, orientation, len(query))
@@ -316,6 +333,7 @@ def rank_candidates(query: str, candidates: Iterable[dict], limit: int = 5) -> l
                        "sequence": sequence, "source": candidate.get("source", "reference"),
                        "inferred": bool(candidate.get("inferred", False)), "circular":candidate.get("circular",True),
                        "assembly_enzymes":candidate.get("assembly_enzymes",[]), "aliases":candidate.get("aliases",[])})
+        result['assembly_paths'] = candidate.get('assembly_paths', [])
         results.append(result)
     results.sort(key=lambda x: (x["exact"], x["identity"], x["score"]), reverse=True)
     return results[:limit]
@@ -356,11 +374,13 @@ def _digest_for_graph(fragment: dict, enzyme: str) -> dict | None:
             "core": sequence[left_start + 4:right_start]}
 
 
-def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str = "BsaI", max_candidates: int = 64, max_parts: int = 16) -> dict:
+def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str = "BsaI", max_candidates: int = 64, max_parts: int = 16,
+                              backbones: Iterable[dict] = ()) -> dict:
     """Discover closed circles in a bounded, sequence-guided overhang graph.
 
     No exhaustive Cartesian expansion is performed. Every returned candidate is
-    a closed route with exact overhang matches and no reused database fragment.
+    a closed route with exact overhang matches and no reused database fragment,
+    in either orientation, with at most one retained backbone cassette.
     ``complete_search`` is false when any beam/path/candidate limit was reached;
     this search cannot prove that an unreturned circle does not exist.
     """
@@ -371,6 +391,14 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
     max_parts = max(1, min(int(max_parts), 32))
     qkmers = _kmers(query, circular=True) | _kmers(_rc(query), circular=True)
     nodes, excluded = [], []
+    def add_nodes(parsed, source, key, is_backbone=False, slot_id=None):
+        for orientation in (1, -1):
+            ends = parsed if orientation == 1 else {'left': _rc(parsed['right']), 'right': _rc(parsed['left']), 'core': _rc(parsed['core'])}
+            content = ends['left'] + ends['core']
+            words = _kmers(content)
+            support = len(words & qkmers) / max(1, len(words))
+            nodes.append({**ends, 'fragment': source, 'key': key, 'orientation': orientation,
+                          'is_backbone': is_backbone, 'slot_id': slot_id, 'support': support, 'content': content})
     for index, fragment in enumerate(fragments):
         try:
             parsed = _digest_for_graph(fragment, enzyme)
@@ -378,9 +406,17 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
             parsed = None
         if not parsed:
             excluded.append(fragment.get("id", index)); continue
-        content = parsed["left"] + parsed["core"]
-        support = len(_kmers(content) & qkmers) / max(1, len(_kmers(content)))
-        nodes.append({**parsed, "fragment": fragment, "key": str(fragment.get("id", index)), "support": support, "content": content})
+        add_nodes(parsed, fragment, 'fragment:' + str(fragment.get('id', index)))
+    from .sequence_engine import find_backbone_slots, prepare_backbone
+    for index, backbone in enumerate(backbones):
+        if not backbone.get('circular', True):
+            continue
+        for slot in find_backbone_slots(backbone['sequence'], enzyme):
+            digest = prepare_backbone(backbone['sequence'], enzyme, slot['id'])
+            if not digest['valid']:
+                continue
+            add_nodes({'left': digest['left_overhang'], 'right': digest['right_overhang'], 'core': digest['target']},
+                      backbone, 'backbone:' + str(backbone.get('id', index)), True, slot['id'])
     by_left: dict[str, list[int]] = defaultdict(list)
     for i, node in enumerate(nodes):
         by_left[node["left"]].append(i)
@@ -401,8 +437,11 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
             explored += 1
             last, first = nodes[path[-1]], nodes[path[0]]
             if last["right"] == first["left"]:
-                keys = tuple(nodes[i]["key"] for i in path)
-                canonical = min(keys[i:] + keys[:i] for i in range(len(keys)))
+                if len(path) == 1 and first['is_backbone']:
+                    continue
+                keys = tuple((nodes[i]['key'], nodes[i]['slot_id'] or '', nodes[i]['orientation']) for i in path)
+                reverse_keys = tuple((key, slot, -orientation) for key, slot, orientation in reversed(keys))
+                canonical = min(cycle[i:] + cycle[:i] for cycle in (keys, reverse_keys) for i in range(len(keys)))
                 if canonical not in seen_cycles:
                     seen_cycles.add(canonical)
                     sequence = "".join(nodes[i]["content"] for i in path)
@@ -418,21 +457,27 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
                     features, offset = [], 0
                     for i in path:
                         node = nodes[i]
-                        features.append({"type": "misc_feature", "start": offset, "end": offset + len(node["content"]), "label": node["fragment"].get("name", node["key"]), "strand": 1})
+                        features.append({"type": "misc_feature", "start": offset, "end": offset + len(node["content"]), "label": node["fragment"].get("name", node["key"]),
+                                         "strand": node['orientation'], 'is_backbone': node['is_backbone']})
                         offset += len(node["content"])
-                    candidate_id = "inferred_" + sha256("|".join(canonical).encode()).hexdigest()[:12]
+                    candidate_id = "inferred_" + sha256((enzyme + repr(canonical)).encode()).hexdigest()[:12]
                     candidates.append({"id": candidate_id, "name": "Inferred: " + " → ".join(parts), "sequence": sequence,
-                                       "parts": parts, "fragment_ids": [nodes[i]["fragment"].get("id") for i in path],
+                                       "parts": parts, "fragment_ids": [nodes[i]["fragment"].get("id") for i in path if not nodes[i]['is_backbone']],
+                                       'part_orientations': [nodes[i]['orientation'] for i in path],
+                                       'backbone_id': next((nodes[i]['fragment'].get('id') for i in path if nodes[i]['is_backbone']), None),
+                                       'slot_id': next((nodes[i]['slot_id'] for i in path if nodes[i]['is_backbone']), None),
                                        "features": features, "circular": True, "inferred": True,
                                        "query_support": support_sum / max(1, length)})
             if len(path) >= max_parts:
-                if any(i not in path for i in by_left.get(last["right"], [])):
+                if any(nodes[i]['key'] not in {nodes[j]['key'] for j in path} for i in by_left.get(last["right"], [])):
                     capped = True
                 continue
             for nxt in by_left.get(last["right"], []):
-                if nxt in path:
-                    continue
                 node = nodes[nxt]
+                if node['key'] in {nodes[i]['key'] for i in path}:
+                    continue
+                if node['is_backbone'] and any(nodes[i]['is_backbone'] for i in path):
+                    continue
                 label_class = min(node["left"], _rc(node["left"]))
                 used_labels = {min(nodes[i]["left"], _rc(nodes[i]["left"])) for i in path}
                 if label_class in used_labels:
@@ -445,9 +490,12 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
                 if new_length > max(len(query) * 1.6, len(query) + 3000):
                     capped = True; continue
                 next_beam.append((path + (nxt,), support_sum + node["support"] * len(node["content"]), new_length))
-        if len(candidates) >= max_candidates:
-            capped = bool(next_beam) or capped
-            break
+        # Keep looking through longer routes even after finding many short
+        # circles. Otherwise unrelated early closures can hide an exact build.
+        if len(candidates) > max_candidates * 4:
+            candidates.sort(key=lambda item: item['query_support'] * .8 + min(len(item['sequence']), len(query)) / max(len(item['sequence']), len(query)) * .2, reverse=True)
+            candidates = candidates[:max_candidates * 4]
+            capped = True
         next_beam.sort(key=lambda item: item[1] / max(1, item[2]) * 0.85 + min(item[2], len(query)) / max(item[2], len(query)) * 0.15, reverse=True)
         if len(next_beam) > beam_width:
             capped = True
@@ -458,8 +506,10 @@ def infer_database_candidates(query: str, fragments: Iterable[dict], enzyme: str
     if len(candidates) > max_candidates:
         capped = True
     return {"candidates": candidates[:max_candidates], "metadata": {
-        "method": "bounded sequence-guided beam search of exact-overhang fragment graph", "enzyme": enzyme,
-        "fragments_considered": len(nodes), "fragments_excluded": excluded, "routes_explored": explored,
+        "method": "bounded sequence-guided beam search of oriented fragments and retained backbone cassettes", "enzyme": enzyme,
+        "fragments_considered": len({node['key'] for node in nodes if not node['is_backbone']}),
+        'oriented_edges': len(nodes), 'backbone_cassettes_considered': len({(node['key'], node['slot_id']) for node in nodes if node['is_backbone']}),
+        "fragments_excluded": excluded, "routes_explored": explored,
         "circles_rejected_for_junction_sites": rejected_circles,
         "max_candidates": max_candidates, "max_parts": max_parts, "complete_search": not capped,
-        "limitations": "Search is bounded and heuristic; no absence or unique closest-match claim is implied. Fragments with internal first-round enzyme sites are excluded."}}
+        "limitations": "Search is bounded and heuristic; no absence or unique closest-match claim is implied. Fragments with internal active-enzyme sites and backbones with unresolved additional active-enzyme cuts are excluded. Each route uses at most one backbone cassette."}}
