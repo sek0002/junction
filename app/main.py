@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
-from difflib import SequenceMatcher
 import hashlib
 import csv
 import io
@@ -38,6 +37,7 @@ from .plate_exports import export_bytes as plate_export_bytes, MIME as PLATE_EXP
 from .assembly_matrix import matrix_data, META_HEADERS
 from .plate_labels import plate_aliases
 from .build_genbank import build_genbank_zip
+from .fragment_search import match_fragment
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_UPLOAD = 10 * 1024 * 1024
@@ -179,20 +179,17 @@ def summary():
 
 
 @app.get('/api/fragments')
-def fragments(q: str='', enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI', plate:str='', left:str='', right:str='', limit:int=Query(200,ge=1,le=1000)):
+def fragments(q: str=Query('',max_length=5000), enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI', plate:str='', left:str='', right:str='', limit:int=Query(200,ge=1,le=1000)):
     result=[]
-    query=q.strip().casefold()
     for fragment in store.fragments():
         if plate and fragment['plate_id']!=plate:
             continue
         variants=fragment_orientations(fragment['sequence'],enzyme)
         parsed=next((d for d in variants if (not left or d.get('left_overhang')==left.upper()) and (not right or d.get('right_overhang')==right.upper())),None)
         if parsed is None:continue
-        name=fragment['name'].casefold()
-        score=1 if query in name else SequenceMatcher(None,query,name).ratio() if len(query)>=4 else 0
-        if query and score<0.65:
-            continue
-        result.append({k:v for k,v in fragment.items() if k not in ('sequence','construct_sequence')} | {'digest':parsed,'forward_digest':variants[0],'reverse_complement':parsed['reverse_complement'],'orientation':parsed['orientation'],'sites':restriction_sites(fragment['sequence']),'search_score':score})
+        match=match_fragment(fragment,q,variants)
+        if match is None:continue
+        result.append({k:v for k,v in fragment.items() if k not in ('sequence','construct_sequence')} | {'digest':parsed,'forward_digest':variants[0],'reverse_complement':parsed['reverse_complement'],'orientation':parsed['orientation'],'sites':restriction_sites(fragment['sequence'])} | match)
     result.sort(key=lambda x:(-x['search_score'],x['name']))
     return result[:limit]
 

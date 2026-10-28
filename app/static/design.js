@@ -30,7 +30,7 @@
   if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,exportPayload,fragmentRcTag};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
-    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false,assemblyPreview=null;
+    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false,assemblyPreview=null,searchRevision=0,searchTimer;
   const current=()=>saved.designs.find(design=>design.id===saved.activeId);
   const entry=()=>current()?.entries.find(item=>item.id===activeEntry);
   const tableUI=root.DesignTable.create({getDesign:current,getContext:()=>preview?.entries||[],onChange:()=>{dirty();renderSections();},report:message=>note(message)});
@@ -105,12 +105,15 @@
       return `<div class="design-node ${known?'existing':'placeholder'}${selected?' selected':''}" draggable="true" data-entry-id="${esc(item.id)}">${fragmentRcTag(item,node)}<button type="button" class="design-node-main" data-design-entry="${esc(item.id)}" title="${known?'Existing fragment · Alt+Left/Right to reorder':'Edit insert · Alt+Left/Right to reorder'}"><strong>${esc(known?(refs?.fragments.find(f=>f.id===item.fragment_id)?.name||item.name):item.name)}</strong><small>${known?'Existing':(dna(item.sequence).length.toLocaleString()+' nt · '+item.sections.length+' sections')}</small><span>${label(fusion.left_overhang)}${label(fusion.right_overhang)}</span></button><span class="design-card-tools"><button type="button" class="icon-button design-view" data-design-view="${esc(item.id)}" aria-label="View ${esc(item.name)}" title="View sequence" aria-haspopup="dialog">${viewIcon}</button></span><button class="design-remove" data-design-remove="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">×</button></div>${add(index+1)}`;
     }).join('')+(slot?label(slot.right_overhang,true):'');
   }
-  function renderSearch(){
-    const query=$('design-fragment-search').value.trim().toLowerCase(),box=$('design-search-results');
-    if(!query||!refs||refsEnzyme!==current().enzyme){box.classList.add('hidden');return;}
-    const rank=fragment=>fragment.name.toLowerCase()===query?0:fragment.name.toLowerCase().startsWith(query)?1:2;
-    const matches=refs.fragments.filter(f=>query.split(/\s+/).every(word=>f.name.toLowerCase().includes(word))).sort((a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name,undefined,{numeric:true})).slice(0,30);
-    box.innerHTML=matches.map(fragment=>{const variant=fragment.variants.find(option=>option.valid)||fragment.variants[0];return `<button type="button" data-design-add="${fragment.id}" ${!variant.valid?'disabled':''} title="${esc(variant.errors?.join(' ')||fragment.plate_id+' / '+fragment.well+' · Auto orientation')}"><span><strong>${esc(fragment.name)}</strong><small>${esc(fragment.plate_id)} / ${esc(fragment.well)} · ${fragment.length.toLocaleString()} nt</small></span><span>${label(variant.left_overhang)}${label(variant.right_overhang)}</span></button>`;}).join('')||'<span class="small muted">No name matches</span>';box.classList.remove('hidden');
+  async function renderSearch(){
+    const token=++searchRevision,query=$('design-fragment-search').value.trim(),box=$('design-search-results'),enzyme=current().enzyme,designId=current().id;
+    if(!query||!refs||refsEnzyme!==enzyme){box.classList.add('hidden');return;}
+    box.innerHTML='<span class="small muted">Searching…</span>';box.classList.remove('hidden');
+    try{
+      const response=await request('/api/fragments?'+new URLSearchParams({q:query,enzyme,limit:'30'})),matches=await response.json();
+      if(token!==searchRevision||current().id!==designId||current().enzyme!==enzyme||$('design-fragment-search').value.trim()!==query)return;
+      box.innerHTML=matches.map(fragment=>{const variant=fragment.digest;return `<button type="button" data-design-add="${fragment.id}" ${!variant.valid?'disabled':''} title="${esc(variant.errors?.join(' ')||fragment.plate_id+' / '+fragment.well+' · Auto orientation')}"><span><strong>${esc(fragment.name)}</strong>${root.FragmentSearch.badge(fragment)}<small>${esc(fragment.plate_id)} / ${esc(fragment.well)} · ${fragment.length.toLocaleString()} nt</small></span><span>${label(variant.left_overhang)}${label(variant.right_overhang)}</span></button>`;}).join('')||'<span class="small muted">No matches</span>';
+    }catch(error){if(token===searchRevision){box.innerHTML='<span class="small muted">'+esc(error.message)+'</span>';}}
   }
   function sequenceHtml(sequence,sections,sites=[]){
     const points=[...new Set([0,sequence.length,...sections.flatMap(s=>[s.start,s.end]),...sites.flatMap(s=>[s.start,s.end])])].filter(p=>p>=0&&p<=sequence.length).sort((a,b)=>a-b);
@@ -189,9 +192,9 @@
   $('design-slot').onchange=event=>{current().slot_id=event.target.value||null;preview=null;dirty();renderChain();tableUI.render();};
   $('design-backbone-cards').onclick=event=>{const view=event.target.closest('[data-design-view-bb]');if(view){root.JunctionSequenceViewer.openPlasmid(Number(view.dataset.designViewBb));return;}const button=event.target.closest('[data-design-bb]');if(!button)return;const d=current();d.backbone_id=Number(button.dataset.designBb);d.enzyme=button.dataset.mode;d.slot_id=button.dataset.slot;refs=null;preview=null;dirty();renderFields();loadReferences();};
   $('design-add-placeholder').onclick=()=>addPlaceholder();
-  $('design-fragment-search').oninput=renderSearch;
-  $('design-fragment-search').onkeydown=event=>{if(event.key==='ArrowDown'){$('design-search-results').querySelector('button:not(:disabled)')?.focus();event.preventDefault();}if(event.key==='Escape')$('design-search-results').classList.add('hidden');};
-  $('design-search-results').onclick=event=>{const button=event.target.closest('[data-design-add]');if(!button)return;const fragment=refs.fragments.find(f=>f.id===Number(button.dataset.designAdd));current().entries.push({id:uid(),kind:'fragment',fragment_id:fragment.id,name:fragment.name});$('design-fragment-search').value='';$('design-search-results').classList.add('hidden');preview=null;dirty();renderChain();tableUI.render();};
+  $('design-fragment-search').oninput=()=>{searchRevision++;clearTimeout(searchTimer);if(!$('design-fragment-search').value.trim())$('design-search-results').classList.add('hidden');else searchTimer=setTimeout(renderSearch,150);};
+  $('design-fragment-search').onkeydown=event=>{if(event.key==='ArrowDown'){$('design-search-results').querySelector('button:not(:disabled)')?.focus();event.preventDefault();}if(event.key==='Escape'){searchRevision++;clearTimeout(searchTimer);$('design-search-results').classList.add('hidden');}};
+  $('design-search-results').onclick=event=>{const button=event.target.closest('[data-design-add]');if(!button)return;const fragment=refs.fragments.find(f=>f.id===Number(button.dataset.designAdd));searchRevision++;current().entries.push({id:uid(),kind:'fragment',fragment_id:fragment.id,name:fragment.name});$('design-fragment-search').value='';$('design-search-results').classList.add('hidden');preview=null;dirty();renderChain();tableUI.render();};
   async function viewEntry(id){
     const designId=current().id,version=revision,item=current().entries.find(entry=>entry.id===id),body=payload();
     body.use_table=false;body.table_rows=[];body.entries=body.entries.map(entry=>({...entry,sections:entry.sections?.map(section=>({...section,variants:[]}))}));
@@ -228,8 +231,8 @@
   $('design-export-rc').onchange=event=>{current().reverse_output=event.target.checked;persist();};
   $('design-example').onclick=()=>downloadDesign('example_gb',true);
   $('design-download').onclick=()=>downloadDesign($('design-export-format').value);
-  document.addEventListener('click',event=>{if(!event.target.closest('.design-search-wrap'))$('design-search-results').classList.add('hidden');});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape')$('design-search-results').classList.add('hidden');});
+  document.addEventListener('click',event=>{if(!event.target.closest('.design-search-wrap')){searchRevision++;clearTimeout(searchTimer);$('design-search-results').classList.add('hidden');}});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){searchRevision++;clearTimeout(searchTimer);$('design-search-results').classList.add('hidden');}});
   root.JunctionDesign={
     snapshot:()=>JSON.parse(JSON.stringify(saved)),
     restore(data){
