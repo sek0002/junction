@@ -11,7 +11,7 @@ function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('
 async function api(url,options={}){const r=await fetch(url,options);if(!r.ok){let d;try{d=await r.json();}catch{d={detail:r.statusText};}let detail=d.detail||d;const error=Error(typeof detail==='string'?detail:detail.message?detail.message+(detail.errors?' '+detail.errors.join(' '):''):JSON.stringify(detail));error.sandboxId=Number(r.headers.get('X-Junction-Comparison-Id'))||null;throw error;}return r.json();}
 const jsonBody=data=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 async function fileDownload(url,body,fallback){if(url.includes('worksheet')){const invalid=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalid){invalid.reportValidity();toast('Enter positive stock values before exporting');return;}}busy('Preparing download…');try{const r=await fetch(url,body?jsonBody(body):{});if(!r.ok){const d=await r.json();throw Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));}const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);}catch(e){toast(e.message);}finally{busy('');}}
-function showView(name){hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===name));document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));history.replaceState(null,'','#'+name);if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();}
+function showView(name){hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===name));document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));history.replaceState(null,'','#'+name);if(name==='design')window.JunctionDesign?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();}
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
 function referenceParams(){const q=new URLSearchParams();for(const[k,v]of Object.entries(settings()))if(v!==null)q.set(k,v);const value=$('backbone').value;q.set('no_backbone',!value);if(value.startsWith('p:'))q.set('backbone_id',value.slice(2));return q;}
 function selectSubtab(name){hideNestedCardTooltip();closeFragmentSwap();state.subtab=name;updateAssemblyNext();document.querySelectorAll('[data-subtab]').forEach(b=>{const active=b.dataset.subtab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});$('assembly-subpanel').classList.toggle('hidden',name!=='assembly');$('reaction-subpanel').classList.toggle('hidden',name!=='reaction');$('export-subpanel').classList.toggle('hidden',name!=='export');if(name==='export')refreshExportAssemblies();if(name==='reaction'){loadResuspension();renderBuildList();loadBuildList().catch(error=>toast(error.message));}}
@@ -2159,11 +2159,12 @@ document.addEventListener('click',event=>{
 });
 
 function sandboxSnapshot(){
-  return {version:1,draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
+  return {version:1,design:window.JunctionDesign?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
     backboneStocks:Object.fromEntries(backboneStockCache),subtab:state.subtab,view:location.hash.slice(1),
     compareView:{...compareFileView,enzyme:$('compare-enzyme').value,jobs:Object.fromEntries(compareJobs.filter(j=>j.sandboxId).map(j=>[j.sandboxId,{expanded:!!j.expanded,recordIndex:j.recordIndex,selected:compareSelection.has(j.id),path:j.path}]))}};
 }
 async function restoreSandbox(saved,runs){
+  window.JunctionDesign?.restore(saved.design);
   const draft=saved.draft;
   if(draft){
     state.assemblyNameManual=true;
@@ -2187,7 +2188,7 @@ async function restoreSandbox(saved,runs){
     compareJobs.push({id,sandboxId:run.id,key:[meta.path||run.filename,file.size,0].join('|'),file,path:meta.path||run.filename,status:run.error?'Error':run.result?'Done':'Queued',error:run.error||'',result:run.result,expanded:!!meta.expanded,recordIndex:meta.recordIndex||0,candidateIndex:0});if(meta.selected)compareSelection.add(id);
   }
   comparisonQueue();selectSubtab(['assembly','reaction','export'].includes(saved.subtab)?saved.subtab:'assembly');
-  const viewName=location.hash.slice(1)||saved.view;showView(['build','library','uploads','compare','bin'].includes(viewName)?viewName:'build');renderBuildList();
+  const viewName=location.hash.slice(1)||saved.view;showView(['build','design','library','uploads','compare','bin'].includes(viewName)?viewName:'build');renderBuildList();
 }
 const sandbox=SandboxState.create({request:(url,body)=>api(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),capture:sandboxSnapshot,report:error=>toast('Sandbox not saved: '+error.message)});
 window.JunctionSandbox=Object.assign(sandbox,{preferences:{}});

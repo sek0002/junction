@@ -150,7 +150,7 @@ def write_permission(path,method,preview=False):
     if path in ('/api/inventory/rules','/api/inventory/rules/reset'):return 'can_manage_rules'
     if path in ('/api/bin/archive','/api/bin/restore'):return 'can_archive'
     if path in ('/api/inventory/reset','/api/inventory/apply-rules') or (method=='PATCH' and path.startswith(('/api/fragments/','/api/plasmids/'))):return 'can_edit'
-    if path in ('/api/assemblies/preview','/api/assemblies/genbank','/api/assemblies/worksheet','/api/inventory/worksheet','/api/inventory/resuspension','/api/compare','/api/compare/export'):return None
+    if path in ('/api/design/preview','/api/design/export','/api/assemblies/preview','/api/assemblies/genbank','/api/assemblies/worksheet','/api/inventory/worksheet','/api/inventory/resuspension','/api/compare','/api/compare/export'):return None
     return 'admin'
 
 

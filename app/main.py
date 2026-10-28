@@ -23,6 +23,7 @@ from . import database as store
 from .version import VERSION
 from .auth import AuthMiddleware, router as auth_router, user_id, check_plasmid_write
 from .workspace import router as workspace_router, begin_comparison, finish_comparison
+from .design import router as design_router
 from .imports import import_plate, parse_plate, dna
 from .sequence_engine import assemble, digest_fragment, find_backbone_slots, restriction_sites, active_enzymes, fragment_orientations
 from .exports import genbank_bytes, parse_sequence_file, make_workbook, calculate_volumes, reaction_summary, resuspension_plan, build_list_workbook
@@ -134,6 +135,7 @@ app = FastAPI(title='Junction — Golden Gate workbench',version=VERSION,lifespa
 app.add_middleware(AuthMiddleware)
 app.include_router(auth_router)
 app.include_router(workspace_router)
+app.include_router(design_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 
 
