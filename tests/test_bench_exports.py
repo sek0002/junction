@@ -166,6 +166,7 @@ class BenchExportTests(unittest.TestCase):
         pdf=PdfReader(io.BytesIO(guide_bytes('pdf',sections)))
         first_page=pdf.pages[0].extract_text()
         for index in range(12):self.assertIn(f'Build {index+1:02d}',first_page)
+        self.assertEqual(len(pdf.pages),2)
         for well in range(1,13):self.assertEqual(first_page.count(f'(0622-B{well}-3.30)'),12)
         self.assertNotIn('Fragment metadata',first_page)
         sizes=[]
@@ -182,6 +183,32 @@ class BenchExportTests(unittest.TestCase):
         csv_text=guide_bytes('csv',sections).decode('utf-8-sig')
         for description in ('Transfers in','Inputs are','Stock snapshot','Plate labels use'):
             self.assertNotIn(description,text);self.assertNotIn(description,csv_text)
+
+    def test_metadata_prints_compactly_while_retaining_stock_audit_fields(self):
+        from copy import deepcopy
+        assembly,settings=fixture();sections=[]
+        assembly['reaction']['rows'][1]['recorded_resuspension_ul']=50.01234567890123
+        for index in range(50):
+            item=deepcopy(assembly);item['name']=f'Assembly {index+1:02d}'
+            sections.extend(assembly_sections(item,settings))
+        book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
+        metadata=book['Fragment metadata']
+        self.assertEqual(metadata.max_row,5)
+        self.assertIn('Assembly 50 / Final assembly',metadata['J4'].value)
+        for column in ('I','J'):self.assertTrue(metadata.column_dimensions[column].hidden)
+        self.assertIn('$H$5',str(metadata.print_area))
+        self.assertLess(metadata.row_dimensions[4].height,35)
+        self.assertLess(metadata.row_dimensions[5].height,35)
+        self.assertEqual(metadata['G5'].value,50.01234567890123)
+        self.assertEqual(metadata['F4'].value,100)
+        csv_rows=csv_table(guide_bytes('csv',sections),'Fragment metadata')
+        self.assertIn('Assembly 50 / Final assembly',csv_rows[0]['Assemblies'])
+        pdf=PdfReader(io.BytesIO(guide_bytes('pdf',sections)))
+        page=next(index for index,page in enumerate(pdf.pages) if 'Fragment metadata' in page.extract_text())
+        self.assertEqual(len(pdf.pages)-page,1)
+        self.assertNotIn('Stock basis',pdf.pages[page].extract_text())
+        self.assertIn('Backbone',pdf.pages[page].extract_text())
+        self.assertIn('Plate key',pdf.pages[page].extract_text())
 
     def test_missing_stocks_and_overfilled_reactions_are_visible(self):
         assembly, settings = fixture()
@@ -219,7 +246,7 @@ class BenchExportTests(unittest.TestCase):
         self.assertEqual([s['stage'] for s in sections], ['Nested first', 'Final assembly', 'Unavailable'])
         self.assertIn('Fragment archived', guide_bytes('csv', sections).decode())
         text = ' '.join(' '.join(p.extract_text() for p in PdfReader(io.BytesIO(guide_bytes('pdf', sections))).pages).split())
-        self.assertLess(text.index('Nested first'), text.index('Final assembly'))
+        self.assertLess(text.index('Nested first'), text.rindex('Assembly A'))
         self.assertIn('Fragment archived', text)
 
 

@@ -316,13 +316,20 @@ planner. It shows every queued build's settings, input volumes, readiness,
 fragment metadata and plate key. Its Export menu downloads the full list in
 PDF, Excel or CSV. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
 
+The Name field offers a clickable recommendation from the ordered fragment
+names, with the selected backbone and nested fragment names included. Applying
+it uses the normal name-edit flow; custom names stay unchanged until clicked.
+Recommendations fit the 100-character name limit.
+
 Each reaction occupies one row. Its inputs are listed in assembly order as
 `(PlateID-Well-Volume)`; volumes are µL. Plate labels use the first four
 alphanumeric characters after `pSHPs`, e.g. `pSHPs0405B231201IQ` becomes `0405`. The color-coded
 plate key preserves full IDs and disambiguates collisions. Unlocated backbones
 use their name and `—` for the well; unavailable transfer volumes use `?`.
-Fragment metadata is a separate table with names, lengths, locations, stock
-concentrations, resuspension volumes and the assemblies using each stock.
+Fragment metadata prints eight columns: name, type, plate, well, physical length,
+stock concentration, resuspension volume and yield. Stock basis and assembly
+ownership remain in CSV and in hidden Excel columns I:J, and appear on hover
+in the app. Repeated ownership text does not increase printed row heights.
 Different stocks of the same fragment remain separate records. Separate-first
 nested reactions have their own rows. Excel keeps the supporting calculation
 sheets; CSV has labelled Assemblies, Fragment metadata and Plate key tables.

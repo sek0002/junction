@@ -141,3 +141,35 @@ test('choosing any backbone preserves the manually selected enzyme',()=>{
     assert.equal(recalculations,4);
   }
 });
+
+function nameSetup(){
+  const state={parts:[],plasmids:[],fragments:[],nestedFragments:new Map(),nestedAssemblies:[]};
+  let edits=0;
+  const nodes={'backbone':{value:''},'assembly-name':{value:'My custom name',oninput:()=>edits++,focus(){}},'assembly-name-recommendation':{textContent:'',setAttribute(){},classList:{toggle(key,value){this[key]=value;}}}};
+  const context=vm.createContext({state,$:id=>nodes[id],selectedNested:()=>state.nestedAssemblies.filter(group=>group.fragment_ids.length&&state.parts.some(part=>part.id===group.parent_fragment_id))});
+  vm.runInContext(source.slice(source.indexOf('function recommendedAssemblyName()'),source.indexOf('function payload()')),context);
+  return{state,nodes,context,get edits(){return edits;}};
+}
+test('recommended names follow fragment order, backbone and selected nested fragments',()=>{
+  const s=nameSetup();s.state.parts=[{id:1,name:'F1'},{id:2,name:'D2 Cargo'}];
+  assert.equal(s.context.recommendedAssemblyName(),'F1_D2_Cargo');
+  s.state.parts.reverse();assert.equal(s.context.recommendedAssemblyName(),'D2_Cargo_F1');
+  s.state.plasmids=[{id:7,name:'pHR V2'}];s.nodes.backbone.value='p:7';
+  s.state.nestedAssemblies=[{parent_fragment_id:1,fragment_ids:[3,4]},{parent_fragment_id:99,fragment_ids:[5]}];
+  s.state.nestedFragments.set('BsmBI:3',{id:3,name:'HA tag'});s.state.fragments=[{id:4,name:'Cargo'}];
+  assert.equal(s.context.recommendedAssemblyName(),'pHR_V2_D2_Cargo_F1[HA_tag+Cargo]');
+});
+test('recommendations leave custom names untouched until applied through the normal save flow',()=>{
+  const s=nameSetup();s.state.parts=[{id:1,name:'F1'},{id:2,name:'F2'}];
+  s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'My custom name');assert.equal(s.edits,0);
+  assert.equal(s.nodes['assembly-name-recommendation'].textContent,'↳ F1_F2');
+  s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F1_F2');assert.equal(s.edits,1);
+  s.state.parts=[];s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name-recommendation'].classList.hidden,true);
+  s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F1_F2');assert.equal(s.edits,1);
+});
+test('recommended names fit the 100-character limit',()=>{
+  const s=nameSetup();s.state.parts=[{id:1,name:'Long fragment '.repeat(20)}];
+  const name=s.context.recommendedAssemblyName();assert.equal(name.length,100);assert.ok(name.endsWith('...'));
+});

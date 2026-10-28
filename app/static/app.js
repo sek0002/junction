@@ -165,6 +165,33 @@ function renderNestedReactions(){
   $('nested-plans-body').innerHTML=stages.map(stage=>`<div class="nested-stage"><h3>${esc(stage.name)} <span class="badge neutral">${esc(stage.enzyme)}</span> <span class="badge ${reactionIsReady(stage.reaction)&&!stage.errors.length?'':'error'}">${reactionIsReady(stage.reaction)&&!stage.errors.length?'Ready':'Check volumes'}</span></h3><div class="table-scroll"><table><thead><tr><th>Fragment</th><th>Plate / well</th><th>Stock ng/µL</th><th>Required ng</th><th>Use µL</th></tr></thead><tbody>${stage.reaction.rows.map(p=>`<tr><td>${esc(p.name)}<small class="reaction-warning">${esc(p.warnings.join(' '))}</small></td><td>${esc([plateLabel(p.plate_id),p.well].filter(Boolean).join(' / '))}</td><td>${inventoryQuantity(p.concentration_ng_ul)}</td><td>${inventoryQuantity(p.target_ng)}</td><td>${inventoryQuantity(p.volume_ul)}</td></tr>`).join('')}<tr><td>Other reagents</td><td colspan="3"></td><td>${inventoryQuantity(stage.reaction.master_mix_ul)}</td></tr><tr><td>Water</td><td colspan="3"></td><td>${inventoryQuantity(stage.reaction.water_ul)}</td></tr><tr><td>Total</td><td colspan="3"></td><td>${inventoryQuantity(stage.reaction.reaction_volume_ul)}</td></tr></tbody></table></div>${messages(stage.errors,stage.reaction.warnings)}</div>`).join('');
 }
 
+function recommendedAssemblyName(){
+  const clean=value=>String(value||'').trim().replace(/\s+/g,'_');
+  const groups=selectedNested();
+  const names=state.parts.map(part=>{
+    const children=groups.filter(group=>group.parent_fragment_id===part.id).flatMap(group=>group.fragment_ids.map(id=>{
+      const child=[...state.nestedFragments.values()].find(item=>item.id===id)||state.fragments.find(item=>item.id===id);
+      return clean(child?.name||'Fragment'+id);
+    }));
+    const name=clean(part.name);
+    return name+(children.length?'['+children.join('+')+']':'');
+  }).filter(Boolean);
+  if(!names.length)return '';
+  const backbone=state.plasmids.find(item=>'p:'+item.id===$('backbone').value);
+  if(backbone)names.unshift(clean(backbone.name));
+  const name=names.join('_');
+  return name.length<=100?name:name.slice(0,97)+'...';
+}
+function refreshRecommendedAssemblyName(){
+  const button=$('assembly-name-recommendation');if(!button)return;
+  const name=recommendedAssemblyName();
+  button.textContent='↳ '+name;button.title='Use recommended name: '+name;
+  button.setAttribute('aria-label',button.title);button.classList.toggle('hidden',!name);
+}
+function applyRecommendedAssemblyName(){
+  const name=recommendedAssemblyName();if(!name)return;
+  const input=$('assembly-name');input.value=name;input.oninput?.();input.focus();
+}
 function payload(){const value=$('backbone').value;return{name:$('assembly-name').value||'New assembly',enzyme:$('enzyme').value,fragment_ids:state.parts.map(p=>p.id),starter_fragment_id:null,backbone_id:value.startsWith('p:')?Number(value.slice(2)):null,slot_id:value?$('slot').value||null:null,circular:value?true:null,nested_assemblies:selectedNested(),settings:settings()};}
 async function refresh(){
   const requestedEnzyme=$('enzyme').value;
@@ -480,8 +507,8 @@ function renderExportAssemblies(){
   const head=labels=>labels.length?'<tr>'+labels.map(label=>`<th>${esc(label)}</th>`).join('')+'</tr>':'';
   $('export-assemblies-head').innerHTML=head(snapshot?.headers||[]);
   $('export-assemblies-body').innerHTML=rows.map(row=>'<tr>'+row.map((value,i)=>`<td${i===inputColumn?' class="export-input-tuples"':''}>${i===row.length-1?value==='Pass'?'<span class="build-ready">Pass</span>':`<details class="export-checks"><summary>Check</summary>${esc(value)}</details>`:i===inputColumn?exportInputTuples(value,plates):typeof value==='number'?inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
-  $('export-fragments-head').innerHTML=head(snapshot?.metadata_headers||[]);
-  $('export-fragments-body').innerHTML=metadata.map(row=>'<tr>'+row.map((value,i)=>`<td>${i===2?exportPlateLabel(value??'',plates):typeof value==='number'?i===4?fmt(value,0):inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
+  $('export-fragments-head').innerHTML=head((snapshot?.metadata_headers||[]).slice(0,8));
+  $('export-fragments-body').innerHTML=metadata.map(row=>`<tr title="${esc(row.slice(8).filter(Boolean).join('\n'))}">`+row.slice(0,8).map((value,i)=>`<td>${i===2?exportPlateLabel(value??'',plates):typeof value==='number'?i===4?fmt(value,0):inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
   $('export-plates').innerHTML=plates.map(plate=>`<div>${exportPlateLabel(plate.short,plates)} <span class="export-plate-name" style="--plate-color:#${plate.text_color}">${esc(plate.name)}</span></div>`).join('');
 }
 function hideBuildPreview(){clearTimeout(buildPreviewTimer);$('build-preview').classList.add('hidden');}
@@ -734,6 +761,7 @@ function renderFragmentAssemblyActions(){
 function renderParts() {
   hideNestedCardTooltip();closeFragmentSwap();
   state.nestedAssemblies=state.nestedAssemblies.filter(g=>state.parts.some(p=>p.id===g.parent_fragment_id));
+  refreshRecommendedAssemblyName();
   $('part-count').textContent = `${state.parts.length} selected${selectedNested().length?' · '+selectedNested().reduce((sum,g)=>sum+g.fragment_ids.length,0)+' nested':''}`;
   updateBuildActions();
   const ends = backboneEnds();
@@ -1906,6 +1934,7 @@ $('backbone-pmol').oninput=updateBackboneVolume;
 $('planner-recalculate').onclick=planChanged;
 
 $('assembly-name').oninput=$('assembly-name').onchange=()=>{scheduleBuildSettingsSave();renderBuildList();if(state.result&&!state.result.storedReference){state.result.name=$('assembly-name').value;delete state.result.viewerPlasmidId;$('viewer-name').value=state.result.name;renderMap();}};
+$('assembly-name-recommendation').onclick=applyRecommendedAssemblyName;
 let viewerRenameChain=Promise.resolve(),viewerRenameRevision=0,viewerRenameTimer=null;
 function renameViewer(){
   clearTimeout(viewerRenameTimer);

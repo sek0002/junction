@@ -101,7 +101,7 @@ def _excel(sections,legacy_factory):
     wb=load_workbook(io.BytesIO(legacy_factory())) if legacy_factory else Workbook()
     if not legacy_factory:wb.remove(wb.active)
     tables=[('Assemblies',headers,rows,[18,9,43,7,10,7,7,12]),
-            ('Fragment metadata',META_HEADERS,metadata,[22,8,7,6,8,10,10,9,18,17]),
+            ('Fragment metadata',META_HEADERS,metadata,[35,9,9,7,9,12,12,11,18,17]),
             ('Plate key',['Plate','Full plate identifier','Color'],[[e['short'],e['name'],'#'+e['text_color']] for e in key.values()],[10,56,12])]
     for index,(name,columns,values,widths) in enumerate(tables):
         ws=wb.create_sheet(name,index);ws.append([name]);ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(columns));ws['A1'].font=Font(name='Arial',size=14,bold=True,color='1D443B');ws.row_dimensions[1].height=24
@@ -119,7 +119,9 @@ def _excel(sections,legacy_factory):
             for c,width in enumerate(widths,1):
                 cell=ws.cell(r,c);cell.fill=PatternFill('solid',fgColor='F1F6F3' if r%2==0 else 'FFFFFF');cell.alignment=Alignment(wrap_text=True,vertical='top',horizontal='center' if index==0 and 4<=c<=7 else None);cell.font=Font(name='Arial',size=11)
                 if isinstance(cell.value,float):cell.number_format='0.00'
-                lines=max(lines,sum(max(1,math.ceil(len(line)/max(8,width-2))) for line in str(cell.value or '').split('\n')))
+                if index!=1 or c<=8:
+                    display=f'{cell.value:.2f}' if isinstance(cell.value,float) else str(cell.value or '')
+                    lines=max(lines,sum(max(1,math.ceil(len(line)/max(8,width-2))) for line in display.split('\n')))
             ws.row_dimensions[r].height=max(22,lines*15+4)
             if index==0:
                 cell=ws.cell(r,3)
@@ -132,7 +134,11 @@ def _excel(sections,legacy_factory):
         for c,width in enumerate(widths,1):ws.column_dimensions[get_column_letter(c)].width=width
         ws.freeze_panes='C4';ws.auto_filter.ref=f'A3:{get_column_letter(len(columns))}{ws.max_row}';ws.sheet_view.showGridLines=False;ws.print_title_rows='1:3'
         ws.oddFooter.center.text='Junction | Page &P of &N'
-        ws.print_area=f'A1:{get_column_letter(len(columns))}{ws.max_row}'
+        if index==1:
+            # Ownership is already shown by the assembly input tuples. Keep the
+            # audit fields available to unhide, without inflating printed rows.
+            ws.column_dimensions['I'].hidden=True;ws.column_dimensions['J'].hidden=True
+        ws.print_area=f'A1:{get_column_letter(8 if index==1 else len(columns))}{ws.max_row}'
     for ws in wb:
         ws.page_setup.orientation='portrait';ws.page_setup.paperSize=ws.PAPERSIZE_A4
         ws.sheet_properties.pageSetUpPr.fitToPage=True;ws.page_setup.fitToWidth=1;ws.page_setup.fitToHeight=0
@@ -172,7 +178,7 @@ def _pdf(sections):
     for row in rows:
         if row[-1]!='Pass':flow.extend([Spacer(1,7),p('CHECK: '+row[0]+': '+row[-1],'note')])
     flow.extend([PageBreak(),p('Fragment metadata','title'),Spacer(1,10)])
-    meta=table(META_HEADERS,metadata,[105,36,35,27,38,43,48,43,91,available-466],kind='meta')
+    meta=table(META_HEADERS[:8],[row[:8] for row in metadata],[160,40,48,30,50,70,75,available-473])
     flow.extend([meta,Spacer(1,16),p('Plate key','title'),Spacer(1,10)])
     plates=table(['Plate','Full plate identifier'],[[e['short'],e['name']] for e in key.values()],[70,available-70])
     flow.append(plates)
