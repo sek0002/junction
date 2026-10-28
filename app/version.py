@@ -1,3 +1,3 @@
 """Application release version; update with scripts/bump_version.py."""
 
-VERSION = "1.2.1"
+VERSION = "0.2.1"
