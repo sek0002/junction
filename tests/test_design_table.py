@@ -103,7 +103,7 @@ class NamedTableTests(unittest.TestCase):
         result=sequence_metadata(table_design(self.base(),self.rows,'BsaI'))
         for row in result['generated']:
             self.assertEqual(row['full_sequence'],row['five_prime_sequence']+row['target_sequence']+row['three_prime_sequence'])
-            self.assertEqual(row['length'],row['target_length']+34)
+            self.assertEqual(row['length'],row['target_length']+22)
 
     def test_excel_escapes_formulas_preserves_sequences_and_rejects_truncation(self):
         rows=deepcopy(self.rows);rows[0]['name']='=1+1'

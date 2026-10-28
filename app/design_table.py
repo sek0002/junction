@@ -133,8 +133,10 @@ def sequence_metadata(result, include_re_sites=True):
     for row in result['generated']:
         canonical = row['sequence']
         left, right = row['left_overhang'], row['right_overhang']
-        prefix = canonical[:17] if include_re_sites else left
-        suffix = canonical[-17:] if include_re_sites else right
+        left_end_length = len(ENZYMES[row['left_adapter_enzyme']][0]) + 1 + len(left)
+        right_end_length = len(right) + 1 + len(ENZYMES[row['right_adapter_enzyme']][1])
+        prefix = canonical[:left_end_length] if include_re_sites else left
+        suffix = canonical[-right_end_length:] if include_re_sites else right
         full = prefix + row['target'] + suffix
         row.update(target_sequence=row['target'], full_sequence=full, sequence=full,
                    retained_sequence=left + row['target'] + right,

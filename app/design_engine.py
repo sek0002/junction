@@ -51,11 +51,11 @@ def donor_sequence(left, target, right, enzyme, avoid, right_enzyme=None):
     forward, reverse = ENZYMES[enzyme][0], ENZYMES[right_enzyme][1]
     adapters = {enzyme,right_enzyme}
     digest_enzyme = enzyme if len(adapters)==1 else 'BsmBI + BsaI'
-    # Six external bases protect the terminal recognition sites. Search the
+    # Recognition sites sit at the molecule edges. Search only the required
     # one-base spacers to avoid accidental sites at adapter boundaries.
     for a in 'ACGT':
         for b in 'ACGT':
-            sequence = 'GCGTAC' + forward + a + left + target + right + b + reverse + 'GTACGC'
+            sequence = forward + a + left + target + right + b + reverse
             digest = digest_fragment(sequence, digest_enzyme)
             if digest['valid'] and not any(site['enzyme'] in avoid - adapters for site in scan_type_ii(sequence)):
                 return sequence

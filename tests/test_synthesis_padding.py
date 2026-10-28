@@ -16,7 +16,7 @@ from app.synthesis_padding import (MOTIFS, synthesis_padding, padding_is_clean,
                                    gc_windows_ok, apply_synthesis_padding)
 from app.design import DesignRequest
 from app.design_exports import fragment_rows
-from app.sequence_engine import digest_fragment
+from app.sequence_engine import ENZYMES, digest_fragment
 from test_design import clean_dna, placeholder
 
 
@@ -104,6 +104,12 @@ class PaddingAPITests(unittest.TestCase):
             padded = self.generate(payload | {'make_twist_compatible':True})
             self.assertEqual(padded['assemblies'],base['assemblies'])
             a,b = base['generated'][0],padded['generated'][0]
+            self.assertTrue(a['full_sequence'].startswith(ENZYMES[left][0]))
+            self.assertTrue(a['full_sequence'].endswith(ENZYMES[right][1]))
+            self.assertEqual(len(a['five_prime_sequence']),11)
+            self.assertEqual(len(a['three_prime_sequence']),11)
+            self.assertEqual(a['length'],a['target_length']+22)
+            self.assertEqual(b['padding_length'],300-a['length'])
             self.assertEqual(b['length'],300)
             self.assertEqual(b['full_sequence'],a['full_sequence']+b['synthesis_padding'])
             for field in ('target_sequence','target','target_length','retained_sequence','five_prime_sequence','three_prime_sequence'):
@@ -117,6 +123,31 @@ class PaddingAPITests(unittest.TestCase):
             again = deepcopy(padded)
             apply_synthesis_padding(again)
             self.assertEqual(again,padded)
+
+    def test_unpadded_exports_put_both_enzyme_sites_at_the_edges_in_either_orientation(self):
+        for enzyme,left,right in [('BsaI','BsaI','BsaI'),('BsmBI','BsmBI','BsmBI'),
+                                  ('BsmBI + BsaI','BsmBI','BsaI'),('BsmBI + BsaI','BsaI','BsmBI')]:
+            for reverse in (False,True):
+                payload=self.payload|dict(enzyme=enzyme,left_adapter_enzyme=left,right_adapter_enzyme=right,
+                                          reverse_output=reverse,make_twist_compatible=False)
+                start,end=(right,left) if reverse else (left,right)
+                for fmt in ('csv','xlsx','fasta'):
+                    response=self.client.post('/api/design/export?format='+fmt,json=payload)
+                    self.assertEqual(response.status_code,200)
+                    if fmt=='csv':
+                        row=next(csv.DictReader(io.StringIO(response.content.decode('utf-8-sig'))))
+                        sequence=row['Full sequence'];target=row['Target sequence']
+                    elif fmt=='xlsx':
+                        wb=load_workbook(io.BytesIO(response.content))
+                        values=list(wb['Fragments'].values);row=dict(zip(values[0],values[1]))
+                        sequence=row['Full sequence'];target=row['Target sequence'];wb.close()
+                    else:
+                        sequence=''.join(response.text.splitlines()[1:]);target=clean_dna(7,100)
+                    self.assertTrue(sequence.startswith(ENZYMES[start][0]),(enzyme,reverse,fmt))
+                    self.assertTrue(sequence.endswith(ENZYMES[end][1]),(enzyme,reverse,fmt))
+                    self.assertEqual(len(sequence),len(target)+22)
+                    parsed=digest_fragment(sequence,enzyme)
+                    self.assertTrue(parsed['valid'],parsed['errors'])
 
     def test_adapter_free_export_and_long_fragments(self):
         for size in (100,292,300,400):
