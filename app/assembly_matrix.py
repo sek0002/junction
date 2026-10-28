@@ -87,13 +87,13 @@ def _excel(sections,legacy_factory):
     headers,rows,metadata,key=matrix_data(sections)
     wb=load_workbook(io.BytesIO(legacy_factory())) if legacy_factory else Workbook()
     if not legacy_factory:wb.remove(wb.active)
-    tables=[('Assemblies',headers,rows,[32,15,65,13,18,13,13,55]),
-            ('Fragment metadata',META_HEADERS,metadata,[40,15,13,9,14,17,18,15,48,40]),
-            ('Plate key',['Plate','Full plate identifier','Color'],[[e['short'],e['name'],'#'+e['text_color']] for e in key.values()],[15,65,15])]
+    tables=[('Assemblies',headers,rows,[18,9,27,7,10,7,7,15]),
+            ('Fragment metadata',META_HEADERS,metadata,[22,8,7,6,8,10,10,9,18,17]),
+            ('Plate key',['Plate','Full plate identifier','Color'],[[e['short'],e['name'],'#'+e['text_color']] for e in key.values()],[10,56,12])]
     for index,(name,columns,values,widths) in enumerate(tables):
         ws=wb.create_sheet(name,index);ws.append([name]);ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(columns));ws['A1'].font=Font(size=16,bold=True,color='1D443B');ws.row_dimensions[1].height=30
         ws.append([NOTE if index==0 else 'Stock snapshot. Plate labels use the first four alphanumeric characters after pSHPs; duplicate labels receive a suffix.' if index==1 else 'Color and full identifier for each short plate label.'])
-        ws.merge_cells(start_row=2,start_column=1,end_row=2,end_column=len(columns));ws['A2'].alignment=Alignment(wrap_text=True,vertical='top');ws.row_dimensions[2].height=32
+        ws.merge_cells(start_row=2,start_column=1,end_row=2,end_column=len(columns));ws['A2'].alignment=Alignment(wrap_text=True,vertical='top');ws.row_dimensions[2].height=48 if index==0 else 32
         ws.append(columns)
         for row in values:ws.append([_safe_cell(v) for v in row])
         for c in ws[3]:c.fill=PatternFill('solid',fgColor='1D443B');c.font=Font(bold=True,color='FFFFFF');c.alignment=Alignment(wrap_text=True,vertical='center')
@@ -115,18 +115,24 @@ def _excel(sections,legacy_factory):
                 for col in (1,2):ws.cell(r,col).font=Font(size=11,bold=True,color=values[r-4][2].lstrip('#'))
         for c,width in enumerate(widths,1):ws.column_dimensions[get_column_letter(c)].width=width
         ws.freeze_panes='C4';ws.auto_filter.ref=f'A3:{get_column_letter(len(columns))}{ws.max_row}';ws.sheet_view.showGridLines=False;ws.print_title_rows='1:3'
-        ws.page_setup.orientation='landscape';ws.page_setup.paperSize=ws.PAPERSIZE_A3;ws.sheet_properties.pageSetUpPr.fitToPage=True;ws.page_setup.fitToWidth=1;ws.page_setup.fitToHeight=0;ws.oddFooter.center.text='Junction | Page &P of &N'
+        ws.oddFooter.center.text='Junction | Page &P of &N'
+        ws.print_area=f'A1:{get_column_letter(len(columns))}{ws.max_row}'
+    for ws in wb:
+        ws.page_setup.orientation='portrait';ws.page_setup.paperSize=ws.PAPERSIZE_A4
+        ws.sheet_properties.pageSetUpPr.fitToPage=True;ws.page_setup.fitToWidth=1;ws.page_setup.fitToHeight=0
+        ws.page_margins.left=ws.page_margins.right=.25;ws.page_margins.top=ws.page_margins.bottom=.35
     wb.active=0;out=io.BytesIO();wb.save(out);return out.getvalue()
 
 
 def _pdf(sections):
     from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,PageBreak,LongTable,TableStyle
     headers,rows,metadata,key=matrix_data(sections)
-    widths=[145,65,220,55,80,55,55,140]
-    page_width=max(937,sum(widths)+52);out=io.BytesIO()
-    styles={k:ParagraphStyle(k,fontSize=s,leading=s+3,fontName='Helvetica-Bold' if k in ('title','head') else 'Helvetica',textColor=colors.white if k=='head' else colors.HexColor('#1D443B')) for k,s in [('title',16),('head',8),('cell',8),('note',9)]}
+    page_width,_=A4;available=page_width-64;out=io.BytesIO()
+    widths=[90,45,150,38,55,38,38,available-454]
+    styles={k:ParagraphStyle(k,fontSize=s,leading=s+3,fontName='Helvetica-Bold' if k in ('title','head') else 'Helvetica',textColor=colors.white if k=='head' else colors.HexColor('#1D443B')) for k,s in [('title',16),('head',7),('cell',8),('meta',7),('note',9)]}
     def p(v,kind='cell',plate_label=False,input_tuples=False):
         if isinstance(v,float):v=f'{v:.2f}'
         text='—' if v is None else str(v)
@@ -137,21 +143,21 @@ def _pdf(sections):
         else:runs=[(text,None)]
         markup=''.join(('<font color="#'+color+'"><b>'+escape(text)+'</b></font>') if color else escape(text) for text,color in runs)
         return Paragraph(markup.replace('µ','&#181;').replace('\n','<br/>'),styles[kind])
-    def table(columns,values,widths):
-        data=[[p(c,'head') for c in columns]]+[[p(v,plate_label=columns[i] in ('Plate','Full plate identifier'),input_tuples=columns[i]=='Inputs (Plate-Well-µL)') for i,v in enumerate(row)] for row in values]
-        t=LongTable(data,colWidths=widths,repeatRows=1,hAlign='LEFT');t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1D443B')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#F1F6F3'),colors.white]),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),5),('RIGHTPADDING',(0,0),(-1,-1),5),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7)]));return t
+    def table(columns,values,widths,kind='cell'):
+        data=[[p(c,'head') for c in columns]]+[[p(v,kind,plate_label=columns[i] in ('Plate','Full plate identifier'),input_tuples=columns[i]=='Inputs (Plate-Well-µL)') for i,v in enumerate(row)] for row in values]
+        t=LongTable(data,colWidths=widths,repeatRows=1,splitInRow=1,hAlign='LEFT');t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1D443B')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#F1F6F3'),colors.white]),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),3),('RIGHTPADDING',(0,0),(-1,-1),3),('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6)]));return t
     display_rows=[row[:-1]+['Pass' if row[-1]=='Pass' else 'Check; see notes'] for row in rows]
     flow=[p('Assemblies','title'),Spacer(1,9),p(NOTE,'note'),Spacer(1,12),table(headers,display_rows,widths)]
     for row in rows:
         if row[-1]!='Pass':flow.extend([Spacer(1,7),p('CHECK: '+row[0]+': '+row[-1],'note')])
     flow.extend([PageBreak(),p('Fragment metadata','title'),Spacer(1,10)])
-    meta=table(META_HEADERS,metadata,[160,55,45,35,50,55,55,50,145,135])
+    meta=table(META_HEADERS,metadata,[105,36,35,27,38,43,48,43,91,available-466],kind='meta')
     flow.extend([meta,Spacer(1,16),p('Plate key','title'),Spacer(1,10)])
-    plates=table(['Plate','Full plate identifier'],[[e['short'],e['name']] for e in key.values()],[100,600])
+    plates=table(['Plate','Full plate identifier'],[[e['short'],e['name']] for e in key.values()],[70,available-70])
     flow.append(plates)
     def footer(canvas,doc):
         canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(26,14,'Junction | Export snapshot');canvas.drawRightString(page_width-26,14,f'Page {doc.page}');canvas.restoreState()
-    SimpleDocTemplate(out,pagesize=(page_width,595),leftMargin=26,rightMargin=26,topMargin=26,bottomMargin=28,title='Junction assemblies').build(flow,onFirstPage=footer,onLaterPages=footer)
+    SimpleDocTemplate(out,pagesize=A4,leftMargin=26,rightMargin=26,topMargin=26,bottomMargin=28,title='Junction assemblies').build(flow,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
 
 

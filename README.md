@@ -116,7 +116,7 @@ Insufficient yield, a resuspension lower bound above the cap, or missing require
 
 Unknown stocks stay unavailable for pipetting unless **Use planned stocks** is enabled. The default uses each fragment's proposed concentration; Fixed stock uses the common target. Enter measured stocks in the fragment library. A measured/entered stock always overrides the proposal, and the planner flags actual inputs outside 1–5 µL. Missing stocks, original yield limits, and overfilled reactions are surfaced. Master mix input should include all enzymes/buffer and non-DNA reagents except water; the app does not prescribe a reaction protocol.
 
-Download the inventory resuspension worksheet or an assembly-specific workbook. They contain plate IDs, wells, delivered mass, full input bp, target concentration, resuspension volume, recorded stock/resuspension fields, required fmol/ng, µL to pipette, water, and explicit checks. Sheets have defined landscape print areas and repeated headers; wide bench tables target A3 landscape. The **Resuspension plan** sheet is a computed export snapshot for immediate printing. **Resuspension inventory** and **Assembly pipetting** recalculate editable formulas in Excel. Settings B8 is reference bp, B11 is mode, B12 is the legacy fixed input, B13:B17 contain the molar dose, preferred resuspension, cap, and input limits, and B18 indicates a fragment-only plan. Generate current reference workbooks and CSVs from the app using the active inventory and your chosen rules. For F1's 1,808-bp physical molecule, 0.05 pmol is 59.664 ng.
+Download the inventory resuspension worksheet or an assembly-specific workbook. They contain plate IDs, wells, delivered mass, full input bp, target concentration, resuspension volume, recorded stock/resuspension fields, required fmol/ng, µL to pipette, water, and explicit checks. Assembly and build-list exports use A4 portrait with wrapped tables, repeated headers and one-page-wide Excel print settings. Inventory worksheets retain their existing landscape layouts. The **Resuspension plan** sheet is a computed export snapshot for immediate printing. **Resuspension inventory** and **Assembly pipetting** recalculate editable formulas in Excel. Settings B8 is reference bp, B11 is mode, B12 is the legacy fixed input, B13:B17 contain the molar dose, preferred resuspension, cap, and input limits, and B18 indicates a fragment-only plan. Generate current reference workbooks and CSVs from the app using the active inventory and your chosen rules. For F1's 1,808-bp physical molecule, 0.05 pmol is 59.664 ng.
 
 ## Uploads
 
@@ -314,7 +314,7 @@ included. Exports never change inventory.
 **Export assemblies** is the dedicated third tab beside Build and Reaction
 planner. It shows every queued build's settings, input volumes, readiness,
 fragment metadata and plate key. Its Export menu downloads the full list in
-PDF, Excel or CSV. Build and Reaction planner have no assembly-export buttons.
+PDF, Excel or CSV. PDF pages and Excel print settings use A4 portrait; tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
 
 Each reaction occupies one row. Its inputs are listed in assembly order as
 `(PlateID-Well-Volume)`; volumes are µL. Plate labels use the first four

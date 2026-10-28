@@ -36,6 +36,33 @@ def csv_table(content,title):
 
 
 class BenchExportTests(unittest.TestCase):
+    def test_assembly_export_is_a4_portrait_in_pdf_and_all_excel_sheets(self):
+        from openpyxl import Workbook
+        assembly,settings=fixture();sections=assembly_sections(assembly,settings)
+        legacy=Workbook();legacy.active.title='Detailed plan';legacy.active.page_setup.orientation='landscape'
+        content=io.BytesIO();legacy.save(content)
+        book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections,lambda:content.getvalue())))
+        for sheet in book:
+            self.assertEqual(sheet.page_setup.orientation,'portrait',sheet.title)
+            self.assertEqual(str(sheet.page_setup.paperSize),str(sheet.PAPERSIZE_A4),sheet.title)
+            self.assertEqual(sheet.page_setup.fitToWidth,1)
+            self.assertEqual(sheet.page_setup.fitToHeight,0)
+        for page in PdfReader(io.BytesIO(guide_bytes('pdf',sections))).pages:
+            self.assertAlmostEqual(float(page.mediabox.width),595.2756,places=3)
+            self.assertAlmostEqual(float(page.mediabox.height),841.8898,places=3)
+
+    def test_portrait_pagination_preserves_fifty_assemblies_and_long_metadata(self):
+        from copy import deepcopy
+        assembly,settings=fixture();sections=[]
+        for index in range(50):
+            item=deepcopy(assembly);item['name']=f'Assembly {index+1:02d}'
+            sections.extend(assembly_sections(item,settings))
+        pdf=PdfReader(io.BytesIO(guide_bytes('pdf',sections)))
+        text='\n'.join(page.extract_text() for page in pdf.pages)
+        for index in range(50):self.assertIn(f'Assembly {index+1:02d}',text)
+        self.assertIn('Fragment metadata',text);self.assertIn('Plate key',text)
+        self.assertTrue(all(page.mediabox.height>page.mediabox.width for page in pdf.pages))
+
     def test_multiple_assemblies_have_one_row_each_and_distinct_stock_metadata(self):
         from copy import deepcopy
         assembly,settings=fixture();second=deepcopy(assembly);second['name']='Assembly B'
@@ -161,7 +188,7 @@ class BenchExportTests(unittest.TestCase):
         sections = build_sections([dict(request=dict(name='Assembly A', enzyme='BsaI', settings=settings), plan=assembly), dict(request=dict(name='Gone', enzyme='BsaI', settings=settings), plan=None, error='Fragment archived')])
         self.assertEqual([s['stage'] for s in sections], ['Nested first', 'Final assembly', 'Unavailable'])
         self.assertIn('Fragment archived', guide_bytes('csv', sections).decode())
-        text = '\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(guide_bytes('pdf', sections))).pages)
+        text = ' '.join(' '.join(p.extract_text() for p in PdfReader(io.BytesIO(guide_bytes('pdf', sections))).pages).split())
         self.assertLess(text.index('Nested first'), text.index('Final assembly'))
         self.assertIn('Fragment archived', text)
 
