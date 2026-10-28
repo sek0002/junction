@@ -12,23 +12,27 @@
   --feature-7: #798477;
 }
 
-.header-actions { display: flex; align-items: center; gap: 18px; }
-.theme-toggle {
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.header-actions .local { margin-right: 10px; }
+.header-actions .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   min-height: 36px;
-  padding: 7px 11px;
-  border: 1px solid var(--line);
+  padding: 7px;
+  border: 0;
   border-radius: 8px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 11px;
-  white-space: nowrap;
+  background: transparent;
+  color: var(--muted);
 }
-.theme-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; }
-.theme-toggle:hover { border-color: var(--green); }
+.header-actions .icon-button svg { width: 20px; height: 20px; }
+.header-actions .icon-button:hover,
+.header-actions .nav.active { background: var(--green-light); color: var(--green); }
+.theme-toggle { white-space: nowrap; }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
 
 @media (max-width: 850px) {
