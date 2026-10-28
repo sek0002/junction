@@ -316,15 +316,17 @@ included. Exports never change inventory.
 ## Assembly tables and build settings
 
 Use **Next** to proceed from Build to Reaction planner to Export assemblies.
-Forward navigation refreshes plans and shows sequence, stock and reaction
-warnings in a popup. Continue proceeds; Back, Escape or clicking outside keeps
-the current tab. A popup also flags an empty build list or an unqueued current
-assembly before export. Next does not add assemblies to the build list.
+Next and tab selection open each view directly. After choosing PDF, Excel or
+CSV from Export, the app saves pending edits, refreshes plans and shows any
+sequence, stock and reaction warnings in a popup before downloading. Continue
+exports the selected format; Back, Escape or clicking outside cancels the
+download. The popup also flags an unqueued current assembly. Next does not add
+assemblies to the build list.
 
 **Export assemblies** is the dedicated third tab beside Build and Reaction
 planner. It shows every queued build's settings, input volumes, readiness,
 fragment metadata and plate key. Its Export menu downloads the full list in
-PDF, Excel or CSV. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
+PDF, Excel or CSV. Filenames include the browser’s local date and a build-list snapshot identifier, for example `Build_list_2026-10-28_BL-a1b2c3d4e5.pdf`. The identifier stays the same across formats for an unchanged list and changes when the exported list or its plan changes. Direct API exports without a date use Australia/Melbourne. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
 
 The Name field updates automatically when fragments are added, swapped,
 reordered or removed, including changes to the backbone and nested inserts.

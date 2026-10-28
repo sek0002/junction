@@ -311,6 +311,28 @@ class WorksheetFormatAPITests(unittest.TestCase):
             self.assertEqual(item['plan']['reaction']['rows'][0]['volume_ul'],1)
             self.assertIsNone(item['plan']['reaction']['rows'][0]['concentration_ng_ul'])
 
+    def test_build_list_filename_has_local_date_and_snapshot_id_across_formats(self):
+        import re
+        created=self.client.post('/api/build-list',json=self.request)
+        self.assertEqual(created.status_code,200)
+        identifiers=[]
+        for format in ('pdf','xlsx','csv'):
+            response=self.client.get('/api/build-list/worksheet',params={'format':format,'export_date':'2026-10-28'})
+            self.assertEqual(response.status_code,200)
+            match=re.fullmatch(r'attachment; filename="Build_list_2026-10-28_(BL-[a-f0-9]{10})\.'+format+r'"',response.headers['content-disposition'])
+            self.assertIsNotNone(match,response.headers['content-disposition'])
+            identifiers.append(match.group(1))
+        self.assertEqual(len(set(identifiers)),1)
+        updated=self.client.patch(f"/api/build-list/{created.json()['id']}/settings",json={'reaction_volume_ul':25})
+        self.assertEqual(updated.status_code,200)
+        changed=self.client.get('/api/build-list/worksheet',params={'format':'csv','export_date':'2026-10-28'})
+        self.assertNotIn(identifiers[0],changed.headers['content-disposition'])
+        self.assertEqual(self.client.get('/api/build-list/worksheet?export_date=not-a-date').status_code,422)
+        fallback=self.client.get('/api/build-list/worksheet?format=csv')
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        self.assertIn(datetime.now(ZoneInfo('Australia/Melbourne')).date().isoformat(),fallback.headers['content-disposition'])
+
     def test_export_routes_and_defaults_preserve_records(self):
         self.assertEqual(ReactionSettings().master_mix_volume_ul, 4)
         r = self.client.post('/api/assemblies/preview', json=self.request)

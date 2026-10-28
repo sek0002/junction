@@ -211,42 +211,65 @@ test('restoring preserves manual and legacy names, and keeps unique automatic na
 });
 
 function navigationSetup(){
-  const nodes=new Map(),events=[],state={subtab:'assembly',parts:[],buildList:[],assemblyResult:null};
+  const nodes=new Map(),events=[],downloads=[],state={subtab:'assembly',parts:[],buildList:[],assemblyResult:null};
   const $=id=>{if(!nodes.has(id))nodes.set(id,{value:'',innerHTML:'',disabled:false,open:false,classList:{toggle(key,value){this[key]=value;}},setAttribute(){},showModal(){this.open=true;},close(){this.open=false;this.onclose?.();}});return nodes.get(id);};
-  const context=vm.createContext({state,$,Promise,planEditOperations:new Set(),payload:()=>({name:'Draft'}),buildDesign:JSON.stringify,flushPlanInputs:()=>events.push('flush'),persistPendingBuild:async()=>events.push('save'),checkAssembly:async()=>events.push('check'),loadBuildList:async()=>events.push('list'),selectSubtab:target=>{state.subtab=target;events.push(target);}});
-  vm.runInContext(source.slice(source.indexOf('const esc='),source.indexOf('const plateLabel='))+source.slice(source.indexOf('let assemblyNavigationBusy='),source.indexOf('async function loadResuspension()')),context);
-  $('assembly-warning-dialog').onclose=()=>vm.runInContext('pendingAssemblyTab=null',context);
-  return{state,$,context,events};
+  const context=vm.createContext({state,$,Promise,Date:class{getFullYear(){return 2026;}getMonth(){return 9;}getDate(){return 28;}},document:{querySelector:()=>null},buildPlanErrors:new Map(),planEditOperations:new Set(),payload:()=>({name:'Draft'}),buildDesign:JSON.stringify,flushPlanInputs:()=>events.push('flush'),persistPendingBuild:async()=>events.push('save'),checkAssembly:async()=>events.push('check'),loadBuildList:async()=>events.push('list'),selectSubtab:target=>{state.subtab=target;events.push(target);},fileDownload:async(...args)=>downloads.push(args),toast:message=>events.push(message)});
+  vm.runInContext(source.slice(source.indexOf('const esc='),source.indexOf('const plateLabel='))+source.slice(source.indexOf('let pendingAssemblyExport='),source.indexOf('async function loadResuspension()'))+source.slice(source.indexOf('async function downloadWorksheet('),source.indexOf("document.querySelectorAll('[data-worksheet-export]')")),context);
+  $('assembly-warning-dialog').onclose=()=>context.finishAssemblyExportWarnings(false);
+  return{state,$,context,events,downloads};
 }
-test('Next proceeds through the planner and export after flushing pending edits',async()=>{
-  const s=navigationSetup();await s.context.navigateAssemblyTab('reaction');
-  assert.equal(s.state.subtab,'reaction');assert.deepEqual(s.events,['flush','save','list','reaction']);
-  s.state.buildList=[{request:{name:'Built'},plan:{}}];await s.context.navigateAssemblyTab('export');
-  assert.equal(s.state.subtab,'export');assert.equal(s.$('assembly-next').classList.hidden,true);
+test('Next and every tab open directly even with warnings, an empty list or unavailable plans',()=>{
+  const s=navigationSetup();s.state.parts=[{id:1}];s.state.assemblyResult={errors:['Mismatch'],warnings:['Low stock']};
+  s.context.loadBuildList=async()=>{throw Error('Plans unavailable');};
+  for(const target of ['reaction','export','assembly','export','reaction']){
+    s.context.navigateAssemblyTab(target);assert.equal(s.state.subtab,target);
+    assert.equal(s.$('assembly-warning-dialog').open,false);
+  }
+  assert.deepEqual(s.events,['reaction','export','assembly','export','reaction']);
+});
+test('clean exports save pending edits and refresh queued plans before downloading',async()=>{
+  const s=navigationSetup();s.state.buildList=[{request:{name:'Built'},plan:{}}];
+  await s.context.downloadWorksheet('build-list','xlsx');
+  assert.deepEqual(s.events,['flush','save','list']);
+  assert.equal(s.downloads.length,1);assert.equal(s.downloads[0][0],'/api/build-list/worksheet?format=xlsx&export_date=2026-10-28');
   assert.equal(s.$('assembly-warning-dialog').open,false);
 });
-test('warnings open a popup and require Continue before proceeding; cancelling stays on the same tab',async()=>{
-  const s=navigationSetup();s.state.parts=[{id:1}];s.state.assemblyResult={warnings:['Warning <tag>','Warning <tag>'],reaction:{rows:[{warnings:['Low stock']}],warnings:['Overfilled']},nested_reactions:[{name:'Nested first',errors:['Nested mismatch']}]};
-  s.$('assembly-name').value='Draft';await s.context.navigateAssemblyTab('reaction');
-  assert.equal(s.state.subtab,'assembly');assert.equal(s.$('assembly-warning-dialog').open,true);
-  const text=s.$('assembly-warning-list').innerHTML;
-  assert.equal((text.match(/Warning &lt;tag&gt;/g)||[]).length,1);assert.ok(text.includes('Low stock'));assert.ok(text.includes('Nested mismatch'));
-  s.$('assembly-warning-dialog').close();s.context.continueAssemblyNavigation();assert.equal(s.state.subtab,'assembly');
-  await s.context.navigateAssemblyTab('reaction');s.context.continueAssemblyNavigation();
-  assert.equal(s.state.subtab,'reaction');assert.equal(s.$('assembly-warning-dialog').open,false);
+test('warnings wait for Continue at download time and preserve each chosen format',async()=>{
+  for(const format of ['pdf','xlsx','csv']){
+    const s=navigationSetup();s.state.subtab='export';s.state.buildList=[{request:{name:'Built'},plan:{warnings:['Warning <tag>','Warning <tag>'],reaction:{rows:[{warnings:['Low stock']}],warnings:['Overfilled']},nested_reactions:[{name:'Nested first',errors:['Nested mismatch']}]}}];
+    const downloading=s.context.downloadWorksheet('build-list',format);await tick();
+    assert.equal(s.state.subtab,'export');assert.equal(s.$('assembly-warning-dialog').open,true);assert.equal(s.downloads.length,0);
+    const text=s.$('assembly-warning-list').innerHTML;
+    assert.equal((text.match(/Warning &lt;tag&gt;/g)||[]).length,1);assert.ok(text.includes('Low stock'));assert.ok(text.includes('Nested mismatch'));
+    await s.context.downloadWorksheet('build-list',format); // repeated requests cannot duplicate the pending export
+    s.context.finishAssemblyExportWarnings(true);s.context.finishAssemblyExportWarnings(true);await downloading;
+    assert.equal(s.downloads.length,1);assert.equal(s.downloads[0][0],'/api/build-list/worksheet?format='+format+'&export_date=2026-10-28');
+    assert.equal(s.$('assembly-warning-dialog').open,false);
+  }
 });
-test('empty exports and unqueued drafts produce warnings without silently adding builds',async()=>{
-  const s=navigationSetup();s.state.subtab='reaction';await s.context.navigateAssemblyTab('export');
+test('Back and native close cancel the download and allow a later export',async()=>{
+  for(const close of ['back','native']){
+    const s=navigationSetup();s.state.buildList=[{request:{name:'Built'},plan:{warnings:['Warning']}}];
+    const downloading=s.context.downloadWorksheet('build-list','pdf');await tick();
+    if(close==='back')s.context.finishAssemblyExportWarnings(false);else s.$('assembly-warning-dialog').close();
+    await downloading;assert.equal(s.downloads.length,0);
+    s.state.buildList[0].plan={};await s.context.downloadWorksheet('build-list','csv');assert.equal(s.downloads.length,1);
+  }
+});
+test('unqueued drafts and an empty build list warn only on export without changing the queue',async()=>{
+  const s=navigationSetup();s.context.navigateAssemblyTab('export');assert.equal(s.$('assembly-warning-dialog').open,false);
+  let downloading=s.context.downloadWorksheet('build-list','pdf');await tick();
   assert.ok(s.$('assembly-warning-list').innerHTML.includes('No assemblies to export'));assert.equal(s.state.buildList.length,0);
-  s.$('assembly-warning-dialog').close();s.state.parts=[{id:1}];s.state.assemblyResult={};s.state.buildList=[{request:{name:'Other'},plan:{}}];
-  await s.context.navigateAssemblyTab('export');assert.ok(s.$('assembly-warning-list').innerHTML.includes('current assembly is not in the build list'));
+  s.context.finishAssemblyExportWarnings(false);await downloading;
+  s.state.parts=[{id:1}];s.state.assemblyResult={};s.state.buildList=[{request:{name:'Other'},plan:{}}];
+  downloading=s.context.downloadWorksheet('build-list','pdf');await tick();
+  assert.ok(s.$('assembly-warning-list').innerHTML.includes('current assembly is not in the build list'));
+  s.context.finishAssemblyExportWarnings(false);await downloading;assert.equal(s.state.buildList.length,1);
 });
-test('backwards navigation remains direct and failed checks do not advance',async()=>{
-  const s=navigationSetup();s.state.subtab='export';await s.context.navigateAssemblyTab('reaction');
-  assert.deepEqual(s.events,['reaction']);assert.equal(s.$('assembly-warning-dialog').open,false);
-  s.context.loadBuildList=async()=>{throw Error('Plans unavailable');};await s.context.navigateAssemblyTab('export');
-  assert.equal(s.state.subtab,'reaction');assert.ok(s.$('assembly-warning-list').innerHTML.includes('Plans unavailable'));
-  assert.equal(s.$('assembly-warning-continue').classList.hidden,true);assert.equal(s.$('assembly-next').disabled,false);
+test('failed export refreshes cancel the download and release the export guard',async()=>{
+  const s=navigationSetup();s.state.buildList=[{request:{name:'Built'},plan:{}}];s.context.loadBuildList=async()=>{throw Error('Plans unavailable');};
+  await s.context.downloadWorksheet('build-list','pdf');assert.equal(s.downloads.length,0);assert.ok(s.events.includes('Plans unavailable'));
+  s.context.loadBuildList=async()=>{};await s.context.downloadWorksheet('build-list','pdf');assert.equal(s.downloads.length,1);
 });
 test('backbone badge defaults to one microlitre and switches to calculated or mixed-stock volumes',()=>{
   const s=setup();s.state.plasmids[0].length=5000;s.$('backbone').value='p:1';s.$('backbone-pmol').value='0.05';

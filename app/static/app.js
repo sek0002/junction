@@ -15,13 +15,13 @@ function showView(name){hideNestedCardTooltip();hideMapTooltip();closeFragmentSw
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
 function referenceParams(){const q=new URLSearchParams();for(const[k,v]of Object.entries(settings()))if(v!==null)q.set(k,v);const value=$('backbone').value;q.set('no_backbone',!value);if(value.startsWith('p:'))q.set('backbone_id',value.slice(2));return q;}
 function selectSubtab(name){hideNestedCardTooltip();closeFragmentSwap();state.subtab=name;updateAssemblyNext();document.querySelectorAll('[data-subtab]').forEach(b=>{const active=b.dataset.subtab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});$('assembly-subpanel').classList.toggle('hidden',name!=='assembly');$('reaction-subpanel').classList.toggle('hidden',name!=='reaction');$('export-subpanel').classList.toggle('hidden',name!=='export');if(name==='export')refreshExportAssemblies();if(name==='reaction'){loadResuspension();renderBuildList();loadBuildList().catch(error=>toast(error.message));}}
-let assemblyNavigationBusy=false,pendingAssemblyTab=null;
+let pendingAssemblyExport=null,assemblyExportBusy=false;
 function updateAssemblyNext(){
   const next={assembly:'reaction',reaction:'export'}[state.subtab],button=$('assembly-next');
-  button.classList.toggle('hidden',!next);button.disabled=assemblyNavigationBusy;
+  button.classList.toggle('hidden',!next);button.disabled=false;
   button.setAttribute('aria-label','Next: '+(next==='reaction'?'Reaction planner':'Export assemblies'));
 }
-function assemblyNavigationWarnings(target){
+function assemblyExportWarnings(kind){
   const groups=new Map();
   function add(name,messages){
     for(const message of messages||[]){if(!message)continue;if(!groups.has(name))groups.set(name,new Set());groups.get(name).add(String(message));}
@@ -36,36 +36,24 @@ function assemblyNavigationWarnings(target){
     if(state.assemblyResult)inspect($('assembly-name').value||'Current assembly',state.assemblyResult);
     else add('Current assembly',['Assembly checks unavailable.']);
   }
-  for(const item of state.buildList){inspect(item.request.name,item.plan);if(item.error)add(item.request.name,[item.error]);}
-  if(target==='export'){
+  if(kind==='build-list'){
+    for(const item of state.buildList){inspect(item.request.name,item.plan);if(item.error)add(item.request.name,[item.error]);}
     if(!state.buildList.length)add('Build list',['No assemblies to export. Add an assembly to the build list.']);
     else if(current&&!state.buildList.some(item=>buildDesign(item.request)===buildDesign(payload())))add('Build list',['The current assembly is not in the build list.']);
   }
   return [...groups].map(([name,messages])=>({name,messages:[...messages]}));
 }
-function showAssemblyNavigationWarnings(groups,target){
-  pendingAssemblyTab=target;
+function confirmAssemblyExportWarnings(groups){
   $('assembly-warning-list').innerHTML=groups.map(group=>`<section><h3>${esc(group.name)}</h3><ul>${group.messages.map(message=>`<li>${esc(message)}</li>`).join('')}</ul></section>`).join('');
-  $('assembly-warning-continue').classList.toggle('hidden',!target);
-  $('assembly-warning-dialog').showModal();
+  return new Promise(resolve=>{pendingAssemblyExport=resolve;$('assembly-warning-dialog').showModal();});
 }
-async function navigateAssemblyTab(target){
-  const order=['assembly','reaction','export'],origin=state.subtab;
-  if(!order.includes(target)||origin===target||assemblyNavigationBusy)return;
-  if(order.indexOf(target)<order.indexOf(origin)){selectSubtab(target);return;}
-  assemblyNavigationBusy=true;updateAssemblyNext();
-  try{
-    flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);
-    if(state.parts.length||$('backbone').value)await checkAssembly();
-    await loadBuildList();if(state.subtab!==origin)return;
-    const warnings=assemblyNavigationWarnings(target);
-    if(warnings.length)showAssemblyNavigationWarnings(warnings,target);else selectSubtab(target);
-  }catch(error){if(state.subtab===origin)showAssemblyNavigationWarnings([{name:'Plans',messages:[error.message]}],null);}
-  finally{assemblyNavigationBusy=false;updateAssemblyNext();}
+function finishAssemblyExportWarnings(confirmed=false){
+  const resolve=pendingAssemblyExport;pendingAssemblyExport=null;
+  if($('assembly-warning-dialog').open)$('assembly-warning-dialog').close();
+  resolve?.(confirmed);
 }
-function continueAssemblyNavigation(){
-  const target=pendingAssemblyTab;pendingAssemblyTab=null;$('assembly-warning-dialog').close();
-  if(target)selectSubtab(target);
+function navigateAssemblyTab(target){
+  if(['assembly','reaction','export'].includes(target)&&state.subtab!==target)selectSubtab(target);
 }
 async function loadResuspension(){
   const token=++resuspCounter;
@@ -2006,9 +1994,9 @@ $('planner-rule-form').onsubmit=event=>{
 $('planner-rule-reset').onclick=()=>{const defaults=editingRuleScope==='upload'?state.rules:plannerRuleDefaults();applyPlannerRule(Object.fromEntries(plannerRuleGroups[editingPlannerRule].fields.map(([key])=>[key,defaults[key]])));};
 document.querySelectorAll('[data-subtab]').forEach(b=>b.onclick=()=>navigateAssemblyTab(b.dataset.subtab));
 $('assembly-next').onclick=()=>navigateAssemblyTab({assembly:'reaction',reaction:'export'}[state.subtab]);
-$('assembly-warning-back').onclick=()=>$('assembly-warning-dialog').close();
-$('assembly-warning-continue').onclick=continueAssemblyNavigation;
-$('assembly-warning-dialog').onclose=()=>{pendingAssemblyTab=null;};
+$('assembly-warning-back').onclick=()=>finishAssemblyExportWarnings(false);
+$('assembly-warning-continue').onclick=()=>finishAssemblyExportWarnings(true);
+$('assembly-warning-dialog').onclose=()=>finishAssemblyExportWarnings(false);
 $('backbone-stock-select').onchange=selectPlannerBackboneStock;
 $('planner-backbone-stock').oninput=$('planner-backbone-stock').onchange=editPlannerBackboneStock;
 $('backbone-pmol').oninput=updateBackboneVolume;
@@ -2080,12 +2068,30 @@ function openWorksheetExport(button){
   menu.querySelector('button').focus();
 }
 async function downloadWorksheet(kind,format){
+  const assemblyExport=kind==='build-list'||kind==='assembly';
+  if(assemblyExport&&assemblyExportBusy)return;
+  if(assemblyExport)assemblyExportBusy=true;
   try{
-    if(kind==='build-list'){flushPlanInputs();const invalid=document.querySelector('#build-plans-body input[aria-invalid="true"],.reaction-panel input[aria-invalid="true"]');if(invalid){invalid.reportValidity();throw Error('Enter valid build plan values');}await persistPendingBuild();await Promise.all([...planEditOperations]);if(buildPlanErrors.size)throw Error('Save build plan changes before exporting');await fileDownload('/api/build-list/worksheet?format='+format,null,'Build_list.'+format);}
-    else if(kind==='assembly')await fileDownload('/api/assemblies/worksheet?format='+format,payload(),'assembly.'+format);
+    if(assemblyExport){
+      flushPlanInputs();
+      const invalid=document.querySelector('#build-plans-body input[aria-invalid="true"],.reaction-panel input[aria-invalid="true"]');
+      if(invalid){invalid.reportValidity();throw Error('Enter valid build plan values');}
+      await persistPendingBuild();await Promise.all([...planEditOperations]);
+      if(buildPlanErrors.size)throw Error('Save build plan changes before exporting');
+      if(state.parts.length||$('backbone').value)await checkAssembly();
+      if(kind==='build-list')await loadBuildList();
+      const warnings=assemblyExportWarnings(kind);
+      if(warnings.length&&!await confirmAssemblyExportWarnings(warnings))return;
+      if(kind==='build-list'){
+        const now=new Date(),exportDate=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+        await fileDownload('/api/build-list/worksheet?format='+format+'&export_date='+exportDate,null,'Build_list_'+exportDate+'.'+format);
+      }
+      else await fileDownload('/api/assemblies/worksheet?format='+format,payload(),'assembly.'+format);
+    }
     else if(kind==='library')await fileDownload('/api/inventory/worksheet?format='+format,{...state.rules,no_backbone:true,resuspension_mode:'constrained',planner_stock_mode:'saved',plate:$('plate-filter').value||''},'resuspension.'+format);
     else if(kind==='upload'){const params=new URLSearchParams(state.uploadParams||referenceParams());params.set('format',format);params.set('planner_stock_mode','saved');await fileDownload('/api/inventory/worksheet?'+params,null,'resuspension.'+format);}
   }catch(error){toast(error.message);}
+  finally{if(assemblyExport)assemblyExportBusy=false;}
 }
 document.querySelectorAll('[data-worksheet-export]').forEach(button=>{button.onclick=()=>openWorksheetExport(button);button.onkeydown=event=>{if(event.key==='ArrowDown'){event.preventDefault();openWorksheetExport(button);}};});
 $('worksheet-export-menu').querySelectorAll('[data-worksheet-format]').forEach(button=>button.onclick=()=>{const kind=worksheetExportSource?.dataset.worksheetExport;closeWorksheetExport(true);if(kind)downloadWorksheet(kind,button.dataset.worksheetFormat);});

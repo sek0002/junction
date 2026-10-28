@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 import hashlib
 import csv
@@ -811,10 +813,14 @@ def restore_build_list(build_id:int):
 
 
 @app.get('/api/build-list/worksheet')
-def export_build_list(format:Literal['xlsx','pdf','csv']='xlsx'):
+def export_build_list(format:Literal['xlsx','pdf','csv']='xlsx',export_date:date | None=None):
     items=active_build_list()
     if not items:raise HTTPException(422,'Add an assembly to the build list first.')
-    return download(guide_bytes(format,build_sections(items),lambda:build_list_workbook(items)), 'Build_list.'+format, FORMATS[format])
+    export_day = export_date or datetime.now(ZoneInfo('Australia/Melbourne')).date()
+    snapshot = json.dumps(items,sort_keys=True,separators=(',',':'),ensure_ascii=True,default=str).encode('utf8')
+    identifier = 'BL-' + hashlib.sha256(snapshot).hexdigest()[:10]
+    filename = f'Build_list_{export_day.isoformat()}_{identifier}.{format}'
+    return download(guide_bytes(format,build_sections(items),lambda:build_list_workbook(items)), filename, FORMATS[format])
 
 
 @app.post('/api/assemblies/preview')
