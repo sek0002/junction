@@ -72,3 +72,72 @@ test('switching dropdown flushes the previous stock to its captured backbone onl
   assert.deepEqual(s.state.buildList.map(i=>i.request.settings.backbone_stock_ng_ul),[80,80,50]);
   assert.equal(s.$('planner-backbone-stock').value,50);assert.equal(s.$('backbone-stock').value,'');
 });
+
+function draftSetup(){
+  const nodes=new Map(),calls=[],messages=[];
+  const draft={name:'Original',enzyme:'BsaI',fragment_ids:[11,12],backbone_id:4,slot_id:'slot_1',circular:true,
+    nested_assemblies:[{parent_fragment_id:11,fragment_ids:[13],mode:'separate'}],settings:{insert_ratio:2,backbone_stock_ng_ul:80,fragment_stock_overrides:{11:{stock_ng_ul:20}}}};
+  const state={buildList:[{id:1,request:structuredClone(draft)}],activeBuildId:1,parts:[{id:11},{id:12}],buildBusy:false,result:null};
+  const $=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='assembly-name'?draft.name:id==='backbone'?'p:4':'',querySelector:()=>null});return nodes.get(id);};
+  const context=vm.createContext({state,$,payload:()=>draft,structuredClone,window:{JunctionSandbox:{schedule(){}}},document:{querySelectorAll:()=>[]},setTimeout,clearTimeout,
+    toast:message=>messages.push(message),renderBuildList(){},api:(url,options)=>new Promise((resolve,reject)=>calls.push({url,options,resolve,reject}))});
+  vm.runInContext(source.slice(source.indexOf('let buildSaveTimer='),source.indexOf('const planInputTimers='))+
+    source.slice(source.indexOf('async function loadBuildList()'),source.indexOf('function setPlannerInputs(')),context);
+  return{state,draft,$,context,calls,messages,read:expression=>vm.runInContext(expression,context)};
+}
+test('changing a queued name or fragment selection creates a draft without overwriting the row',async()=>{
+  for(const change of [s=>s.draft.name='Variant',s=>s.draft.fragment_ids=[11,14],s=>s.draft.backbone_id=5]){
+    const s=draftSetup(),original=structuredClone(s.state.buildList[0]);change(s);
+    s.context.scheduleBuildSettingsSave();await s.context.persistPendingBuild();
+    assert.equal(s.state.activeBuildId,null);assert.equal(s.calls.length,0);
+    assert.deepEqual(s.state.buildList[0],original);
+  }
+});
+test('plus adds independent snapshots repeatedly while retaining the current assembly and settings',async()=>{
+  const s=draftSetup(),original=structuredClone(s.state.buildList[0]);
+  for(const id of [2,3]){
+    const operation=s.context.addCurrentBuild();await tick();
+    const call=s.calls.at(-1);assert.equal(call.url,'/api/build-list');assert.equal(call.options.method,'POST');
+    assert.deepEqual(JSON.parse(call.options.body),s.draft);
+    call.resolve({id,request:{...structuredClone(s.draft),name:'Original ('+id+')'}});await operation;
+    assert.equal(s.state.activeBuildId,null);assert.equal(s.$('assembly-name').value,'Original');
+    assert.deepEqual(s.state.parts,[{id:11},{id:12}]);
+    assert.deepEqual(s.state.buildList[0],original);
+  }
+  assert.equal(s.state.buildList.length,3);
+  assert.deepEqual(s.draft.nested_assemblies[0].fragment_ids,[13]);
+  assert.equal(s.draft.settings.fragment_stock_overrides[11].stock_ng_ul,20);
+});
+test('pending planner edits save to the original before a renamed variant is added',async()=>{
+  const s=draftSetup();s.draft.settings.insert_ratio=3;s.context.scheduleBuildSettingsSave();
+  s.draft.name='Variant';s.context.scheduleBuildSettingsSave();
+  const operation=s.context.addCurrentBuild();await tick();
+  assert.equal(s.calls.length,1);assert.equal(s.calls[0].url,'/api/build-list/1');
+  const original=JSON.parse(s.calls[0].options.body);assert.equal(original.name,'Original');assert.equal(original.settings.insert_ratio,3);
+  s.calls[0].resolve({id:1,request:original});await tick();
+  assert.equal(s.calls.length,2);assert.equal(s.calls[1].options.method,'POST');
+  const variant=JSON.parse(s.calls[1].options.body);assert.equal(variant.name,'Variant');
+  s.calls[1].resolve({id:2,request:variant});await operation;
+  assert.deepEqual(s.state.buildList.map(item=>item.request.name),['Original','Variant']);
+});
+test('plus captures nested selections at click time even when the draft changes while saving',async()=>{
+  const s=draftSetup();const operation=s.context.addCurrentBuild();
+  s.draft.nested_assemblies[0].fragment_ids.push(99);s.draft.settings.insert_ratio=4;
+  await tick();const captured=JSON.parse(s.calls[0].options.body);
+  assert.deepEqual(captured.nested_assemblies[0].fragment_ids,[13]);assert.equal(captured.settings.insert_ratio,2);
+  s.calls[0].resolve({id:2,request:captured});await operation;
+  assert.deepEqual(s.draft.nested_assemblies[0].fragment_ids,[13,99]);assert.equal(s.draft.settings.insert_ratio,4);
+});
+test('choosing any backbone preserves the manually selected enzyme',()=>{
+  for(const enzyme of ['BsaI','BsmBI','BsmBI + BsaI']){
+    let recalculations=0;const s=draftSetup();s.$('enzyme').value=enzyme;
+    s.context.backboneChanged=()=>recalculations++;
+    s.context.changeAssemblyEnzyme=()=>{throw Error('Unexpected enzyme change');};
+    vm.runInContext(source.slice(source.indexOf('function selectBackbone('),source.indexOf("$('backbone').onchange=selectBackbone")),s.context);
+    for(const counts of [{'BsaI':2},{'BsmBI':2},{'BsaI':2,'BsmBI':2},{}]){
+      s.state.plasmids=[{id:4,backbone_options:{site_counts:counts}}];s.context.selectBackbone();
+      assert.equal(s.$('enzyme').value,enzyme);
+    }
+    assert.equal(recalculations,4);
+  }
+});

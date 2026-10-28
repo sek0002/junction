@@ -506,22 +506,24 @@ async function addCurrentBuild(){
   if(state.buildBusy)return;state.buildBusy=true;
   updateBuildActions();
   try{
-    const request=payload();
+    const request=structuredClone(payload());
+    // Adding captures an independent entry. Keep the current design available
+    // as a draft for the next variant, without autosaving back into this row.
+    state.activeBuildId=null;window.JunctionSandbox?.schedule();renderBuildList();
     await persistPendingBuild();
     const item=await api('/api/build-list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
-    if(buildDesign(payload())===buildDesign(request)){
-      $('assembly-name').value=item.request.name;state.activeBuildId=item.id;
-      if(state.result){state.result.name=item.request.name;renderMap();}
-    }
     state.buildSaveError=null;replaceBuild(item);
     toast('Added to build list');
   }catch(error){toast(error.message);}finally{state.buildBusy=false;updateBuildActions();}
 }
 function scheduleBuildSettingsSave(){
   if(!activeBuild())return;
+  if(buildIsDirty()){
+    state.activeBuildId=null;window.JunctionSandbox?.schedule();renderBuildList();return;
+  }
   if(!state.parts.length&&!$('backbone').value){clearTimeout(buildSaveTimer);pendingBuildSave=null;renderBuildList();return;}
   if([...document.querySelectorAll('.reaction-panel input')].some(input=>!input.matches(':disabled')&&!input.checkValidity())||$('resuspension-body').querySelector('input[aria-invalid="true"]')){clearTimeout(buildSaveTimer);pendingBuildSave=null;renderBuildList();return;}
-  clearTimeout(buildSaveTimer);pendingBuildSave={id:state.activeBuildId,request:payload()};state.buildSaveError=null;renderBuildList();
+  clearTimeout(buildSaveTimer);pendingBuildSave={id:state.activeBuildId,request:structuredClone(payload())};state.buildSaveError=null;renderBuildList();
   buildSaveTimer=setTimeout(()=>persistPendingBuild().catch(()=>{}),400);
 }
 async function persistPendingBuild(){
@@ -1818,16 +1820,7 @@ async function changeAssemblyEnzyme(){
     await loadNestedChildren();backboneChanged();
   }catch(error){toast(error.message);}finally{busy('');}
 }
-async function selectBackbone(){
-  const plasmid=state.plasmids.find(p=>$('backbone').value==='p:'+p.id);
-  const counts=plasmid?.backbone_options?.site_counts||{};
-  const detected=['BsmBI','BsaI'].filter(enzyme=>counts[enzyme]>0);
-  const enzyme=detected.length===2?'BsmBI + BsaI':detected[0];
-  if(enzyme&&enzyme!==$('enzyme').value){
-    $('enzyme').value=enzyme;
-    await changeAssemblyEnzyme();
-  }else backboneChanged();
-}
+function selectBackbone(){backboneChanged();}
 $('backbone').onchange=selectBackbone;$('slot').onchange=()=>{updateCassetteFlag();renderParts();invalidate();if(state.subtab==='reaction')loadResuspension();};
 $('enzyme').onchange=changeAssemblyEnzyme;
 $('clear-parts').onclick=()=>{state.parts=[];state.nestedAssemblies=[];state.nestedParent=null;state.nestedDraftStocks={};renderParts();invalidate();};
@@ -1923,22 +1916,18 @@ function renameViewer(){
   input.setCustomValidity('');input.value=name;
   if(name===result.name)return;
   const oldName=result.name;const revision=++viewerRenameRevision;
-  const updateQueue=!result.viewerPlasmidId&&activeBuild()&&!buildIsDirty();
-  const queueId=updateQueue?state.activeBuildId:null;
   result.name=name;
   if(!result.storedReference)$('assembly-name').value=name;
   renderMap();renderBuildList();
-  if(queueId)scheduleBuildSettingsSave();
-  $('viewer-name-status').textContent=result.viewerPlasmidId||queueId?'Saving…':'Updated';
+  if(!result.storedReference)scheduleBuildSettingsSave();
+  $('viewer-name-status').textContent=result.viewerPlasmidId?'Saving…':'Updated';
   viewerRenameChain=viewerRenameChain.catch(()=>{}).then(async()=>{
     try{
       if(result.viewerPlasmidId){
         await api('/api/plasmids/'+result.viewerPlasmidId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
         await refresh();renderPlasmidLibraries();
-      }else if(queueId){
-        await persistPendingBuild();
       }
-      if(state.result===result&&revision===viewerRenameRevision)$('viewer-name-status').textContent=result.viewerPlasmidId||queueId?'Saved':'Updated';
+      if(state.result===result&&revision===viewerRenameRevision)$('viewer-name-status').textContent=result.viewerPlasmidId?'Saved':'Updated';
     }catch(error){
       if(state.result===result&&revision===viewerRenameRevision){
         result.name=oldName;if(input.value.trim()===name)input.value=oldName;if(!result.storedReference)$('assembly-name').value=oldName;renderMap();renderBuildList();$('viewer-name-status').textContent='Not saved';
