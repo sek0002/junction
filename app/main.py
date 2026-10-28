@@ -183,34 +183,40 @@ def summary():
 
 
 @app.get('/api/library/metrics')
-def library_metrics():
+def library_metrics(enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI'):
     from .sequence_engine import reverse_complement as revcomp
     from . import worksheets
     fragments=store.fragments();backbones=[p for p in store.plasmids() if p['circular'] and
         (p['recipe'].get('example_backbone') or p['recipe'].get('backbone_template')) and not p['recipe'].get('legacy_example')]
     junctions={}
-    def add(overhang,enzyme,name,kind):
+    selected_enzyme=enzyme
+    def add(overhang,enzyme,name,kind,errors=()):
         value=(overhang or '').upper()
         if len(value)!=4 or set(value)-set('ACGT'):return
-        canonical=min(value,revcomp(value));item=junctions.setdefault(canonical,{'overhang':canonical,'reverse_complement':revcomp(canonical),'enzymes':set(),'fragments':set(),'backbones':set()})
+        canonical=min(value,revcomp(value));item=junctions.setdefault(canonical,{'overhang':canonical,'reverse_complement':revcomp(canonical),'enzymes':set(),'fragments':set(),'backbones':set(),'problems':set()})
         item['enzymes'].add(enzyme);item[kind].add(name)
+        item['problems'].update((kind,name,error) for error in errors)
     for fragment in fragments:
         for enzyme in ('BsaI','BsmBI','BsmBI + BsaI'):
             digest=digest_fragment(fragment['sequence'],enzyme)
-            for side in ('left','right'):add(digest.get(side+'_overhang'),digest.get(side+'_adapter_enzyme',enzyme),fragment['name'],'fragments')
+            for side in ('left','right'):add(digest.get(side+'_overhang'),digest.get(side+'_adapter_enzyme',enzyme),fragment['name'],'fragments',digest.get('errors',[]) if enzyme==selected_enzyme else ())
             for nested in digest.get('nested_cassettes',[]):
                 for side in ('left','right'):add(nested.get(side+'_overhang'),nested.get(side+'_boundary_enzyme',enzyme),fragment['name'],'fragments')
     for backbone in backbones:
         for enzyme in ('BsaI','BsmBI','BsmBI + BsaI'):
             for slot in find_backbone_slots(backbone['sequence'],enzyme):
-                for side in ('left','right'):add(slot.get(side+'_overhang'),slot.get(side+'_boundary_enzyme',slot.get('enzyme',enzyme)),backbone['name'],'backbones')
+                for side in ('left','right'):add(slot.get(side+'_overhang'),slot.get(side+'_boundary_enzyme',slot.get('enzyme',enzyme)),backbone['name'],'backbones',slot.get('errors',[]) if enzyme==selected_enzyme else ())
     with store.connection() as db:
         workspace=worksheets.wb.working(db);records=worksheets.registry(db,live=False)
     designs={d.get('id') for d in workspace.get('design',{}).get('designs',[])}
     for record in records:
         if record['scope']=='design':designs.update(d.get('id') for d in record['snapshot']['workspace'].get('design',{}).get('designs',[]))
-    return {'backbones':len(backbones),'designs':len(designs-{None}),'junctions':[
-        {key:sorted(value) if isinstance(value,set) else value for key,value in item.items()} for _,item in sorted(junctions.items())]}
+    rows=[]
+    for _,item in sorted(junctions.items()):
+        row={key:sorted(value) if isinstance(value,set) else value for key,value in item.items() if key!='problems'}
+        row['problems']=[{'source_type':kind,'source':name,'message':error} for kind,name,error in sorted(item['problems'])]
+        rows.append(row)
+    return {'backbones':len(backbones),'designs':len(designs-{None}),'qc_enzyme':selected_enzyme,'junctions':rows}
 
 
 @app.get('/api/fragments')

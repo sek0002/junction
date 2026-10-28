@@ -104,6 +104,17 @@ class WorksheetTests(unittest.TestCase):
         r=self.client.post('/api/worksheets/import',files={'file':('bad.junc',json.dumps(value),'application/json')});self.assertEqual(r.status_code,422)
         self.assertEqual(self.client.post('/api/worksheets/new',json={'scope':'build','discard_unsaved':True}).status_code,200)
 
+    def test_junction_problems_identify_source_and_follow_selected_enzyme(self):
+        sequence='GGTCTCA'+'AAAA'+'ACGTCGTCTCGACT'+'CCCC'+'C'+'GAGACC'
+        with store.connection() as db:db.execute('INSERT INTO fragments(name,sequence,plate_id,well) VALUES(?,?,?,?)',('Nested donor',sequence,'P2','A1'))
+        single=self.client.get('/api/library/metrics?enzyme=BsaI').json()
+        self.assertEqual(single['qc_enzyme'],'BsaI')
+        self.assertFalse(any(problem['source']=='Nested donor' for item in single['junctions'] for problem in item['problems']))
+        dual=self.client.get('/api/library/metrics',params={'enzyme':'BsmBI + BsaI'}).json()
+        problems=[problem for item in dual['junctions'] for problem in item['problems'] if problem['source']=='Nested donor']
+        self.assertTrue(problems);self.assertTrue(all(p['source_type']=='fragments' for p in problems))
+        self.assertTrue(any('Internal BsmBI site' in p['message'] for p in problems))
+
     def test_legacy_designs_migrate_once_and_junctions_group_reverse_complements(self):
         data=self.workspace;data['design']['designs'].append(self.design|{'id':'design-b','name':'Design B'});self.client.put('/api/workspace',json={'data':data})
         r=self.client.post('/api/worksheets/bootstrap');self.assertEqual(r.status_code,200,r.text);self.assertEqual(r.json()['migrated'],2);self.assertEqual(self.client.post('/api/worksheets/bootstrap').json()['migrated'],0)

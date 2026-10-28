@@ -262,17 +262,21 @@ let libraryMetricsTimer=null,libraryMetricsRevision=0;
 function scheduleLibraryMetrics(){clearTimeout(libraryMetricsTimer);libraryMetricsTimer=setTimeout(refreshLibraryMetrics,120);}
 async function refreshLibraryMetrics(){
   const revision=++libraryMetricsRevision;
-  try{const metrics=await api('/api/library/metrics');if(revision!==libraryMetricsRevision)return;state.libraryMetrics=metrics;
+  try{const metrics=await api('/api/library/metrics?enzyme='+encodeURIComponent($('enzyme').value));if(revision!==libraryMetricsRevision)return;state.libraryMetrics=metrics;
     $('backbone-count').textContent=metrics.backbones;$('junction-count').textContent=metrics.junctions.length;$('design-count').textContent=metrics.designs;
     if($('junction-list-dialog').open)renderJunctionList();
   }catch(error){toast(error.message);}
 }
 function renderJunctionList(){
-  const junctions=state.libraryMetrics?.junctions||[];
+  const junctions=state.libraryMetrics?.junctions||[],enzyme=state.libraryMetrics?.qc_enzyme||$('enzyme').value;
   $('junction-list-summary').textContent=`${junctions.length} unique fusion sequences · Reverse-complement pairs grouped`;
   $('junction-list').innerHTML=junctions.map(item=>{
-    const hue=[...item.overhang].reduce((sum,base)=>sum*7+base.charCodeAt(0),0)%360;
-    return `<details class="junction-item" style="--junction-hue:${hue}"><summary><span class="junction-sequence${Overhangs.isPalindromic(item.overhang)?' palindrome':''}">${esc(item.overhang)}</span><span class="junction-complement">${esc(item.reverse_complement)}</span><small>${esc(item.enzymes.join(' · '))}</small></summary><div>${item.fragments.length?`<b>Fragments</b><p>${esc(item.fragments.join(', '))}</p>`:''}${item.backbones.length?`<b>Backbones</b><p>${esc(item.backbones.join(', '))}</p>`:''}</div></details>`;
+    const problems=item.problems||[],backbone=item.backbones.length>0;
+    // Backbone identity stays purple; palindromes use the shared yellow override.
+    const classes='junction-sequence end'+(backbone?' backbone-end':problems.length?' bad':'');
+    const problemText=problems.map(problem=>problem.source+': '+problem.message).join('\n');
+    const sources=(kind,names)=>names.length?`<div class="junction-source-group ${kind}"><b>${kind==='backbones'?'Backbones':'Fragments'}</b><p>${names.map(name=>`<span>${esc(name)}</span>`).join(' · ')}</p></div>`:'';
+    return `<details class="junction-item"><summary><span class="junction-pair">${overhangHtml(item.overhang,classes)}${overhangHtml(item.reverse_complement,classes+' junction-complement')}</span><span class="junction-source-badges">${item.fragments.length?`<span class="junction-source-label fragment">Fragment · ${item.fragments.length}</span>`:''}${backbone?`<span class="junction-source-label backbone">Backbone · ${item.backbones.length}</span>`:''}</span>${problems.length?`<span class="badge error junction-problem" tabindex="0" title="${esc(enzyme+' source digest errors\n'+problemText)}" aria-label="${esc(enzyme+' source digest errors: '+problemText)}">! Problem</span>`:''}<small>${esc(item.enzymes.join(' · '))}</small></summary><div>${sources('fragments',item.fragments)}${sources('backbones',item.backbones)}${problems.length?`<div class="junction-problem-details"><b>${esc(enzyme)} source digest errors</b>${problems.map(problem=>`<p><strong>${esc(problem.source)}</strong> · ${esc(problem.message)}</p>`).join('')}</div>`:''}</div></details>`;
   }).join('')||'<span class="muted">No junctions</span>';
 }
 

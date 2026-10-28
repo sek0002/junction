@@ -25,7 +25,6 @@ def workspace():
 def save_workspace(payload:Workspace):
     try:encoded=json.dumps(payload.data,allow_nan=False)
     except (ValueError,TypeError):raise HTTPException(422,'Workspace must contain valid JSON values.') from None
-    if len(encoded.encode())>2*1024*1024:raise HTTPException(413,'Workspace settings exceed 2 MiB.')
     with store.connection() as db:
         db.execute('INSERT INTO user_workspaces(user_id,data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=CURRENT_TIMESTAMP',(user_id(),encoded))
     return {'saved':True}

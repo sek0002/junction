@@ -16,7 +16,6 @@ from .version import VERSION
 
 router=APIRouter(prefix='/api/workbenches')
 FORMAT='junction-workbench'
-MAX_BYTES=25*1024*1024
 
 
 class Name(BaseModel):
@@ -137,10 +136,7 @@ def checked(value,nested=False):
         fragments,plasmids=references(data)
         if fragments-{p['id'] for p in data['inventory']['fragments']} or plasmids-{p['id'] for p in data['inventory']['plasmids']}:
             raise ValueError('The file is missing referenced fragments or plasmids.')
-        encoded=encode(data)
-        if len(encoded.encode())>MAX_BYTES:raise HTTPException(413,'Workbench exceeds 25 MiB.')
-        # The live sandbox has the same limit as /api/workspace.
-        if len(encode(workspace).encode())>2*1024*1024:raise HTTPException(413,'Workbench settings exceed 2 MiB.')
+        encode(data)  # Still reject non-finite or non-JSON values.
         return data
     except (ValidationError,ValueError,TypeError,AttributeError,KeyError,RecursionError) as error:
         raise HTTPException(422,'Invalid workbench data: '+str(error)[:300]) from None
@@ -291,8 +287,7 @@ def export_saved(identifier:str,scope:Literal['build','design','compare'] | None
 @router.post('/import')
 async def import_workbench(file:UploadFile=File(...)):
     if not (file.filename or '').lower().endswith('.junc'):raise HTTPException(422,'Choose a .junc file.')
-    content=await file.read(MAX_BYTES+1)
-    if len(content)>MAX_BYTES:raise HTTPException(413,'Workbench exceeds 25 MiB.')
+    content=await file.read()
     try:
         value=json.loads(content.decode('utf-8-sig'))
         if not isinstance(value,dict) or value.get('format')!=FORMAT or value.get('format_version')!=1:raise ValueError('Unsupported .junc format or version.')

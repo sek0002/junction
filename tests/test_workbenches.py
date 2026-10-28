@@ -128,6 +128,26 @@ class WorkbenchTests(unittest.TestCase):
             self.assertEqual(response.status_code,422,response.text)
         self.assertEqual(len(self.client.get('/api/workbenches').json()['items']),1)
 
+    def test_workspace_and_saved_workbench_accept_more_than_two_mib(self):
+        data=self.client.get('/api/workspace').json()['data'];data['large_preferences']='x'*(2*1024*1024+1)
+        response=self.client.put('/api/workspace',json={'data':data});self.assertEqual(response.status_code,200,response.text[:200])
+        saved=self.save('Large preferences');exported=self.exported(saved['id']).json()
+        self.assertEqual(len(exported['snapshot']['workspace']['large_preferences']),2*1024*1024+1)
+
+    def test_workbench_and_worksheet_import_and_export_accept_bundles_over_twenty_five_mib(self):
+        value=self.exported(self.save()['id']).json()
+        source='A'*(9*1024*1024)
+        value['snapshot']['comparisons']=[{'id':i,'filename':f'large-{i}.fasta','source':source,'enzyme':'auto','result':None,'error':None} for i in range(1,4)]
+        value['sha256']=hashlib.sha256(encode(value['snapshot']).encode()).hexdigest()
+        content=encode(value).encode();self.assertGreater(len(content),25*1024*1024)
+        imported=self.client.post('/api/workbenches/import',files={'file':('large.junc',content,'application/json')})
+        self.assertEqual(imported.status_code,200,imported.text[:200])
+        exported=self.exported(imported.json()['id']);self.assertGreater(len(exported.content),25*1024*1024)
+        worksheet=self.client.post('/api/worksheets/import?scope=compare',files={'file':('large.junc',content,'application/json')})
+        self.assertEqual(worksheet.status_code,200,worksheet.text[:200])
+        exported=self.client.get('/api/worksheets/'+worksheet.json()['id']+'/export')
+        self.assertEqual(exported.status_code,200,exported.text[:200]);self.assertGreater(len(exported.content),25*1024*1024)
+
     def test_restricted_users_can_save_share_and_load_existing_inventory(self):
         self.client.post('/api/auth/users',json={'username':'reader','pin':'654321','can_upload':False,'can_edit':False})
         content=self.exported(self.save()['id']).content

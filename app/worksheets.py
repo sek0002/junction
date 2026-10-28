@@ -154,8 +154,7 @@ def export_saved(identifier:str):
 @router.post('/import')
 async def import_worksheet(scope:Scope | None=None,file:UploadFile=File(...)):
     if not (file.filename or '').lower().endswith('.junc'):raise HTTPException(422,'Choose a .junc file.')
-    content=await file.read(wb.MAX_BYTES+1)
-    if len(content)>wb.MAX_BYTES:raise HTTPException(413,'Worksheet exceeds 25 MiB.')
+    content=await file.read()
     try:
         value=json.loads(content.decode('utf-8-sig'))
         if value.get('format_version')!=1 or value.get('format') not in (FORMAT,wb.FORMAT):raise ValueError('Unsupported .junc format.')
