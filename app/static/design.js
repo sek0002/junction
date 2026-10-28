@@ -21,13 +21,14 @@
   if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
-    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null;
+    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false;
   const current=()=>saved.designs.find(design=>design.id===saved.activeId);
   const entry=()=>current()?.entries.find(item=>item.id===activeEntry);
-  function fresh(){return{id:uid(),name:'New design',enzyme:'BsaI',adapter_enzyme:'BsaI',backbone_id:null,slot_id:null,entries:[],left_overhang:'',right_overhang:'',window:20,avoid_sites:[],excluded_overhangs:[]};}
+  const tableUI=root.DesignTable.create({getDesign:current,getContext:()=>preview?.entries||[],onChange:()=>{dirty();renderSections();},report:message=>note(message)});
+  function fresh(){return{id:uid(),name:'New design',enzyme:'BsaI',adapter_enzyme:'BsaI',left_adapter_enzyme:null,right_adapter_enzyme:null,include_re_sites:true,use_table:false,table_rows:[],backbone_id:null,slot_id:null,entries:[],left_overhang:'',right_overhang:'',window:20,avoid_sites:[],excluded_overhangs:[]};}
   function note(message,error=false){$('design-save-status').textContent=message;$('design-save-status').classList.toggle('reaction-warning',error);}
   function dirty(){
-    revision++;requestRevision++;lastResult=null;$('design-download').disabled=true;$('design-generate').disabled=false;
+    revision++;requestRevision++;generating=false;lastResult=null;tableUI.clear();$('design-download').disabled=true;$('design-generate').disabled=false;
     $('design-output').innerHTML='<span class="small muted">Generate to update fragments</span>';
     note('Saving…');root.JunctionSandbox?.schedule();
     clearTimeout(saveTimer);const changed=revision;
@@ -48,7 +49,8 @@
   }
   function renderFields(){
     const d=current();if(!d)return;renderSaved();
-    for(const[id,key]of Object.entries({'design-name':'name','design-enzyme':'enzyme','design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme'}))$(id).value=d[key];
+    for(const[id,key]of Object.entries({'design-name':'name','design-enzyme':'enzyme','design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme','design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).value=d[key]??'';
+    $('design-add-re').checked=d.include_re_sites!==false;
     $('design-excluded').value=d.excluded_overhangs.join(', ');
     $('design-left').disabled=$('design-right').disabled=!!d.backbone_id;
   }
@@ -104,11 +106,11 @@
     $('design-sequence').innerHTML=sequenceHtml(sequence,item.sections,node?.sites||[]);$('design-sequence-size').textContent=sequence.length.toLocaleString()+' nt';
   }
   function renderEditor(){
-    const item=entry(),editor=$('design-editor');editor.classList.toggle('hidden',!item||item.kind!=='placeholder');if(!item||item.kind!=='placeholder')return;
+    const item=entry(),editor=$('design-editor');editor.classList.toggle('hidden',!item||item.kind!=='placeholder');if(!item||item.kind!=='placeholder'){tableUI.render();return;}
     editor.innerHTML=`<div class="panel-heading"><h2>Insert</h2><input id="design-placeholder-name" aria-label="Placeholder name" maxlength="100" value="${esc(item.name)}"></div><label class="field-label" for="design-insert">Full insert sequence</label><textarea id="design-insert" rows="4" maxlength="100000" spellcheck="false" placeholder="Paste DNA or FASTA" title="Paste the payload between the surrounding fusion labels. Free ends use the insert’s own terminal bases.">${esc(item.sequence)}</textarea><div id="design-insert-sites" class="design-sites"></div><div class="design-sequence-heading"><h3>Sections</h3><small id="design-sequence-size"></small></div><pre id="design-sequence" class="design-sequence" tabindex="0" aria-label="Select insert bases" title="Drag across bases, then add a section"></pre><div class="design-section-controls"><label>Name<input id="design-section-name" placeholder="Part ${item.sections.length+1}" maxlength="100"></label><label>Region<select id="design-section-mode"><option value="constant">Constant</option><option value="dynamic">Dynamic</option></select></label><label>Start<input id="design-section-start" aria-label="Section start" type="number" min="1" step="1"></label><label>End<input id="design-section-end" aria-label="Section end" type="number" min="1" step="1"></label><button id="design-section-add" class="secondary compact" type="button">Add section</button></div><div id="design-section-error" class="reaction-warning" role="alert"></div><div id="design-sections"></div>`;
-    renderSequence();renderSections();renderSites();
-    $('design-placeholder-name').oninput=event=>{item.name=event.target.value;dirty();renderChain();};
-    $('design-insert').oninput=event=>{const changed=dna(item.sequence)!==dna(event.target.value);item.sequence=event.target.value;if(changed)item.sections=[];preview=null;dirty();renderSequence();renderSections();renderChain();$('design-insert-sites').textContent='Checking…';};
+    renderSequence();renderSections();renderSites();tableUI.render();
+    $('design-placeholder-name').oninput=event=>{item.name=event.target.value;dirty();renderChain();tableUI.render();};
+    $('design-insert').oninput=event=>{const changed=dna(item.sequence)!==dna(event.target.value);item.sequence=event.target.value;if(changed)item.sections=[];preview=null;dirty();renderSequence();renderSections();renderChain();tableUI.render();$('design-insert-sites').textContent='Checking…';};
     $('design-sequence').onmouseup=captureSelection;$('design-sequence').onkeyup=captureSelection;
     $('design-section-add').onmousedown=event=>event.preventDefault();
     $('design-section-add').onclick=()=>{try{item.sections=addSection(item.sections,dna(item.sequence),Number($('design-section-start').value)-1,Number($('design-section-end').value),$('design-section-name').value,$('design-section-mode').value);$('design-section-error').textContent='';dirty();renderEditor();renderChain();}catch(error){$('design-section-error').textContent=error.message;}};
@@ -122,7 +124,7 @@
   }
   function renderSections(){
     const item=entry();if(!$('design-sections')||!item)return;
-    $('design-sections').innerHTML=item.sections.map((section,index)=>`<div class="design-section-row design-section-${index%6}"><strong>${esc(section.name)}</strong><select data-region-mode="${index}" aria-label="Region mode for ${esc(section.name)}"><option value="constant" ${section.mode!=='dynamic'?'selected':''}>Constant</option><option value="dynamic" ${section.mode==='dynamic'?'selected':''}>Dynamic</option></select><span>${section.start+1}–${section.end} · ${section.end-section.start} nt${section.variants?.length?' · '+section.variants.length+' variants':''}</span><button type="button" class="text-button" data-section-remove="${index}" aria-label="Remove section ${esc(section.name)}">×</button></div>${section.mode==='dynamic'?`<details class="design-variants"><summary>Pasted variants · ${esc(section.name)}</summary><textarea rows="3" spellcheck="false" data-variant-section="${index}" aria-label="Variants for ${esc(section.name)}" placeholder=">Variant A\nACGT…\n>Variant B\nACGT…" title="Each record replaces only this highlighted dynamic region. Constant flanks and order are preserved.">${esc(section.variant_text||'')}</textarea><small class="muted">FASTA · One record per alternative</small></details>`:''}`).join('');
+    $('design-sections').innerHTML=item.sections.map((section,index)=>`<div class="design-section-row design-section-${index%6}"><strong>${esc(section.name)}</strong><select data-region-mode="${index}" aria-label="Region mode for ${esc(section.name)}"><option value="constant" ${section.mode!=='dynamic'?'selected':''}>Constant</option><option value="dynamic" ${section.mode==='dynamic'?'selected':''}>Dynamic</option></select><span>${section.start+1}–${section.end} · ${section.end-section.start} nt${section.variants?.length?' · '+section.variants.length+' variants':''}</span><button type="button" class="text-button" data-section-remove="${index}" aria-label="Remove section ${esc(section.name)}">×</button></div>${section.mode==='dynamic'?`<details class="design-variants"><summary>Pasted variants · ${esc(section.name)}</summary><textarea rows="3" spellcheck="false" data-variant-section="${index}" ${current().use_table?'disabled':''} aria-label="Variants for ${esc(section.name)}" placeholder=">Variant A\nACGT…\n>Variant B\nACGT…" title="Each record replaces only this highlighted dynamic region. Constant flanks and order are preserved.">${esc(section.variant_text||'')}</textarea><small class="muted">FASTA · One record per alternative</small></details>`:''}`).join('');
     $('design-sections').querySelectorAll('[data-region-mode]').forEach(input=>input.onchange=()=>{const section=item.sections[Number(input.dataset.regionMode)];if(input.value==='constant'&&section.variants?.length){input.value='dynamic';$('design-section-error').textContent='Remove pasted variants before making this region Constant.';return;}section.mode=input.value;dirty();renderEditor();});
     $('design-sections').querySelectorAll('[data-variant-section]').forEach(input=>input.oninput=()=>{const section=item.sections[Number(input.dataset.variantSection)];section.variant_text=input.value;try{section.variants=parseVariants(input.value);$('design-section-error').textContent='';dirty();}catch(error){$('design-section-error').textContent=error.message;lastResult=null;$('design-download').disabled=true;}});
     $('design-sections').querySelectorAll('[data-section-remove]').forEach(button=>button.onclick=()=>{item.sections.splice(Number(button.dataset.sectionRemove),1);dirty();renderEditor();renderChain();});
@@ -134,25 +136,25 @@
   }
   function renderChecks(result){
     $('design-checks').innerHTML=[...(result.errors||[]).map(message=>`<div class="reaction-warning">${esc(message)}</div>`),...(result.warnings||[]).map(message=>`<div class="small muted">${esc(message)}</div>`)].join('');
-    renderChain();renderSites();
+    renderChain();renderSites();tableUI.refreshConstants();tableUI.setResult(result);
     const selection=window.getSelection();if(!$('design-sequence')?.contains(selection?.anchorNode)||selection?.isCollapsed)renderSequence();
   }
   function renderOutput(result){
     const assembly=result.assembly;
     const summary=assembly?`<div class="design-result-summary"><strong class="${result.valid?'design-pass':'reaction-warning'}">${result.valid?'✓ Pass':'! Fail'}</strong><span>${assembly.length.toLocaleString()} bp · ${assembly.circular?'Circular':'Linear'} · ${assembly.gc.toFixed(2)}% GC</span><span>${result.generated.length} new fragments · ${result.assemblies?.length||1} assemblies</span></div><div class="design-assembly-map">${assembly.features.filter(f=>f.source==='fragment'||f.source==='retained_backbone').map(f=>`<span style="flex:${Math.max(1,f.end-f.start)}" title="${esc(f.label)} · ${f.start+1}–${f.end}">${esc(f.label)}</span>`).join('')}</div>`:'';
-    $('design-output').innerHTML=summary+(result.generated.length?`<div class="table-scroll"><table class="design-generated"><thead><tr><th>Fragment</th><th>Region</th><th>Length</th><th>GC %</th><th>5′</th><th>3′</th><th>Reference bases</th><th>Sequence</th></tr></thead><tbody>${result.generated.map((row,index)=>`<tr><td>${esc(row.name)}</td><td>${row.region_mode==='dynamic'?'Dynamic':'Constant'}${row.variant_name?' · '+esc(row.variant_name):''}</td><td>${row.length}</td><td>${row.gc.toFixed(2)}</td><td>${label(row.left_overhang)}</td><td>${label(row.right_overhang)}</td><td>${row.source_start+1}–${row.source_end}</td><td><details><summary>DNA</summary><pre>${esc(row.sequence)}</pre><button type="button" class="text-button" data-design-copy="${index}">Copy</button></details></td></tr>`).join('')}</tbody></table></div>`:'<span class="small muted">No generated fragments</span>')+(result.boundary_shifts.length?`<details><summary>Boundaries</summary><div class="design-boundary-list">${result.boundary_shifts.map(b=>`<span>${b.requested+1} → ${b.actual+1} ${label(b.overhang)}${b.actual!==b.requested?' · '+(b.actual-b.requested>0?'+':'')+(b.actual-b.requested)+' nt':''}</span>`).join('')}</div></details>`:'')+(result.assemblies?.length>1?`<details><summary>Variant assemblies (${result.assemblies.length})</summary>${result.assemblies.map(item=>`<details class="design-product"><summary>${esc(item.name)} · ${item.length.toLocaleString()} bp</summary><pre class="design-final-sequence">${esc(item.sequence)}</pre></details>`).join('')}</details>`:'')+(assembly?`<details><summary>Assembly sequence</summary><pre class="design-final-sequence">${esc(assembly.sequence)}</pre></details>`:'');
+    $('design-output').innerHTML=summary+(result.generated.length?`<div class="table-scroll"><table class="design-generated"><thead><tr><th>Fragment</th><th>Region</th><th>Target / Full nt</th><th>GC %</th><th>5′</th><th>3′</th><th>Reference bases</th><th>Sequence</th></tr></thead><tbody>${result.generated.map((row,index)=>`<tr><td>${esc(row.name)}</td><td>${row.region_mode==='dynamic'?'Dynamic':'Constant'}${row.variant_name?' · '+esc(row.variant_name):''}</td><td>${row.target_length??row.target.length} / ${row.length}</td><td>${row.gc.toFixed(2)}</td><td>${label(row.left_overhang)}</td><td>${label(row.right_overhang)}</td><td>${row.source_start+1}–${row.source_end}</td><td><details><summary>Target</summary><pre>${esc(row.target_sequence??row.target)}</pre></details><details><summary>Full</summary><pre>${esc(row.full_sequence??row.sequence)}</pre><button type="button" class="text-button" data-design-copy="${index}">Copy</button></details></td></tr>`).join('')}</tbody></table></div>`:'<span class="small muted">No generated fragments</span>')+(result.boundary_shifts.length?`<details><summary>Boundaries</summary><div class="design-boundary-list">${result.boundary_shifts.map(b=>`<span>${b.requested+1} → ${b.actual+1} ${label(b.overhang)}${b.actual!==b.requested?' · '+(b.actual-b.requested>0?'+':'')+(b.actual-b.requested)+' nt':''}</span>`).join('')}</div></details>`:'')+(result.assemblies?.length>1?`<details><summary>Variant assemblies (${result.assemblies.length})</summary>${result.assemblies.map(item=>`<details class="design-product"><summary>${esc(item.name)} · ${item.length.toLocaleString()} bp</summary><pre class="design-final-sequence">${esc(item.sequence)}</pre></details>`).join('')}</details>`:'')+(assembly?`<details><summary>Assembly sequence</summary><pre class="design-final-sequence">${esc(assembly.sequence)}</pre></details>`:'');
     $('design-output').querySelectorAll('[data-design-copy]').forEach(button=>button.onclick=async()=>{try{await navigator.clipboard.writeText(result.generated[Number(button.dataset.designCopy)].sequence);button.textContent='Copied';}catch{note('Select the sequence to copy.',true);}});
     $('design-download').disabled=!result.valid;
   }
   async function check(generate){
-    if(!ready||!current())return;clearTimeout(checkTimer);const token=++requestRevision,designId=current().id;
-    if(generate){$('design-generate').disabled=true;note('Generating…');}
+    if(!ready||!current()||(!generate&&(generating||lastResult)))return;clearTimeout(checkTimer);const token=++requestRevision,designId=current().id;
+    if(generate){generating=true;$('design-generate').disabled=true;note('Generating…');}
     try{
       const response=await request('/api/design/preview?generate='+generate,payload()),result=await response.json();
       if(token!==requestRevision||designId!==current().id)return;
       preview=result;renderChecks(result);if(generate){lastResult=result;renderOutput(result);if(result.valid&&!result.generated.length)$('design-export-format').value='gb';note(result.valid?'Generated · Private sandbox':'Resolve design errors',!result.valid);}
     }catch(error){if(token===requestRevision){$('design-checks').textContent=error.message;note(error.message,true);}}
-    finally{if(token===requestRevision)$('design-generate').disabled=false;}
+    finally{if(token===requestRevision){generating=false;$('design-generate').disabled=false;}}
   }
   function render(){renderFields();renderReferences();renderChain();renderEditor();$('design-download').disabled=!lastResult?.valid;}
   function addPlaceholder(at=current().entries.length){
@@ -164,26 +166,28 @@
   $('design-name').oninput=event=>{current().name=event.target.value||'New design';dirty();renderSaved();};
   $('design-enzyme').onchange=event=>{current().enzyme=event.target.value;current().slot_id=null;refs=null;preview=null;dirty();render();loadReferences();};
   $('design-backbone').onchange=event=>{const d=current();d.backbone_id=Number(event.target.value)||null;d.slot_id=chosenBackbone()?.slots[0]?.id||null;preview=null;dirty();render();};
-  $('design-slot').onchange=event=>{current().slot_id=event.target.value||null;preview=null;dirty();renderChain();};
+  $('design-slot').onchange=event=>{current().slot_id=event.target.value||null;preview=null;dirty();renderChain();tableUI.render();};
   $('design-backbone-cards').onclick=event=>{const button=event.target.closest('[data-design-bb]');if(!button)return;const d=current();d.backbone_id=Number(button.dataset.designBb);d.enzyme=button.dataset.mode;d.slot_id=button.dataset.slot;refs=null;preview=null;dirty();renderFields();loadReferences();};
   $('design-add-placeholder').onclick=()=>addPlaceholder();
   $('design-fragment-search').oninput=renderSearch;
   $('design-fragment-search').onkeydown=event=>{if(event.key==='ArrowDown'){$('design-search-results').querySelector('button:not(:disabled)')?.focus();event.preventDefault();}if(event.key==='Escape')$('design-search-results').classList.add('hidden');};
-  $('design-search-results').onclick=event=>{const button=event.target.closest('[data-design-add]');if(!button)return;const fragment=refs.fragments.find(f=>f.id===Number(button.dataset.designAdd));current().entries.push({id:uid(),kind:'fragment',fragment_id:fragment.id,name:fragment.name,reverse:button.dataset.reverse==='true'});$('design-fragment-search').value='';$('design-search-results').classList.add('hidden');preview=null;dirty();renderChain();};
+  $('design-search-results').onclick=event=>{const button=event.target.closest('[data-design-add]');if(!button)return;const fragment=refs.fragments.find(f=>f.id===Number(button.dataset.designAdd));current().entries.push({id:uid(),kind:'fragment',fragment_id:fragment.id,name:fragment.name,reverse:button.dataset.reverse==='true'});$('design-fragment-search').value='';$('design-search-results').classList.add('hidden');preview=null;dirty();renderChain();tableUI.render();};
   $('design-chain').onclick=event=>{
     const gap=event.target.closest('[data-placeholder-at]');if(gap){addPlaceholder(Number(gap.dataset.placeholderAt));return;}
     const remove=event.target.closest('[data-design-remove]'),reverse=event.target.closest('[data-design-reverse]'),select=event.target.closest('[data-design-entry]');
     if(remove){current().entries=current().entries.filter(item=>item.id!==remove.dataset.designRemove);preview=null;dirty();renderChain();renderEditor();}
-    else if(reverse){const item=current().entries.find(item=>item.id===reverse.dataset.designReverse);item.reverse=!item.reverse;preview=null;dirty();renderChain();}
+    else if(reverse){const item=current().entries.find(item=>item.id===reverse.dataset.designReverse);item.reverse=!item.reverse;preview=null;dirty();renderChain();tableUI.render();}
     else if(select){activeEntry=select.dataset.designEntry;renderChain();renderEditor();}
   };
   $('design-chain').ondragstart=event=>{dragId=event.target.closest('[data-entry-id]')?.dataset.entryId;if(dragId)event.dataTransfer.setData('text/plain',dragId);};
   $('design-chain').ondragover=event=>{if(event.target.closest('[data-entry-id]'))event.preventDefault();};
-  $('design-chain').ondrop=event=>{event.preventDefault();const target=event.target.closest('[data-entry-id]')?.dataset.entryId,items=current().entries;if(!dragId||!target)return;current().entries=moveEntry(items,items.findIndex(item=>item.id===dragId),items.findIndex(item=>item.id===target));dragId=null;preview=null;dirty();renderChain();};
-  $('design-chain').onkeydown=event=>{if(!event.altKey||!['ArrowLeft','ArrowRight'].includes(event.key))return;const id=event.target.closest('[data-entry-id]')?.dataset.entryId,index=current().entries.findIndex(item=>item.id===id);if(index<0)return;event.preventDefault();current().entries=moveEntry(current().entries,index,index+(event.key==='ArrowRight'?1:-1));preview=null;dirty();renderChain();$('design-chain').querySelector(`[data-design-entry="${CSS.escape(id)}"]`)?.focus();};
+  $('design-chain').ondrop=event=>{event.preventDefault();const target=event.target.closest('[data-entry-id]')?.dataset.entryId,items=current().entries;if(!dragId||!target)return;current().entries=moveEntry(items,items.findIndex(item=>item.id===dragId),items.findIndex(item=>item.id===target));dragId=null;preview=null;dirty();renderChain();tableUI.render();};
+  $('design-chain').onkeydown=event=>{if(!event.altKey||!['ArrowLeft','ArrowRight'].includes(event.key))return;const id=event.target.closest('[data-entry-id]')?.dataset.entryId,index=current().entries.findIndex(item=>item.id===id);if(index<0)return;event.preventDefault();current().entries=moveEntry(current().entries,index,index+(event.key==='ArrowRight'?1:-1));preview=null;dirty();renderChain();tableUI.render();$('design-chain').querySelector(`[data-design-entry="${CSS.escape(id)}"]`)?.focus();};
   for(const[id,key]of Object.entries({'design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme'}))$(id).onchange=event=>{current()[key]=key==='window'?Number(event.target.value):event.target.value.toUpperCase();if(key==='adapter_enzyme')current()[key]=event.target.value;dirty();};
   $('design-excluded').onchange=event=>{current().excluded_overhangs=event.target.value.toUpperCase().split(/[\s,;]+/).filter(Boolean);dirty();};
   $('design-avoid').onchange=()=>{current().avoid_sites=[...$('design-avoid').querySelectorAll('input:checked')].map(input=>input.value);dirty();};
+  $('design-add-re').onchange=event=>{current().include_re_sites=event.target.checked;dirty();};
+  for(const[id,key]of Object.entries({'design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).onchange=event=>{current()[key]=event.target.value||null;dirty();};
   $('design-generate').onclick=()=>check(true);
   $('design-download').onclick=async()=>{
     if(!lastResult?.valid)return;const button=$('design-download');button.disabled=true;
@@ -194,7 +198,7 @@
   root.JunctionDesign={
     snapshot:()=>JSON.parse(JSON.stringify(saved)),
     restore(data){
-      if(data&&Array.isArray(data.designs)&&data.designs.length){saved=JSON.parse(JSON.stringify(data));saved.designs=saved.designs.filter(d=>d&&typeof d.id==='string'&&Array.isArray(d.entries));}
+      if(data&&Array.isArray(data.designs)&&data.designs.length){saved=JSON.parse(JSON.stringify(data));saved.designs=saved.designs.filter(d=>d&&typeof d.id==='string'&&Array.isArray(d.entries)).map(d=>({include_re_sites:true,left_adapter_enzyme:null,right_adapter_enzyme:null,use_table:false,table_rows:[],...d}));}
       if(!saved.designs.length)saved={designs:[fresh()],activeId:null};
       if(!saved.designs.some(d=>d.id===saved.activeId))saved.activeId=saved.designs[0].id;
       activeEntry=current().entries.find(item=>item.kind==='placeholder')?.id||null;ready=true;render();

@@ -1,6 +1,4 @@
 """Authenticated design previews and downloads; shared inventory is read only."""
-import csv
-import io
 import re
 from datetime import datetime
 from typing import Literal
@@ -13,6 +11,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import database as store
 from .design_engine import TYPE_II, design
+from .design_table import check_rows, table_design, sequence_metadata
+from .design_exports import fragment_rows, assembly_rows, csv_bytes, workbook_bytes
 from .exports import genbank_bytes
 from .sequence_engine import find_backbone_slots, fragment_orientations
 
@@ -43,10 +43,20 @@ class Entry(BaseModel):
     sections: list[Section] = Field(default_factory=list, max_length=100)
 
 
+class TableRow(BaseModel):
+    name: str = Field(default='', max_length=100)
+    dynamic_inputs: dict[str, str] = Field(default_factory=dict, max_length=100)
+
+
 class DesignRequest(BaseModel):
     name: str = Field(default='New design', min_length=1, max_length=100)
     enzyme: Enzyme = 'BsaI'
     adapter_enzyme: Literal['BsaI', 'BsmBI'] = 'BsaI'
+    left_adapter_enzyme: Literal['BsaI', 'BsmBI'] | None = None
+    right_adapter_enzyme: Literal['BsaI', 'BsmBI'] | None = None
+    include_re_sites: bool = True
+    use_table: bool = False
+    table_rows: list[TableRow] = Field(default_factory=list,max_length=384)
     backbone_id: int | None = Field(default=None, gt=0)
     slot_id: str | None = Field(default=None, max_length=100)
     entries: list[Entry] = Field(default_factory=list, max_length=100)
@@ -60,6 +70,8 @@ class DesignRequest(BaseModel):
     def bounded(self):
         if sum(len(entry.sequence) + sum(len(v.sequence) for s in entry.sections for v in s.variants) for entry in self.entries) > 150000:
             raise ValueError('Use at most 150,000 insert bases per design.')
+        if sum(len(value) for row in self.table_rows for value in row.dynamic_inputs.values()) > 1000000:
+            raise ValueError('Use at most one million pasted table bases per design.')
         if sum(len(entry.sections) for entry in self.entries) > 100:
             raise ValueError('Use at most 100 highlighted sections per design.')
         for entry in self.entries:
@@ -109,10 +121,23 @@ def preview_design(payload, generate=True):
             if not fragment:
                 raise HTTPException(422, 'A selected fragment is archived or unavailable.')
             row.update(name=fragment['name'], sequence=fragment['sequence'])
+        if payload.use_table:
+            for section in row.get('sections', []):
+                section['variants'] = []
         entries.append(row)
     result = design(entries, payload.enzyme, backbone, payload.slot_id,
                     payload.left_overhang, payload.right_overhang, payload.window,
-                    payload.avoid_sites, payload.excluded_overhangs, generate, payload.adapter_enzyme)
+                    payload.avoid_sites, payload.excluded_overhangs, generate, payload.adapter_enzyme,
+                    payload.left_adapter_enzyme, payload.right_adapter_enzyme)
+    if payload.use_table:
+        rows = [row.model_dump() for row in payload.table_rows]
+        if generate:
+            result = table_design(result, rows, payload.enzyme, backbone, payload.slot_id, payload.avoid_sites)
+        else:
+            errors, statuses = check_rows(entries, rows, payload.enzyme, payload.avoid_sites)
+            result['errors'].extend(errors)
+            result.update(table_mode=True, table_rows=statuses)
+    sequence_metadata(result, payload.include_re_sites)
     result['name'] = payload.name
     return result
 
@@ -123,30 +148,36 @@ def preview(payload: DesignRequest, generate: bool = False):
 
 
 @router.post('/export')
-def export(payload: DesignRequest, format: Literal['csv', 'fasta', 'gb'] = 'csv'):
+def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'target_fasta', 'assemblies_csv', 'gb'] = 'csv'):
     result = preview_design(payload)
     if not result['valid']:
         raise HTTPException(422, dict(message='Resolve design errors before exporting.', errors=result['errors']))
-    if format != 'gb' and not result['generated']:
+    if format not in ('gb','assemblies_csv','xlsx') and not result['generated']:
         raise HTTPException(422, 'No new fragments to export. Choose GenBank for the assembled sequence.')
+    suffix = ''
     if format == 'gb':
-        content = b''.join(genbank_bytes((f'{index:02d}_' + payload.name + '_' + item['name']) if len(result['assemblies']) > 1 else payload.name,
-                                        item['sequence'], item['features'], circular=item['circular'])
+        def record_name(index,item):
+            if result.get('table_mode'):
+                return f'{index:03d}_' + item['name']
+            return (f'{index:02d}_' + payload.name + '_' + item['name']) if len(result['assemblies']) > 1 else payload.name
+        content = b''.join(genbank_bytes(record_name(index,item), item['sequence'], item['features'], circular=item['circular'])
                            for index,item in enumerate(result['assemblies'],1))
-        mime = 'text/plain'
-    elif format == 'fasta':
-        content = ''.join('>' + re.sub(r'[\r\n>]', '_', row['name']) + '\n' + '\n'.join(row['sequence'][i:i+80] for i in range(0, len(row['sequence']), 80)) + '\n' for row in result['generated']).encode()
-        mime = 'text/plain'
+        mime,extension = 'text/plain','gb'
+    elif format in ('fasta','target_fasta'):
+        key = 'target_sequence' if format == 'target_fasta' else 'full_sequence'
+        content = ''.join('>' + re.sub(r'[\r\n>]', '_', row['name']) + '\n' + '\n'.join(row[key][i:i+80] for i in range(0, len(row[key]), 80)) + '\n' for row in result['generated']).encode()
+        mime,extension = 'text/plain','fasta'
+        suffix = '_targets' if format == 'target_fasta' else '_full'
+    elif format == 'xlsx':
+        try:
+            content = workbook_bytes(result)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from None
+        mime,extension = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','xlsx'
     else:
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(['Name', 'Sequence', 'Length nt', 'GC %', '5\u2032 overhang', '3\u2032 overhang', 'Adapter enzyme', 'Region', 'Insert start (1-based)', 'Insert end'])
-        for row in result['generated']:
-            name = row['name']
-            if name.startswith(('=', '+', '-', '@')):
-                name = "'" + name
-            writer.writerow([name, row['sequence'], row['length'], round(row['gc'], 2), row['left_overhang'], row['right_overhang'], row['adapter_enzyme'], row['region_mode'], row['source_start'] + 1, row['source_end']])
-        content, mime = output.getvalue().encode('utf-8-sig'), 'text/csv'
+        content = csv_bytes(assembly_rows(result) if format == 'assemblies_csv' else fragment_rows(result))
+        mime,extension = 'text/csv','csv'
+        suffix = '_assemblies' if format == 'assemblies_csv' else '_fragments'
     day = datetime.now(ZoneInfo('Australia/Melbourne')).date().isoformat()
-    filename = f'Design_{day}_{uuid4().hex[:12]}.{format}'
+    filename = f'Design_{day}_{uuid4().hex[:12]}{suffix}.{extension}'
     return Response(content, media_type=mime, headers={'Content-Disposition': f'attachment; filename="{filename}"'})

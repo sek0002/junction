@@ -44,26 +44,34 @@ def fusion_key(label):
     return min(label, reverse_complement(label))
 
 
-def donor_sequence(left, target, right, enzyme, avoid):
-    forward, reverse = ENZYMES[enzyme]
+def donor_sequence(left, target, right, enzyme, avoid, right_enzyme=None):
+    right_enzyme = right_enzyme or enzyme
+    forward, reverse = ENZYMES[enzyme][0], ENZYMES[right_enzyme][1]
+    adapters = {enzyme,right_enzyme}
+    digest_enzyme = enzyme if len(adapters)==1 else 'BsmBI + BsaI'
     # Six external bases protect the terminal recognition sites. Search the
     # one-base spacers to avoid accidental sites at adapter boundaries.
     for a in 'ACGT':
         for b in 'ACGT':
             sequence = 'GCGTAC' + forward + a + left + target + right + b + reverse + 'GTACGC'
-            digest = digest_fragment(sequence, enzyme)
-            if digest['valid'] and not any(site['enzyme'] in avoid - {enzyme} for site in scan_type_ii(sequence)):
+            digest = digest_fragment(sequence, digest_enzyme)
+            if digest['valid'] and not any(site['enzyme'] in avoid - adapters for site in scan_type_ii(sequence)):
                 return sequence
     raise ValueError(f'No {enzyme} adapter spacers avoid internal or boundary restriction sites.')
 
 
 def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang='',
            right_overhang='', window=20, avoid_sites=(), excluded_overhangs=(),
-           generate=True, adapter_enzyme='BsaI'):
+           generate=True, adapter_enzyme='BsaI', left_adapter_enzyme=None, right_adapter_enzyme=None):
     active = set(active_enzymes(enzyme))
     adapter = adapter_enzyme if len(active) > 1 else next(iter(active))
+    left_adapter = left_adapter_enzyme or adapter
+    right_adapter = right_adapter_enzyme or adapter
     avoid = active | set(avoid_sites)
     errors, warnings, nodes, runs, generated = [], [], [], [], []
+    for side, chosen in (('5′',left_adapter),('3′',right_adapter)):
+        if chosen not in active:
+            errors.append(f'{side} {chosen} adapter is not cut by the selected assembly enzyme. Select {chosen} or the dual-enzyme reaction.')
     excluded = {fusion_key(label) for label in excluded_overhangs}
     reserved = set(excluded)
     bb = prepare_backbone(backbone['sequence'], enzyme, slot_id) if backbone else None
@@ -132,7 +140,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                 boundaries.append(offset)
             for section in node.get('sections', []):
                 boundaries.extend((offset + section['start'], offset + section['end']))
-                sections.append(dict(section, start=offset + section['start'], end=offset + section['end']))
+                sections.append(dict(section, start=offset + section['start'], end=offset + section['end'], key=f"{node['id']}:{section['start']}:{section['end']}"))
             sequence += node['sequence']
         previous = nodes[start - 1]['digest']['right_overhang'] if start else (bb['right_overhang'] if bb else left_overhang)
         following = nodes[i]['digest']['left_overhang'] if i < len(nodes) else (bb['left_overhang'] if bb else right_overhang)
@@ -241,7 +249,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             section = next(iter(contained_dynamic), None) or next((s for s in run['sections'] if s['start'] <= center < s['end']), None)
             name = f"{section['name'] if section else run['name']}_{number}"
             try:
-                sequence = donor_sequence(left, target, right, adapter, avoid)
+                sequence = donor_sequence(left, target, right, left_adapter, avoid, right_adapter)
             except ValueError as exc:
                 errors.append(f'{name}: {exc}')
                 continue
@@ -249,7 +257,9 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                                   left_overhang=left, right_overhang=right, target=target,
                                   length=len(sequence), gc=100 * (sequence.count('G') + sequence.count('C')) / len(sequence),
                                   run=run['index'], source_start=start + run['trim_left'],
-                                  source_end=stop + run['trim_left'], adapter_enzyme=adapter,
+                                  source_end=stop + run['trim_left'], adapter_enzyme=left_adapter if left_adapter==right_adapter else 'BsmBI + BsaI',
+                                  left_adapter_enzyme=left_adapter, right_adapter_enzyme=right_adapter,
+                                  target_start=target_start+run['trim_left'], target_end=target_end+run['trim_left'],
                                   region_mode=section.get('mode','constant') if section else 'constant',
                                   dynamic_regions=[s for s in run['sections'] if s.get('mode')=='dynamic' and s['start']>=target_start+run['trim_left'] and s['end']<=target_end+run['trim_left']],
                                   sites=scan_type_ii(sequence))
@@ -261,7 +271,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                     variant_target = target[:offset] + alternate + target[offset + dynamic['end'] - dynamic['start']:]
                     variant_name = name + '__' + variant['name']
                     try:
-                        variant_sequence = donor_sequence(left, variant_target, right, adapter, avoid)
+                        variant_sequence = donor_sequence(left, variant_target, right, left_adapter, avoid, right_adapter)
                     except ValueError as exc:
                         errors.append(f'{variant_name}: {exc}')
                         continue
