@@ -555,6 +555,7 @@ class NestedAssembly(BaseModel):
 
 class AssemblyRequest(BaseModel):
     name:str=Field('New assembly',min_length=1,max_length=100)
+    name_mode:Literal['auto','manual'] | None=None
     enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI'
     fragment_ids:list[int]=Field(default_factory=list,max_length=50)
     backbone_id:int | None=None

@@ -42,6 +42,21 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.bob.get('/api/workspace').json()['data'],bob)
         self.assertEqual(self.admin.get('/api/workspace').json()['data'],{})
 
+    def test_name_mode_persists_with_builds_settings_and_private_drafts(self):
+        request=self.build|{'name_mode':'auto'}
+        created=self.alice.post('/api/build-list',json=request)
+        self.assertEqual(created.status_code,200,created.text)
+        identifier=created.json()['id']
+        self.assertEqual(created.json()['request']['name_mode'],'auto')
+        updated=self.alice.patch(f'/api/build-list/{identifier}/settings',json={'insert_ratio':2})
+        self.assertEqual(updated.json()['request']['name_mode'],'auto')
+        request=request|{'name':'Manually edited','name_mode':'manual'}
+        self.assertEqual(self.alice.put(f'/api/build-list/{identifier}',json=request).status_code,200)
+        self.assertEqual(self.alice.get('/api/build-list').json()['items'][0]['request']['name_mode'],'manual')
+        self.alice.put('/api/workspace',json={'data':{'draft':request}})
+        self.assertEqual(self.alice.get('/api/workspace').json()['data']['draft']['name_mode'],'manual')
+        self.assertNotEqual(self.bob.get('/api/workspace').json()['data'].get('draft'),request)
+
     def test_builds_list_settings_delete_restore_and_export_are_owner_scoped(self):
         created=self.alice.post('/api/build-list',json=self.build);self.assertEqual(created.status_code,200,created.text);identifier=created.json()['id']
         own=self.bob.post('/api/build-list',json=self.build).json();self.assertEqual(own['request']['name'],'Private design')

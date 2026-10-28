@@ -316,10 +316,11 @@ planner. It shows every queued build's settings, input volumes, readiness,
 fragment metadata and plate key. Its Export menu downloads the full list in
 PDF, Excel or CSV. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
 
-The Name field offers a clickable recommendation from the ordered fragment
-names, with the selected backbone and nested fragment names included. Applying
-it uses the normal name-edit flow; custom names stay unchanged until clicked.
-Recommendations fit the 100-character name limit.
+The Name field updates automatically when fragments are added, swapped,
+reordered or removed, including changes to the backbone and nested inserts.
+Editing the name manually protects it from later changes. This mode persists
+in drafts and queued builds; existing custom names remain protected. Clicking
+the recommendation resumes automatic naming. Names fit the 100-character limit.
 
 Each reaction occupies one row. Its inputs are listed in assembly order as
 `(PlateID-Well-Volume)`; volumes are µL. Plate labels use the first four

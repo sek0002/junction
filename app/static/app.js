@@ -4,7 +4,7 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const plateLabel=id=>state.plateLabels?.[id]??(/^pSHPs/i.test(String(id||''))?(String(id).slice(5).replace(/[^a-z0-9]/gi,'').slice(0,4)||id):String(id||''));
 const spanLabel=(a,b)=>a===b?'gap after '+a:`${a+1}–${b}`;
 const fmt=(x,n=2)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:n});
-const state={plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
+const state={plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
 let toastTimer,searchTimer,previewTimer,assemblyCheckTimer,searchCounter=0,checkCounter=0,resuspCounter=0;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),6000);}
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
@@ -187,12 +187,28 @@ function refreshRecommendedAssemblyName(){
   const name=recommendedAssemblyName();
   button.textContent='↳ '+name;button.title='Use recommended name: '+name;
   button.setAttribute('aria-label',button.title);button.classList.toggle('hidden',!name);
+  const changed=name!==state.assemblyNameRecommendation;
+  state.assemblyNameRecommendation=name;
+  if(!state.assemblyNameManual&&changed){
+    $('assembly-name').value=name||'New assembly';assemblyNameChanged(false);
+  }
+}
+function restoreAssemblyName(request){
+  state.assemblyNameManual=request.name_mode?request.name_mode==='manual':!!request.name&&request.name!=='New assembly';
+  state.assemblyNameRecommendation=recommendedAssemblyName();
+  $('assembly-name').value=request.name||'New assembly';
+}
+function assemblyNameChanged(manual=true){
+  if(manual)state.assemblyNameManual=true;
+  scheduleBuildSettingsSave();window.JunctionSandbox?.schedule();renderBuildList();
+  if(state.result&&!state.result.storedReference){state.result.name=$('assembly-name').value;delete state.result.viewerPlasmidId;$('viewer-name').value=state.result.name;renderMap();}
 }
 function applyRecommendedAssemblyName(){
   const name=recommendedAssemblyName();if(!name)return;
-  const input=$('assembly-name');input.value=name;input.oninput?.();input.focus();
+  state.assemblyNameManual=false;state.assemblyNameRecommendation=name;
+  const input=$('assembly-name');input.value=name;assemblyNameChanged(false);input.focus();
 }
-function payload(){const value=$('backbone').value;return{name:$('assembly-name').value||'New assembly',enzyme:$('enzyme').value,fragment_ids:state.parts.map(p=>p.id),starter_fragment_id:null,backbone_id:value.startsWith('p:')?Number(value.slice(2)):null,slot_id:value?$('slot').value||null:null,circular:value?true:null,nested_assemblies:selectedNested(),settings:settings()};}
+function payload(){const value=$('backbone').value;return{name:$('assembly-name').value||'New assembly',name_mode:state.assemblyNameManual?'manual':'auto',enzyme:$('enzyme').value,fragment_ids:state.parts.map(p=>p.id),starter_fragment_id:null,backbone_id:value.startsWith('p:')?Number(value.slice(2)):null,slot_id:value?$('slot').value||null:null,circular:value?true:null,nested_assemblies:selectedNested(),settings:settings()};}
 async function refresh(){
   const requestedEnzyme=$('enzyme').value;
   const [summary,fragments,plasmids,recipes,rulesResult]=await Promise.all([api('/api/summary'),api('/api/fragments?limit=1000&enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/plasmids?enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/recipes'),api('/api/inventory/rules')]);
@@ -233,11 +249,12 @@ async function loadRecipe(index){
   const recipe=state.recipes[index];if(!recipe?.available)return;
   closeAssemblySearch();$('fragment-search').value='';
   try{
-    await persistPendingBuild();state.activeBuildId=null;state.plannerStocks={};state.nestedAssemblies=[];state.nestedParent=null;state.nestedDraftStocks={};
+    await persistPendingBuild();state.activeBuildId=null;state.assemblyNameManual=true;state.plannerStocks={};state.nestedAssemblies=[];state.nestedParent=null;state.nestedDraftStocks={};
     if($('enzyme').value!==recipe.enzyme){$('enzyme').value=recipe.enzyme;await refresh();}
     $('assembly-name').value=recipe.name.replace(' · ','_');$('backbone').value='';
     const ids=recipe.no_backbone_fragment_ids||[recipe.starter_fragment_id,...recipe.fragment_ids].filter(Boolean);
     state.parts=ids.map(id=>state.fragments.find(f=>f.id===id));
+    restoreAssemblyName({name:recipe.name.replace(' · ','_'),name_mode:'auto'});
     backboneChanged(false);await checkAssembly();
   }catch(error){toast(error.message);}
 }
@@ -583,16 +600,16 @@ async function loadQueuedBuild(id){
     const parts=ids.map(partId=>state.fragments.find(f=>f.id===partId));
     if(parts.some(part=>!part))throw Error('A queued fragment is unavailable. Restore it from Bin first.');
     if(request.backbone_id&&!state.plasmids.some(p=>p.id===request.backbone_id))throw Error('The queued backbone is unavailable. Restore it from Bin first.');
-    state.activeBuildId=null;
+    state.activeBuildId=null;state.assemblyNameManual=true;
     $('assembly-name').value=request.name;$('backbone').value=request.backbone_id?'p:'+request.backbone_id:'';
-    state.parts=parts;state.nestedDraftStocks={};state.nestedAssemblies=structuredClone(request.nested_assemblies||[]);state.nestedParent=null;await loadNestedChildren();backboneChanged(false);
+    state.parts=parts;state.nestedDraftStocks={};state.nestedAssemblies=structuredClone(request.nested_assemblies||[]);state.nestedParent=null;await loadNestedChildren();restoreAssemblyName(request);backboneChanged(false);
     if(request.slot_id!==null)$('slot').value=String(request.slot_id);
     setPlannerInputs(request.settings);
     state.activeBuildId=id;renderParts();invalidate();selectSubtab(state.subtab);await checkAssembly();renderBuildList();
   }catch(error){toast(error.message);}
 }
 async function newBuild(){
-  try{await persistPendingBuild();state.activeBuildId=null;state.parts=[];state.nestedAssemblies=[];state.nestedParent=null;state.nestedDraftStocks={};$('assembly-name').value='New assembly';$('backbone').value='';setPlannerInputs({...plannerRuleDefaults(),...readPlannerOverrides()});backboneChanged();renderBuildList();selectSubtab('assembly');}
+  try{await persistPendingBuild();state.activeBuildId=null;state.parts=[];state.nestedAssemblies=[];state.nestedParent=null;state.nestedDraftStocks={};$('backbone').value='';restoreAssemblyName({name_mode:'auto'});setPlannerInputs({...plannerRuleDefaults(),...readPlannerOverrides()});backboneChanged();renderBuildList();selectSubtab('assembly');}
   catch(error){toast(error.message);}
 }
 async function removeQueuedBuild(id){
@@ -1933,7 +1950,7 @@ $('planner-backbone-stock').oninput=$('planner-backbone-stock').onchange=editPla
 $('backbone-pmol').oninput=updateBackboneVolume;
 $('planner-recalculate').onclick=planChanged;
 
-$('assembly-name').oninput=$('assembly-name').onchange=()=>{scheduleBuildSettingsSave();renderBuildList();if(state.result&&!state.result.storedReference){state.result.name=$('assembly-name').value;delete state.result.viewerPlasmidId;$('viewer-name').value=state.result.name;renderMap();}};
+$('assembly-name').oninput=$('assembly-name').onchange=()=>assemblyNameChanged();
 $('assembly-name-recommendation').onclick=applyRecommendedAssemblyName;
 let viewerRenameChain=Promise.resolve(),viewerRenameRevision=0,viewerRenameTimer=null;
 function renameViewer(){
@@ -1943,6 +1960,7 @@ function renameViewer(){
   const input=$('viewer-name');const name=input.value.trim();
   if(!name){input.setCustomValidity('Enter a plasmid name.');input.reportValidity();$('viewer-name-status').textContent='Name required';return;}
   input.setCustomValidity('');input.value=name;
+  if(!result.storedReference)state.assemblyNameManual=true;
   if(name===result.name)return;
   const oldName=result.name;const revision=++viewerRenameRevision;
   result.name=name;
@@ -1965,9 +1983,15 @@ function renameViewer(){
     }
   });
 }
-$('viewer-name').oninput=()=>{const input=$('viewer-name');input.setCustomValidity('');clearTimeout(viewerRenameTimer);const result=state.result;const value=input.value;if(value.trim())viewerRenameTimer=setTimeout(()=>{if(state.result===result&&input.value===value)renameViewer();},400);};
+$('viewer-name').oninput=()=>{
+  const input=$('viewer-name');input.setCustomValidity('');clearTimeout(viewerRenameTimer);
+  const result=state.result;
+  if(result&&!result.storedReference){state.assemblyNameManual=true;if(input.value.trim()){$('assembly-name').value=input.value;scheduleBuildSettingsSave();}}
+  const value=input.value;
+  if(value.trim())viewerRenameTimer=setTimeout(()=>{if(state.result===result&&input.value===value)renameViewer();},400);
+};
 $('viewer-name').onchange=renameViewer;
-$('viewer-name').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();renameViewer();event.target.blur();}if(event.key==='Escape'){event.preventDefault();clearTimeout(viewerRenameTimer);event.target.value=state.result?.name||'';event.target.setCustomValidity('');$('viewer-name-status').textContent='';event.target.blur();}};
+$('viewer-name').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();renameViewer();event.target.blur();}if(event.key==='Escape'){event.preventDefault();clearTimeout(viewerRenameTimer);event.target.value=state.result?.name||'';if(state.result&&!state.result.storedReference){$('assembly-name').value=state.result.name;scheduleBuildSettingsSave();}event.target.setCustomValidity('');$('viewer-name-status').textContent='';event.target.blur();}};
 $('download-gb').onclick=()=>fileDownload('/api/assemblies/genbank',payload(),'assembly.gb');
 async function saveAssembly(asBackbone=false){
   const button=$(asBackbone?'save-backbone':'save-assembly');button.disabled=true;
@@ -2072,12 +2096,14 @@ function sandboxSnapshot(){
 async function restoreSandbox(saved,runs){
   const draft=saved.draft;
   if(draft){
+    state.assemblyNameManual=true;
     $('enzyme').value=['BsaI','BsmBI','BsmBI + BsaI'].includes(draft.enzyme)?draft.enzyme:'BsaI';await refresh();
     $('assembly-name').value=draft.name||'New assembly';$('backbone').value=draft.backbone_id?'p:'+draft.backbone_id:'';
     const ids=draft.fragment_ids||[];state.parts=ids.map(id=>state.fragments.find(f=>f.id===id)).filter(Boolean);
     state.nestedAssemblies=(draft.nested_assemblies||[]).filter(g=>state.parts.some(p=>p.id===g.parent_fragment_id));
     for(const[key,value]of Object.entries(saved.backboneStocks||{}))backboneStockCache.set(key,value);
     try{await loadNestedChildren();}catch(error){toast('A nested sandbox fragment is unavailable. Restore it from Archive.');}
+    restoreAssemblyName(draft);
     backboneChanged(false);if(draft.slot_id!==null)$('slot').value=String(draft.slot_id);
     const incomplete=state.parts.length!==ids.length||(draft.backbone_id&&!$('backbone').value);
     setPlannerInputs(draft.settings||{});state.activeBuildId=!incomplete&&state.buildList.some(item=>item.id===saved.activeBuildId)?saved.activeBuildId:null;renderParts();

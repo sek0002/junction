@@ -143,11 +143,12 @@ test('choosing any backbone preserves the manually selected enzyme',()=>{
 });
 
 function nameSetup(){
-  const state={parts:[],plasmids:[],fragments:[],nestedFragments:new Map(),nestedAssemblies:[]};
+  const state={parts:[],plasmids:[],fragments:[],nestedFragments:new Map(),nestedAssemblies:[],assemblyNameManual:true,result:null};
   let edits=0;
   const nodes={'backbone':{value:''},'assembly-name':{value:'My custom name',oninput:()=>edits++,focus(){}},'assembly-name-recommendation':{textContent:'',setAttribute(){},classList:{toggle(key,value){this[key]=value;}}}};
-  const context=vm.createContext({state,$:id=>nodes[id],selectedNested:()=>state.nestedAssemblies.filter(group=>group.fragment_ids.length&&state.parts.some(part=>part.id===group.parent_fragment_id))});
+  const context=vm.createContext({state,$:id=>nodes[id],window:{JunctionSandbox:{schedule(){}}},scheduleBuildSettingsSave:()=>edits++,renderBuildList(){},renderMap(){},selectedNested:()=>state.nestedAssemblies.filter(group=>group.fragment_ids.length&&state.parts.some(part=>part.id===group.parent_fragment_id))});
   vm.runInContext(source.slice(source.indexOf('function recommendedAssemblyName()'),source.indexOf('function payload()')),context);
+  nodes['assembly-name'].oninput=()=>context.assemblyNameChanged();
   return{state,nodes,context,get edits(){return edits;}};
 }
 test('recommended names follow fragment order, backbone and selected nested fragments',()=>{
@@ -165,11 +166,46 @@ test('recommendations leave custom names untouched until applied through the nor
   assert.equal(s.nodes['assembly-name'].value,'My custom name');assert.equal(s.edits,0);
   assert.equal(s.nodes['assembly-name-recommendation'].textContent,'↳ F1_F2');
   s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F1_F2');assert.equal(s.edits,1);
+  assert.equal(s.state.assemblyNameManual,false);
+  s.nodes['assembly-name'].value='My renamed build';s.nodes['assembly-name'].oninput();
   s.state.parts=[];s.context.refreshRecommendedAssemblyName();
   assert.equal(s.nodes['assembly-name-recommendation'].classList.hidden,true);
-  s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F1_F2');assert.equal(s.edits,1);
+  s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'My renamed build');assert.equal(s.edits,2);
 });
 test('recommended names fit the 100-character limit',()=>{
   const s=nameSetup();s.state.parts=[{id:1,name:'Long fragment '.repeat(20)}];
   const name=s.context.recommendedAssemblyName();assert.equal(name.length,100);assert.ok(name.endsWith('...'));
+});
+test('automatic names update for additions, swaps, reordering and removal without treating refreshes as edits',()=>{
+  const s=nameSetup();s.context.restoreAssemblyName({name_mode:'auto'});
+  s.state.parts=[{id:1,name:'F1'}];s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F1');assert.equal(s.state.assemblyNameManual,false);
+  s.state.parts.push({id:2,name:'F2'});s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F1_F2');
+  s.state.parts[1]={id:3,name:'F3'};s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F1_F3');
+  s.state.parts.reverse();s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F3_F1');
+  const edits=s.edits;s.context.refreshRecommendedAssemblyName();assert.equal(s.edits,edits);
+  s.state.parts=[];s.context.refreshRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'New assembly');
+});
+test('editing even an unchanged generated name protects it through swaps and nested changes',()=>{
+  const s=nameSetup();s.state.parts=[{id:1,name:'F1'}];s.context.restoreAssemblyName({name:'F1',name_mode:'auto'});
+  s.nodes['assembly-name'].oninput();assert.equal(s.state.assemblyNameManual,true);
+  s.state.parts[0]={id:2,name:'F2'};s.context.refreshRecommendedAssemblyName();
+  s.state.nestedAssemblies=[{parent_fragment_id:2,fragment_ids:[3]}];s.state.fragments=[{id:3,name:'Cargo'}];s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F1');
+  s.context.applyRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F2[Cargo]');
+  s.state.plasmids=[{id:7,name:'pHR'}];s.nodes.backbone.value='p:7';s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'pHR_F2[Cargo]');
+});
+test('restoring preserves manual and legacy names, and keeps unique automatic names until inputs change',()=>{
+  const s=nameSetup();s.state.parts=[{id:1,name:'F1'}];
+  s.context.restoreAssemblyName({name:'F1 (2)',name_mode:'auto'});s.context.refreshRecommendedAssemblyName();
+  assert.equal(s.nodes['assembly-name'].value,'F1 (2)');
+  s.state.parts.push({id:2,name:'F2'});s.context.refreshRecommendedAssemblyName();assert.equal(s.nodes['assembly-name'].value,'F1_F2');
+  for(const request of [{name:'New assembly',name_mode:'manual'},{name:'Existing custom name'}]){
+    s.context.restoreAssemblyName(request);s.state.parts.reverse();s.context.refreshRecommendedAssemblyName();
+    assert.equal(s.nodes['assembly-name'].value,request.name);assert.equal(s.state.assemblyNameManual,true);
+  }
 });

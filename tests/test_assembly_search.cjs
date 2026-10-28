@@ -8,9 +8,10 @@ function setup(){
   const nodes=new Map(),calls=[],events=[];
   const $=id=>{if(!nodes.has(id)){const hidden=new Set();nodes.set(id,{value:'',checked:false,innerHTML:'',attributes:{},classList:{add:x=>hidden.add(x),remove:x=>hidden.delete(x),contains:x=>hidden.has(x)},setAttribute(k,v){this.attributes[k]=v;},querySelectorAll:()=>[],focus(){events.push('focus');}});}return nodes.get(id);};
   const recipes=[{name:'pHR_V2 · U6',enzyme:'BsaI',available:true,no_backbone_fragment_ids:[1,2],missing:[]},{name:'AAV6_V2',enzyme:'BsaI',available:false,no_backbone_fragment_ids:[1,null],missing:['F12']}];
-  const state={recipes,parts:[],fragments:[{id:1,name:'F1'},{id:2,name:'F2'}],nestedAssemblies:[{}],activeBuildId:5};
+  const state={recipes,parts:[],plasmids:[],nestedFragments:new Map(),fragments:[{id:1,name:'F1'},{id:2,name:'F2'}],nestedAssemblies:[{}],activeBuildId:5};
   const ctx=vm.createContext({state,$,setTimeout,clearTimeout,encodeURIComponent,esc:String,fmt:String,plateLabel:String,reverseCompFlag:()=>'<span>RC</span>',fusionEnds:(l,r)=>`${l}/${r}`,nextEnd:()=> 'ATGG',api:async url=>{calls.push(url);return[];},toast:message=>events.push(message),persistPendingBuild:async()=>events.push('persist'),refresh:async()=>events.push('refresh'),backboneChanged:()=>events.push('backbone'),checkAssembly:async()=>events.push('check'),renderParts:()=>events.push('parts'),invalidate:()=>events.push('invalidate')});
-  vm.runInContext('let searchCounter=0,searchTimer;'+matching+searching,ctx);
+  ctx.selectedNested=()=>[];
+  vm.runInContext('let searchCounter=0,searchTimer;'+source.slice(source.indexOf('function recommendedAssemblyName()'),source.indexOf('function payload()'))+matching+searching,ctx);
   $('enzyme').value='BsmBI';$('compatible-only').checked=true;
   return {ctx,state,$,calls,events};
 }
