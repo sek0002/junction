@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import database as store
 from .design_engine import TYPE_II, design
+from .design_example import example_features
 from .design_table import check_rows, table_design, sequence_metadata
 from .design_exports import fragment_rows, assembly_rows, csv_bytes, workbook_bytes
 from .exports import genbank_bytes
@@ -148,14 +149,25 @@ def preview(payload: DesignRequest, generate: bool = False):
 
 
 @router.post('/export')
-def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'target_fasta', 'assemblies_csv', 'gb'] = 'csv'):
+def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'target_fasta', 'assemblies_csv', 'gb', 'example_gb'] = 'csv'):
+    example = format == 'example_gb'
+    if example:
+        payload = payload.model_copy(deep=True, update={'use_table':False,'table_rows':[]})
+        for entry in payload.entries:
+            for section in entry.sections:
+                section.variants = []
     result = preview_design(payload)
     if not result['valid']:
         raise HTTPException(422, dict(message='Resolve design errors before exporting.', errors=result['errors']))
-    if format not in ('gb','assemblies_csv','xlsx') and not result['generated']:
+    if format not in ('gb','example_gb','assemblies_csv','xlsx') and not result['generated']:
         raise HTTPException(422, 'No new fragments to export. Choose GenBank for the assembled sequence.')
     suffix = ''
-    if format == 'gb':
+    if example:
+        item = result['assembly']
+        content = genbank_bytes(payload.name + '_example', item['sequence'], example_features(result),
+            circular=item['circular'], notes='Reference design example. Dynamic regions use the reference insert sequence; table rows and pasted alternatives are not generated.')
+        mime,extension,suffix = 'text/plain','gb','_example'
+    elif format == 'gb':
         def record_name(index,item):
             if result.get('table_mode'):
                 return f'{index:03d}_' + item['name']

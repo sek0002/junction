@@ -13,7 +13,7 @@ function fixture(result={name:'Draft',sequence:'ACGT',circular:false}){
   node('sequence-start').value='121';node('map-site-filter').value='all';node('feature-detail').textContent='Draft selection';node('viewer-name-status').textContent='Updated';
   let resolve;const pending=new Promise(r=>resolve=r);const renders=[];
   const state={result,mapMode:'linear',selectedFeature:{start:120},parts:[]};
-  const context={state,$:node,document:{activeElement:node('view-button'),querySelector:()=>panel},assemblyCheckTimer:null,checkCounter:0,viewerRenameTimer:null,
+  const context={window:{},state,$:node,document:{activeElement:node('view-button'),querySelector:()=>panel},assemblyCheckTimer:null,checkCounter:0,viewerRenameTimer:null,
     clearTimeout(){},setTimeout(){},checkAssembly(){},hideMapTooltip(){},api:()=>pending,renderResult:()=>renders.push(state.result)};
   vm.createContext(context);vm.runInContext(viewer,context);
   return {...context,node,panel,resolve,renders,context};
@@ -38,4 +38,18 @@ test('opening and closing from an empty builder keeps its result hidden',async()
   f.resolve({id:7,name:'Saved',sequence:'ACGT',circular:true});await opening;
   f.node('plasmid-view-dialog').open=false;f.restorePlasmidViewer();
   assert.equal(f.state.result,null);assert.ok(f.node('results').classList.contains('hidden'));
+});
+
+test('Design previews reuse the map read-only and restore the original assembly without saving a plasmid',async()=>{
+  const f=fixture(),original=f.state.result;
+  const record={name:'Insert · RC',sequence:'AACCGGTT',length:8,circular:false,viewSummary:'Insert · 8 nt · Context · 5′ TTTG / 3′ ACCT',features:[{start:0,end:4,label:'Constant'}]};
+  await f.context.window.JunctionSequenceViewer.open(record);
+  assert.equal(f.state.result.name,record.name);assert.equal(f.state.result.viewerReadOnly,true);assert.equal(f.state.result.viewerPlasmidId,null);
+  assert.equal(f.node('plasmid-view-context').textContent,record.viewSummary);assert.equal(f.node('plasmid-view-download').hidden,true);
+  assert.equal(f.panel.parentNode.id,'plasmid-view-host');
+  f.node('plasmid-view-dialog').open=false;f.restorePlasmidViewer();assert.equal(f.state.result,original);
+  const opening=f.context.window.JunctionSequenceViewer.openPlasmid(7);
+  f.resolve({id:7,name:'Saved',sequence:'GGCC',circular:true});await opening;
+  assert.equal(f.node('plasmid-view-download').hidden,false);assert.equal(f.state.result.viewerReadOnly,false);
+  assert.equal(f.node('plasmid-view-context').textContent,'');
 });

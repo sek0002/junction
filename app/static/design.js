@@ -14,11 +14,33 @@
     for(const line of lines){if(line.startsWith('>')){if(record)variants.push(record);record={name:line.slice(1).trim()||'Variant '+(variants.length+1),sequence:''};}else if(record)record.sequence+=line;else if(line.trim())throw Error('Place sequence data after a FASTA header.');}
     if(record)variants.push(record);return variants.map(record=>({...record,sequence:dna(record.sequence)}));
   }
+  const reverseDNA=text=>[...dna(text)].reverse().map(base=>({A:'T',T:'A',C:'G',G:'C'}[base]||base)).join('');
+  function reverseInsert(design,id){
+    const source=design.entries.find(item=>item.id===id);
+    if(!source||source.kind!=='placeholder')throw Error('Select an insert to reverse complement.');
+    const sequence=dna(source.sequence),length=sequence.length,keys=new Map();
+    const sections=source.sections.map(section=>{
+      const start=length-section.end,end=length-section.start;
+      keys.set(`${id}:${section.start}:${section.end}`,`${id}:${start}:${end}`);
+      const variants=(section.variant_text!==undefined?parseVariants(section.variant_text):section.variants||[]).map(variant=>({...variant,sequence:reverseDNA(variant.sequence)}));
+      return {...section,start,end,variants,...(section.variant_text!==undefined?{variant_text:variants.map(variant=>'>'+variant.name+'\n'+variant.sequence).join('\n')}:{})};
+    }).sort((a,b)=>a.start-b.start);
+    const table_rows=(design.table_rows||[]).map(row=>{
+      const dynamic_inputs={};
+      for(const[key,value]of Object.entries(row.dynamic_inputs)){
+        const mapped=keys.get(key)||key;
+        if(Object.hasOwn(dynamic_inputs,mapped))throw Error('Remove inputs for deleted regions before reversing this insert.');
+        dynamic_inputs[mapped]=keys.has(key)?reverseDNA(value):value;
+      }
+      return {...row,dynamic_inputs};
+    });
+    return {...design,table_rows,entries:design.entries.map(item=>item.id===id?{...source,sequence:reverseDNA(sequence),sections,reverse:!source.reverse}:item)};
+  }
   function moveEntry(entries,from,to){
     if(from<0||from>=entries.length||to<0||to>=entries.length)return entries;
     const copy=entries.slice(),[entry]=copy.splice(from,1);copy.splice(to,0,entry);return copy;
   }
-  if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants};return;}
+  if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,reverseDNA,reverseInsert};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
     revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false;
@@ -54,13 +76,14 @@
     $('design-excluded').value=d.excluded_overhangs.join(', ');
     $('design-left').disabled=$('design-right').disabled=!!d.backbone_id;
   }
+  const viewIcon='<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
   function renderReferences(){
     if(!refs)return;const d=current();
     $('design-backbone').innerHTML='<option value="">No backbone</option>'+refs.backbones.map(bb=>`<option value="${bb.id}">${esc(bb.name)} · ${bb.length.toLocaleString()} bp${bb.slots.length?'':' · No '+esc(d.enzyme)+' cassette'}</option>`).join('');
     $('design-backbone').value=d.backbone_id||'';
     const slots=chosenBackbone()?.slots||[];
     $('design-slot').innerHTML='<option value="">Choose cassette</option>'+slots.map(slot=>`<option value="${esc(slot.id)}">${esc(slot.label)}</option>`).join('');$('design-slot').value=d.slot_id||'';$('design-slot').disabled=!d.backbone_id;
-    $('design-backbone-cards').innerHTML=refs.backbones.map(bb=>`<div class="design-backbone-card${bb.id===d.backbone_id?' selected':''}"><strong>${esc(bb.name)}</strong><small>${bb.length.toLocaleString()} bp</small><div>${Object.entries(bb.all_slots).flatMap(([mode,options])=>options.filter(slot=>mode!=='BsmBI + BsaI'||slot.enzyme===mode).map(slot=>`<button type="button" class="design-cassette-choice" data-design-bb="${bb.id}" data-mode="${esc(mode)}" data-slot="${esc(slot.id)}" title="${esc(slot.errors.join(' ')||slot.label)}"><span>${esc(mode)}</span>${label(slot.left_overhang,true)}<span>→</span>${label(slot.right_overhang,true)}</button>`)).join('')||'<small>No cassette</small>'}</div></div>`).join('')||'<span class="small muted">No backbone templates</span>';
+    $('design-backbone-cards').innerHTML=refs.backbones.map(bb=>`<div class="design-backbone-card${bb.id===d.backbone_id?' selected':''}"><button type="button" class="icon-button design-backbone-view" data-design-view-bb="${bb.id}" aria-label="View ${esc(bb.name)}" title="View backbone" aria-haspopup="dialog">${viewIcon}</button><strong>${esc(bb.name)}</strong><small>${bb.length.toLocaleString()} bp</small><div>${Object.entries(bb.all_slots).flatMap(([mode,options])=>options.filter(slot=>mode!=='BsmBI + BsaI'||slot.enzyme===mode).map(slot=>`<button type="button" class="design-cassette-choice" data-design-bb="${bb.id}" data-mode="${esc(mode)}" data-slot="${esc(slot.id)}" title="${esc(slot.errors.join(' ')||slot.label)}"><span>${esc(mode)}</span>${label(slot.left_overhang,true)}<span>→</span>${label(slot.right_overhang,true)}</button>`)).join('')||'<small>No cassette</small>'}</div></div>`).join('')||'<span class="small muted">No backbone templates</span>';
     $('design-avoid').innerHTML=refs.enzymes.map(enzyme=>`<label><input type="checkbox" value="${esc(enzyme)}" ${d.avoid_sites.includes(enzyme)?'checked':''}>${esc(enzyme)}</label>`).join('');
   }
   async function loadReferences(){
@@ -84,7 +107,7 @@
     const add=index=>`<button class="design-gap" type="button" data-placeholder-at="${index}" aria-label="Add placeholder at position ${index+1}" title="Add placeholder">+</button>`;
     $('design-chain').innerHTML=(slot?label(slot.left_overhang,true):'')+add(0)+d.entries.map((item,index)=>{
       const fusion=ends(item),known=item.kind==='fragment',selected=item.id===activeEntry;
-      return `<div class="design-node ${known?'existing':'placeholder'}${selected?' selected':''}" draggable="true" data-entry-id="${esc(item.id)}"><button type="button" class="design-node-main" data-design-entry="${esc(item.id)}" title="${known?'Existing fragment · Alt+Left/Right to reorder':'Edit insert · Alt+Left/Right to reorder'}"><strong>${esc(known?(refs?.fragments.find(f=>f.id===item.fragment_id)?.name||item.name):item.name)}</strong><small>${known?'Existing'+(item.reverse?' · RC':''):(dna(item.sequence).length.toLocaleString()+' nt · '+item.sections.length+' sections')}</small><span>${label(fusion.left_overhang)}${label(fusion.right_overhang)}</span></button>${known?`<button class="design-rc" data-design-reverse="${esc(item.id)}" aria-label="Reverse complement ${esc(item.name)}" title="Reverse complement" aria-pressed="${!!item.reverse}">RC</button>`:''}<button class="design-remove" data-design-remove="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">×</button></div>${add(index+1)}`;
+      return `<div class="design-node ${known?'existing':'placeholder'}${selected?' selected':''}" draggable="true" data-entry-id="${esc(item.id)}"><button type="button" class="design-node-main" data-design-entry="${esc(item.id)}" title="${known?'Existing fragment · Alt+Left/Right to reorder':'Edit insert · Alt+Left/Right to reorder'}"><strong>${esc(known?(refs?.fragments.find(f=>f.id===item.fragment_id)?.name||item.name):item.name)}</strong><small>${known?'Existing'+(item.reverse?' · RC':''):(dna(item.sequence).length.toLocaleString()+' nt · '+item.sections.length+' sections'+(item.reverse?' · RC':''))}</small><span>${label(fusion.left_overhang)}${label(fusion.right_overhang)}</span></button><span class="design-card-tools"><button type="button" class="icon-button design-view" data-design-view="${esc(item.id)}" aria-label="View ${esc(item.name)}" title="View sequence" aria-haspopup="dialog">${viewIcon}</button>${`<button type="button" class="design-rc" data-design-reverse="${esc(item.id)}" aria-label="Reverse complement ${esc(item.name)}" title="Reverse complement" aria-pressed="${!!item.reverse}" ${!known&&!dna(item.sequence).length?'disabled':''}>RC</button>`}</span><button class="design-remove" data-design-remove="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">×</button></div>${add(index+1)}`;
     }).join('')+(slot?label(slot.right_overhang,true):'');
   }
   function renderSearch(){
@@ -107,10 +130,11 @@
   }
   function renderEditor(){
     const item=entry(),editor=$('design-editor');editor.classList.toggle('hidden',!item||item.kind!=='placeholder');if(!item||item.kind!=='placeholder'){tableUI.render();return;}
-    editor.innerHTML=`<div class="panel-heading"><h2>Insert</h2><input id="design-placeholder-name" aria-label="Placeholder name" maxlength="100" value="${esc(item.name)}"></div><label class="field-label" for="design-insert">Full insert sequence</label><textarea id="design-insert" rows="4" maxlength="100000" spellcheck="false" placeholder="Paste DNA or FASTA" title="Paste the payload between the surrounding fusion labels. Free ends use the insert’s own terminal bases.">${esc(item.sequence)}</textarea><div id="design-insert-sites" class="design-sites"></div><div class="design-sequence-heading"><h3>Sections</h3><small id="design-sequence-size"></small></div><pre id="design-sequence" class="design-sequence" tabindex="0" aria-label="Select insert bases" title="Drag across bases, then add a section"></pre><div class="design-section-controls"><label>Name<input id="design-section-name" placeholder="Part ${item.sections.length+1}" maxlength="100"></label><label>Region<select id="design-section-mode"><option value="constant">Constant</option><option value="dynamic">Dynamic</option></select></label><label>Start<input id="design-section-start" aria-label="Section start" type="number" min="1" step="1"></label><label>End<input id="design-section-end" aria-label="Section end" type="number" min="1" step="1"></label><button id="design-section-add" class="secondary compact" type="button">Add section</button></div><div id="design-section-error" class="reaction-warning" role="alert"></div><div id="design-sections"></div>`;
+    editor.innerHTML=`<div class="panel-heading"><h2>Insert</h2><div class="design-actions"><input id="design-placeholder-name" aria-label="Placeholder name" maxlength="100" value="${esc(item.name)}"><button id="design-insert-rc" type="button" class="secondary compact" aria-label="Reverse complement insert" aria-pressed="${!!item.reverse}" title="Reverse complement sequence, regions and Dynamic inputs" ${!dna(item.sequence).length?'disabled':''}>RC</button></div></div><label class="field-label" for="design-insert">Full insert sequence</label><textarea id="design-insert" rows="4" maxlength="100000" spellcheck="false" placeholder="Paste DNA or FASTA" title="Paste the payload between the surrounding fusion labels. Free ends use the insert’s own terminal bases.">${esc(item.sequence)}</textarea><div id="design-insert-sites" class="design-sites"></div><div class="design-sequence-heading"><h3>Sections</h3><small id="design-sequence-size"></small></div><pre id="design-sequence" class="design-sequence" tabindex="0" aria-label="Select insert bases" title="Drag across bases, then add a section"></pre><div class="design-section-controls"><label>Name<input id="design-section-name" placeholder="Part ${item.sections.length+1}" maxlength="100"></label><label>Region<select id="design-section-mode"><option value="constant">Constant</option><option value="dynamic">Dynamic</option></select></label><label>Start<input id="design-section-start" aria-label="Section start" type="number" min="1" step="1"></label><label>End<input id="design-section-end" aria-label="Section end" type="number" min="1" step="1"></label><button id="design-section-add" class="secondary compact" type="button">Add section</button></div><div id="design-section-error" class="reaction-warning" role="alert"></div><div id="design-sections"></div>`;
     renderSequence();renderSections();renderSites();tableUI.render();
+    $('design-insert-rc').onclick=()=>toggleReverse(item.id);
     $('design-placeholder-name').oninput=event=>{item.name=event.target.value;dirty();renderChain();tableUI.render();};
-    $('design-insert').oninput=event=>{const changed=dna(item.sequence)!==dna(event.target.value);item.sequence=event.target.value;if(changed)item.sections=[];preview=null;dirty();renderSequence();renderSections();renderChain();tableUI.render();$('design-insert-sites').textContent='Checking…';};
+    $('design-insert').oninput=event=>{const changed=dna(item.sequence)!==dna(event.target.value);item.sequence=event.target.value;if(changed)item.sections=[];$('design-insert-rc').disabled=!dna(item.sequence).length;preview=null;dirty();renderSequence();renderSections();renderChain();tableUI.render();$('design-insert-sites').textContent='Checking…';};
     $('design-sequence').onmouseup=captureSelection;$('design-sequence').onkeyup=captureSelection;
     $('design-section-add').onmousedown=event=>event.preventDefault();
     $('design-section-add').onclick=()=>{try{item.sections=addSection(item.sections,dna(item.sequence),Number($('design-section-start').value)-1,Number($('design-section-end').value),$('design-section-name').value,$('design-section-mode').value);$('design-section-error').textContent='';dirty();renderEditor();renderChain();}catch(error){$('design-section-error').textContent=error.message;}};
@@ -167,16 +191,36 @@
   $('design-enzyme').onchange=event=>{current().enzyme=event.target.value;current().slot_id=null;refs=null;preview=null;dirty();render();loadReferences();};
   $('design-backbone').onchange=event=>{const d=current();d.backbone_id=Number(event.target.value)||null;d.slot_id=chosenBackbone()?.slots[0]?.id||null;preview=null;dirty();render();};
   $('design-slot').onchange=event=>{current().slot_id=event.target.value||null;preview=null;dirty();renderChain();tableUI.render();};
-  $('design-backbone-cards').onclick=event=>{const button=event.target.closest('[data-design-bb]');if(!button)return;const d=current();d.backbone_id=Number(button.dataset.designBb);d.enzyme=button.dataset.mode;d.slot_id=button.dataset.slot;refs=null;preview=null;dirty();renderFields();loadReferences();};
+  $('design-backbone-cards').onclick=event=>{const view=event.target.closest('[data-design-view-bb]');if(view){root.JunctionSequenceViewer.openPlasmid(Number(view.dataset.designViewBb));return;}const button=event.target.closest('[data-design-bb]');if(!button)return;const d=current();d.backbone_id=Number(button.dataset.designBb);d.enzyme=button.dataset.mode;d.slot_id=button.dataset.slot;refs=null;preview=null;dirty();renderFields();loadReferences();};
   $('design-add-placeholder').onclick=()=>addPlaceholder();
   $('design-fragment-search').oninput=renderSearch;
   $('design-fragment-search').onkeydown=event=>{if(event.key==='ArrowDown'){$('design-search-results').querySelector('button:not(:disabled)')?.focus();event.preventDefault();}if(event.key==='Escape')$('design-search-results').classList.add('hidden');};
   $('design-search-results').onclick=event=>{const button=event.target.closest('[data-design-add]');if(!button)return;const fragment=refs.fragments.find(f=>f.id===Number(button.dataset.designAdd));current().entries.push({id:uid(),kind:'fragment',fragment_id:fragment.id,name:fragment.name,reverse:button.dataset.reverse==='true'});$('design-fragment-search').value='';$('design-search-results').classList.add('hidden');preview=null;dirty();renderChain();tableUI.render();};
+  async function viewEntry(id){
+    const designId=current().id,version=revision,item=current().entries.find(entry=>entry.id===id),body=payload();
+    body.use_table=false;body.table_rows=[];body.entries=body.entries.map(entry=>({...entry,sections:entry.sections?.map(section=>({...section,variants:[]}))}));
+    try{
+      const response=await request('/api/design/preview',body),result=await response.json();
+      if(current().id!==designId||revision!==version)return;
+      const node=result.entries.find(node=>node.id===id),fusion=result.runs.find(run=>run.index===node?.run)||{};
+      await root.JunctionSequenceViewer.open(root.DesignPreview.record(item,node,current().enzyme,fusion));
+    }catch(error){note(error.message,true);}
+  }
+  function toggleReverse(id){
+    try{
+      const design=current(),item=design.entries.find(item=>item.id===id);
+      if(item.kind==='placeholder'){
+        const updated=reverseInsert(design,id);design.entries=updated.entries;design.table_rows=updated.table_rows;activeEntry=id;
+      }else item.reverse=!item.reverse;
+      preview=null;dirty();renderChain();renderEditor();
+    }catch(error){note(error.message,true);}
+  }
   $('design-chain').onclick=event=>{
+    const view=event.target.closest('[data-design-view]');if(view){viewEntry(view.dataset.designView);return;}
     const gap=event.target.closest('[data-placeholder-at]');if(gap){addPlaceholder(Number(gap.dataset.placeholderAt));return;}
     const remove=event.target.closest('[data-design-remove]'),reverse=event.target.closest('[data-design-reverse]'),select=event.target.closest('[data-design-entry]');
     if(remove){current().entries=current().entries.filter(item=>item.id!==remove.dataset.designRemove);preview=null;dirty();renderChain();renderEditor();}
-    else if(reverse){const item=current().entries.find(item=>item.id===reverse.dataset.designReverse);item.reverse=!item.reverse;preview=null;dirty();renderChain();tableUI.render();}
+    else if(reverse)toggleReverse(reverse.dataset.designReverse);
     else if(select){activeEntry=select.dataset.designEntry;renderChain();renderEditor();}
   };
   $('design-chain').ondragstart=event=>{dragId=event.target.closest('[data-entry-id]')?.dataset.entryId;if(dragId)event.dataTransfer.setData('text/plain',dragId);};
@@ -189,10 +233,14 @@
   $('design-add-re').onchange=event=>{current().include_re_sites=event.target.checked;dirty();};
   for(const[id,key]of Object.entries({'design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).onchange=event=>{current()[key]=event.target.value||null;dirty();};
   $('design-generate').onclick=()=>check(true);
-  $('design-download').onclick=async()=>{
-    if(!lastResult?.valid)return;const button=$('design-download');button.disabled=true;
-    try{await root.JunctionSandbox.flush();const format=$('design-export-format').value,response=await request('/api/design/export?format='+format,payload()),blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]||'Design.'+format;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(error){note(error.message,true);}finally{button.disabled=!lastResult?.valid;}
-  };
+  async function downloadDesign(format,example=false){
+    if(!example&&!lastResult?.valid)return;
+    const button=$(example?'design-example':'design-download'),body=payload();button.disabled=true;
+    if(example){body.use_table=false;body.table_rows=[];body.entries=body.entries.map(item=>({...item,sections:item.sections?.map(section=>({...section,variants:[]}))}));}
+    try{await root.JunctionSandbox.flush();const response=await request('/api/design/export?format='+format,body),blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]||'Design.'+format;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(error){note(error.message,true);}finally{button.disabled=example?false:!lastResult?.valid;}
+  }
+  $('design-example').onclick=()=>downloadDesign('example_gb',true);
+  $('design-download').onclick=()=>downloadDesign($('design-export-format').value);
   document.addEventListener('click',event=>{if(!event.target.closest('.design-search-wrap'))$('design-search-results').classList.add('hidden');});
   document.addEventListener('keydown',event=>{if(event.key==='Escape')$('design-search-results').classList.add('hidden');});
   root.JunctionDesign={

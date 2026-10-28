@@ -959,9 +959,9 @@ function renderAssemblyFeedback(r){
   $('download-gb').disabled=!valid;$('save-assembly').disabled=!valid;$('save-backbone').disabled=!valid||!r.backbone_template?.eligible;$('save-backbone').title=r.backbone_template?.eligible?'Save backbone · '+r.backbone_template.enzymes.join(' / '):'Requires a circular assembly with a usable Golden Gate cassette';
 }
 function renderResult(){
-  const r=state.result;$('viewer-name').readOnly=!!r.viewerPlasmidId&&!!window.JunctionAccount&&!window.JunctionAccount.allowed('can_edit');if(document.activeElement!==$('viewer-name'))$('viewer-name').value=r.name||'';$('viewer-name-status').textContent='';
+  const r=state.result;$('viewer-name').readOnly=!!r.viewerReadOnly||!!r.viewerPlasmidId&&!!window.JunctionAccount&&!window.JunctionAccount.allowed('can_edit');if(document.activeElement!==$('viewer-name'))$('viewer-name').value=r.name||'';$('viewer-name-status').textContent='';$('viewer-name').title=r.viewerReadOnly?'Read-only Design preview':'Click to rename';
   if(!r.storedReference){state.assemblyResult=r;updateChainTopology(r);renderAssemblyFeedback(r);renderReaction(r.reaction);renderNestedStatus();renderNestedReactions();}
-  $('viewer-title').textContent=r.circular?'Plasmid':'Linear assembly';$('view-circular').disabled=r.circular===false;$('results').classList.remove('hidden');renderMap();renderViewerAnnotations();renderSequence();if(state.subtab==='reaction'&&!r.storedReference)loadResuspension();
+  $('viewer-title').textContent=r.viewerTitle||(r.circular?'Plasmid':'Linear assembly');$('view-circular').disabled=r.circular===false;$('results').classList.remove('hidden');renderMap();renderViewerAnnotations();renderSequence();if(state.subtab==='reaction'&&!r.storedReference)loadResuspension();
   const counts={};for(const site of r.restriction_sites||[])counts[site.enzyme]=(counts[site.enzyme]||0)+1;$('site-list').textContent='Recognition sites: '+Object.entries(counts).map(([key,value])=>key+' '+value).join(' · ');
 }
 
@@ -1246,7 +1246,9 @@ function restorePlasmidViewer(){
   focus?.focus({preventScroll:true});
   if((session.recheck||!session.result)&&(state.parts.length||$('backbone').value))assemblyCheckTimer=setTimeout(checkAssembly,220);
 }
-async function viewPlasmid(id){
+async function viewPlasmid(id){return viewSequenceRecord(()=>api('/api/plasmids/'+id),'/api/plasmids/'+id+'/genbank',id);}
+window.JunctionSequenceViewer={open:record=>viewSequenceRecord(async()=>record),openPlasmid:viewPlasmid};
+async function viewSequenceRecord(load,downloadUrl='',id=null){
   const dialog=$('plasmid-view-dialog');if(dialog.open)return;
   const panel=document.querySelector('.viewer-panel'),tooltip=$('map-tooltip');
   plasmidViewerSession={id,result:state.result,mapMode:state.mapMode,selectedFeature:state.selectedFeature,
@@ -1256,12 +1258,14 @@ async function viewPlasmid(id){
   clearTimeout(assemblyCheckTimer);checkCounter++;hideMapTooltip();
   $('plasmid-view-host').append(panel);dialog.append(tooltip);panel.classList.add('hidden');
   $('plasmid-view-loading').textContent='Loading…';$('plasmid-view-loading').classList.remove('hidden');
-  $('plasmid-view-download').href='/api/plasmids/'+id+'/genbank';
+  $('plasmid-view-download').href=downloadUrl||'#';$('plasmid-view-download').hidden=!downloadUrl;$('plasmid-view-download').classList.toggle('hidden',!downloadUrl);
+  $('plasmid-view-context').textContent='';
   dialog.showModal();const request=++plasmidViewRequest;
   try{
-    const plasmid=await api('/api/plasmids/'+id);if(request!==plasmidViewRequest||!dialog.open)return;
-    state.result={...plasmid,viewerPlasmidId:plasmid.id,storedReference:true,gc:100*[...plasmid.sequence].filter(c=>c==='G'||c==='C').length/plasmid.sequence.length,junctions:[],errors:[],warnings:['Stored reference'],reaction:{rows:[],warnings:[]}};
-    state.mapMode=plasmid.circular?'circular':'linear';state.selectedFeature=null;$('sequence-start').value=1;
+    const plasmid=await load();if(request!==plasmidViewRequest||!dialog.open)return;
+    state.result={...plasmid,viewerPlasmidId:id,viewerReadOnly:!id,storedReference:true,gc:100*[...plasmid.sequence].filter(c=>c==='G'||c==='C').length/plasmid.sequence.length,junctions:[],errors:[],warnings:['Stored reference'],reaction:{rows:[],warnings:[]}};
+    state.mapMode=plasmid.circular?'circular':'linear';state.selectedFeature=null;$('sequence-start').value=1;$('map-site-filter').value='all';
+    $('plasmid-view-context').textContent=plasmid.viewSummary||'';
     $('feature-detail').classList.add('hidden');panel.classList.remove('hidden');$('plasmid-view-loading').classList.add('hidden');renderResult();
   }catch(error){if(request===plasmidViewRequest&&dialog.open)$('plasmid-view-loading').textContent=error.message;}
 }
@@ -2008,6 +2012,7 @@ let viewerRenameChain=Promise.resolve(),viewerRenameRevision=0,viewerRenameTimer
 function renameViewer(){
   clearTimeout(viewerRenameTimer);
   const result=state.result;if(!result)return;
+  if(result.viewerReadOnly)return;
   if(result.viewerPlasmidId&&window.JunctionAccount&&!window.JunctionAccount.allowed('can_edit'))return;
   const input=$('viewer-name');const name=input.value.trim();
   if(!name){input.setCustomValidity('Enter a plasmid name.');input.reportValidity();$('viewer-name-status').textContent='Name required';return;}
