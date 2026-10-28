@@ -49,6 +49,15 @@ class DesignEngineTests(unittest.TestCase):
                 self.assertEqual(len({fusion_key(label) for label in labels}),len(labels))
                 self.assertFalse(any(label==reverse_complement(label) for label in labels))
 
+    def test_generated_names_keep_entered_numbers_without_adding_fragment_numbers(self):
+        entry=placeholder(clean_dna(),[dict(name='Cargo_21',start=100,end=260,mode='dynamic',
+            variants=[dict(name='Variant_7',sequence='AACCTTGGAACC')])],key='Flank_2')
+        result=design([entry],left_overhang='TTTG',right_overhang='ACCT')
+        self.assertTrue(result['valid'],result['errors'])
+        self.assertEqual([row['export_name'] for row in result['generated']],
+                         ['Flank_2','Cargo_21','Cargo_21__Variant_7','Flank_2'])
+        self.assertEqual(len({row['id'] for row in result['generated']}),4)
+
     def test_free_ends_use_existing_terminal_bases_without_adding_sequence(self):
         sequence=clean_dna(5)
         result=design([placeholder(sequence)])

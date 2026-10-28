@@ -137,16 +137,23 @@ class TableAPITests(unittest.TestCase):
         response=self.client.post('/api/design/preview?generate=true',json=self.payload)
         self.assertEqual(response.status_code,200,response.text)
         result=response.json();self.assertTrue(result['valid'],result['errors'])
+        names=['Promoter','insert','insert','Alpha__Cargo A','Alpha__Cargo B','Beta__Cargo A','Beta__Cargo B']
+        self.assertEqual([row['export_name'] for row in result['generated']],names)
         for format in ('csv','xlsx','fasta','target_fasta','assemblies_csv','gb'):
             exported=self.client.post('/api/design/export?format='+format,json=self.payload)
             self.assertEqual(exported.status_code,200,exported.text[:200] if format!='xlsx' else '')
             if format=='csv':
                 rows=list(csv.DictReader(io.StringIO(exported.content.decode('utf-8-sig'))))
+                self.assertEqual([row['Name'] for row in rows],names)
                 self.assertEqual([row['Full sequence'] for row in rows],[row['full_sequence'] for row in result['generated']])
                 self.assertEqual([row['Target sequence'] for row in rows],[row['target'] for row in result['generated']])
+            elif format=='xlsx':
+                sheet=load_workbook(io.BytesIO(exported.content))['Fragments']
+                self.assertEqual([row[0] for row in sheet.iter_rows(min_row=2,values_only=True)],names)
             elif format=='gb':
                 self.assertEqual([row['sequence'] for row in parse_sequence_file(exported.text)],[row['sequence'] for row in result['assemblies']])
             elif format in ('fasta','target_fasta'):
+                self.assertEqual([record.splitlines()[0] for record in exported.text.split('>')[1:]],names)
                 values=[''.join(record.splitlines()[1:]) for record in exported.text.split('>')[1:]]
                 key='target_sequence' if format=='target_fasta' else 'full_sequence'
                 self.assertEqual(values,[row[key] for row in result['generated']])

@@ -77,7 +77,8 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
                 row_errors.append(f"{fragment['name']}: {exc}")
                 continue
             candidate = deepcopy(fragment) | dict(id=fragment['id'] + f'_row{number}',
-                name=row['name'].strip() + '__' + fragment['name'], row_name=row['name'].strip(),
+                name=row['name'].strip() + '__' + fragment['name'],
+                export_name=row['name'].strip() + '__' + fragment['export_name'], row_name=row['name'].strip(),
                 variant_name=row['name'].strip(), target=target, sequence=sequence,
                 length=len(sequence), gc=100 * (sequence.count('G') + sequence.count('C')) / len(sequence),
                 sites=scan_type_ii(sequence))

@@ -36,6 +36,7 @@ def output_view(result, reverse=False):
     orientation = 'Reverse complement' if reverse else 'Forward'
     output.update(reverse_output=reverse,output_orientation=orientation)
     for row in output['generated']:
+        row['name'] = row.get('export_name', row['name'])
         row['output_orientation'] = orientation
         if not reverse:
             continue

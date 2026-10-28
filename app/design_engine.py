@@ -254,13 +254,14 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             center = (target_start + target_end) / 2 + run['trim_left']
             contained_dynamic = [s for s in run['sections'] if s.get('mode') == 'dynamic' and s['start'] >= target_start + run['trim_left'] and s['end'] <= target_end + run['trim_left']]
             section = next(iter(contained_dynamic), None) or next((s for s in run['sections'] if s['start'] <= center < s['end']), None)
-            name = f"{section['name'] if section else run['name']}_{number}"
+            export_name = section['name'] if section else run['name']
+            name = f'{export_name}_{number}'
             try:
                 sequence = donor_sequence(left, target, right, left_adapter, avoid, right_adapter)
             except ValueError as exc:
                 errors.append(f'{name}: {exc}')
                 continue
-            fragment = dict(id=f"design_{run['index']}_{number}", name=name, sequence=sequence,
+            fragment = dict(id=f"design_{run['index']}_{number}", name=name, export_name=export_name, sequence=sequence,
                                   left_overhang=left, right_overhang=right, target=target,
                                   length=len(sequence), gc=100 * (sequence.count('G') + sequence.count('C')) / len(sequence),
                                   run=run['index'], source_start=start + run['trim_left'],
@@ -283,6 +284,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                         errors.append(f'{variant_name}: {exc}')
                         continue
                     generated.append(fragment | dict(id=fragment['id'] + f'_v{variant_index}', name=variant_name,
+                        export_name=export_name + '__' + variant['name'],
                         variant_of=fragment['id'], variant_name=variant['name'], sequence=variant_sequence,
                         target=variant_target, length=len(variant_sequence),
                         gc=100 * (variant_sequence.count('G') + variant_sequence.count('C')) / len(variant_sequence),

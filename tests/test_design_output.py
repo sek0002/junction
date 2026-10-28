@@ -25,6 +25,7 @@ class OutputTests(unittest.TestCase):
         self.assertTrue(result['valid'],result['errors']);before=deepcopy(result)
         out=output_view(result,True)
         for original,row in zip(result['generated'],out['generated']):
+            self.assertEqual(row['name'],original['export_name'])
             self.assertEqual(row['full_sequence'],rc(original['full_sequence']))
             self.assertEqual(row['target_sequence'],rc(original['target_sequence']))
             self.assertEqual(row['left_overhang'],rc(original['right_overhang']))
@@ -49,6 +50,7 @@ class OutputTests(unittest.TestCase):
     def test_adapter_free_output_remains_exactly_overhang_target_overhang(self):
         original=sequence_metadata(design([placeholder(clean_dna())],left_overhang='TTTG',right_overhang='ACCT'),False)
         out=output_view(original,True)
+        self.assertEqual(output_view(original)['generated'][0]['name'],original['generated'][0]['export_name'])
         row=out['generated'][0];self.assertEqual(row['full_sequence'],row['left_overhang']+row['target_sequence']+row['right_overhang'])
         self.assertEqual(row['left_re_site'],'');self.assertEqual(row['right_re_site'],'')
 
