@@ -19,11 +19,15 @@
     if(example){body.use_table=false;body.table_rows=[];body.entries=body.entries.map(item=>({...item,sections:item.sections?.map(section=>({...section,variants:[]}))}));}
     return body;
   }
+  function fragmentRcTag(item,node){
+    if(item.kind!=='fragment'||!(node?.digest?.reverse_complement??node?.reverse))return '';
+    return '<span class="fragment-rc" role="img" aria-label="Reverse complement" title="Reverse complement · whole fragment assembled in reverse orientation"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16m-5-4 5 4-5 4M20 17H4m5-4-5 4 5 4"/></svg><span>RC</span></span>';
+  }
   function moveEntry(entries,from,to){
     if(from<0||from>=entries.length||to<0||to>=entries.length)return entries;
     const copy=entries.slice(),[entry]=copy.splice(from,1);copy.splice(to,0,entry);return copy;
   }
-  if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,exportPayload};return;}
+  if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,exportPayload,fragmentRcTag};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
     revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false;
@@ -93,8 +97,8 @@
     const d=current(),slot=chosenSlot();if(!d)return;
     const add=index=>`<button class="design-gap" type="button" data-placeholder-at="${index}" aria-label="Add placeholder at position ${index+1}" title="Add placeholder">+</button>`;
     $('design-chain').innerHTML=(slot?label(slot.left_overhang,true):'')+add(0)+d.entries.map((item,index)=>{
-      const fusion=ends(item),known=item.kind==='fragment',selected=item.id===activeEntry,reverse=known&&!!preview?.entries.find(node=>node.id===item.id)?.reverse;
-      return `<div class="design-node ${known?'existing':'placeholder'}${selected?' selected':''}" draggable="true" data-entry-id="${esc(item.id)}"><button type="button" class="design-node-main" data-design-entry="${esc(item.id)}" title="${known?'Existing fragment · Alt+Left/Right to reorder':'Edit insert · Alt+Left/Right to reorder'}"><strong>${esc(known?(refs?.fragments.find(f=>f.id===item.fragment_id)?.name||item.name):item.name)}</strong><small>${known?'Existing'+(reverse?' · RC':''):(dna(item.sequence).length.toLocaleString()+' nt · '+item.sections.length+' sections'+(reverse?' · RC':''))}</small><span>${label(fusion.left_overhang)}${label(fusion.right_overhang)}</span></button><span class="design-card-tools"><button type="button" class="icon-button design-view" data-design-view="${esc(item.id)}" aria-label="View ${esc(item.name)}" title="View sequence" aria-haspopup="dialog">${viewIcon}</button>${reverse?'<span class="design-orientation" title="Automatically reverse-complemented to match neighboring overhangs">RC</span>':''}</span><button class="design-remove" data-design-remove="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">×</button></div>${add(index+1)}`;
+      const fusion=ends(item),known=item.kind==='fragment',selected=item.id===activeEntry,node=preview?.entries.find(node=>node.id===item.id);
+      return `<div class="design-node ${known?'existing':'placeholder'}${selected?' selected':''}" draggable="true" data-entry-id="${esc(item.id)}">${fragmentRcTag(item,node)}<button type="button" class="design-node-main" data-design-entry="${esc(item.id)}" title="${known?'Existing fragment · Alt+Left/Right to reorder':'Edit insert · Alt+Left/Right to reorder'}"><strong>${esc(known?(refs?.fragments.find(f=>f.id===item.fragment_id)?.name||item.name):item.name)}</strong><small>${known?'Existing':(dna(item.sequence).length.toLocaleString()+' nt · '+item.sections.length+' sections')}</small><span>${label(fusion.left_overhang)}${label(fusion.right_overhang)}</span></button><span class="design-card-tools"><button type="button" class="icon-button design-view" data-design-view="${esc(item.id)}" aria-label="View ${esc(item.name)}" title="View sequence" aria-haspopup="dialog">${viewIcon}</button></span><button class="design-remove" data-design-remove="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">×</button></div>${add(index+1)}`;
     }).join('')+(slot?label(slot.right_overhang,true):'');
   }
   function renderSearch(){

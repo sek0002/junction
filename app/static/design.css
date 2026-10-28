@@ -12,4 +12,4 @@
 
 .design-card-tools{position:absolute;right:7px;bottom:8px;display:flex;align-items:center;gap:4px}.design-card-tools .design-view{width:23px;height:23px;padding:2px}.design-view .ui-icon{width:17px;height:17px}.design-backbone-view{float:right;margin-top:-3px}.design-node-main{padding-right:70px;min-width:190px;max-width:240px;overflow:hidden}.design-node-main strong{max-width:160px}#plasmid-view-context{flex:1;text-align:center;overflow-wrap:anywhere}
 
-.design-orientation{font-size:9px;font-weight:700;color:var(--green);border-radius:10px;background:var(--green-light);padding:3px 4px}
+.design-node>.fragment-rc{border-color:var(--surface,#fff);box-shadow:0 0 0 1px var(--line)}

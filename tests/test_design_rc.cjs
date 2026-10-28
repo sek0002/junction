@@ -1,6 +1,14 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {exportPayload}=require('../app/static/design.js');
+const {exportPayload,fragmentRcTag}=require('../app/static/design.js');
+test('Design RC badges follow resolved donor orientation, never saved flags or output preferences',()=>{
+ const fragment={kind:'fragment',reverse:true},before=structuredClone(fragment);
+ const tag=fragmentRcTag(fragment,{digest:{reverse_complement:true}});
+ assert.match(tag,/class="fragment-rc"/);assert.match(tag,/aria-label="Reverse complement"/);assert.match(tag,/<span>RC<\/span>/);
+ for(const node of [undefined,{reverse:false},{reverse:true,digest:{reverse_complement:false}}])assert.equal(fragmentRcTag(fragment,node),'');
+ assert.equal(fragmentRcTag({kind:'placeholder',reverse:true},{reverse:true,digest:{reverse_complement:true}}),'');
+ assert.ok(fragmentRcTag(fragment,{reverse:true}));assert.deepEqual(fragment,before);
+});
 const fixture=()=>({id:'private',name:'Design',enzyme:'BsaI',reverse_output:false,use_table:true,entries:[{id:'insert',kind:'placeholder',sequence:'AACCGT',sections:[{name:'Cargo',start:1,end:4,mode:'dynamic',variants:[{name:'A',sequence:'TTAACC'}]}]}],table_rows:[{name:'Alpha',dynamic_inputs:{'insert:1:4':'GGTT'}}]});
 test('RC output changes only the export preference, preserving design DNA, regions and table inputs',()=>{
  const original=fixture(),before=structuredClone(original),body=exportPayload(original,true);
