@@ -89,7 +89,7 @@ class BenchExportTests(unittest.TestCase):
         book = load_workbook(io.BytesIO(guide_bytes('xlsx', sections)))
         self.assertEqual(book.active.title, 'Assemblies')
         self.assertEqual(book.active.max_row,4)
-        self.assertEqual(book.active['C4'].value,'(0405-A1-1.65)\n(0622-B12-3.30)')
+        self.assertEqual(book.active['C4'].value,'(0405-A1-1.65)  (0622-B12-3.30)')
         self.assertAlmostEqual(book.active['D4'].value,4.95)
         self.assertAlmostEqual(book.active['F4'].value,11.05)
         self.assertEqual(book['Fragment metadata']['G5'].value,50)
@@ -117,7 +117,7 @@ class BenchExportTests(unittest.TestCase):
         self.assertEqual(len(colors),len(set(colors.values())))
         book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)),rich_text=True)
         inputs=book['Assemblies']['C4'].value
-        self.assertEqual(str(inputs),'(0405-A1-1.65)\n(0622-B12-3.30)')
+        self.assertEqual(str(inputs),'(0405-A1-1.65)  (0622-B12-3.30)')
         runs={run.text:run.font.color.rgb[-6:] for run in inputs if isinstance(run,TextBlock)}
         self.assertEqual(runs,colors)
         for i,entry in enumerate(key.values(),4):
@@ -152,6 +152,36 @@ class BenchExportTests(unittest.TestCase):
                 return c/12.92 if c<=.04045 else ((c+.055)/1.055)**2.4
             luminance=sum(weight*linear(color[i:i+2]) for weight,i in zip((.2126,.7152,.0722),(0,2,4)))
             self.assertGreater(1.05/(luminance+.05),4.5)
+
+    def test_twelve_large_assemblies_fit_one_portrait_page_without_descriptions(self):
+        from copy import deepcopy
+        assembly,settings=fixture();sections=[]
+        for index in range(12):
+            section=assembly_sections(assembly,settings)[0]
+            section['name']=f'Build {index+1:02d}'
+            sample=section['rows'][1]
+            inputs=[dict(deepcopy(sample),id=100+j,name=f'Insert {j+1}',well=f'B{j+1}') for j in range(12)]
+            section['rows']=inputs+[row for row in section['rows'] if row['kind'] in ('reagent','total')]
+            sections.append(section)
+        pdf=PdfReader(io.BytesIO(guide_bytes('pdf',sections)))
+        first_page=pdf.pages[0].extract_text()
+        for index in range(12):self.assertIn(f'Build {index+1:02d}',first_page)
+        for well in range(1,13):self.assertEqual(first_page.count(f'(0622-B{well}-3.30)'),12)
+        self.assertNotIn('Fragment metadata',first_page)
+        sizes=[]
+        pdf.pages[0].extract_text(visitor_text=lambda text,cm,tm,font,size:sizes.append(size) if '3.30)' in text or text.strip()=='0622' else None)
+        self.assertTrue(sizes);self.assertTrue(all(size>=8 for size in sizes))
+        book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
+        self.assertEqual(book['Assemblies']['C4'].value.splitlines()[0],'(0622-B1-3.30)  (0622-B2-3.30)')
+        self.assertLess(book['Assemblies'].row_dimensions[4].height,110)
+        self.assertEqual(book['Assemblies']['C4'].font.sz,11)
+        for title in ('Assemblies','Fragment metadata','Plate key'):
+            self.assertIsNone(book[title]['A2'].value)
+            self.assertTrue(book[title].row_dimensions[2].hidden)
+        text=' '.join(page.extract_text() for page in pdf.pages)
+        csv_text=guide_bytes('csv',sections).decode('utf-8-sig')
+        for description in ('Transfers in','Inputs are','Stock snapshot','Plate labels use'):
+            self.assertNotIn(description,text);self.assertNotIn(description,csv_text)
 
     def test_missing_stocks_and_overfilled_reactions_are_visible(self):
         assembly, settings = fixture()

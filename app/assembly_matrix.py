@@ -4,12 +4,12 @@ import colorsys
 import hashlib
 import io
 import math
+import re
 from xml.sax.saxutils import escape
 
 from .exports import _safe_cell
 from .bench_exports import plate_key
 
-NOTE = 'Transfers in µL. Inputs are (Plate-Well-Volume), in assembly order. Plate labels use the first four alphanumeric characters after pSHPs. Unlocated backbones use their name; — means no well. ? means the required volume is unavailable. Separate-first nested reactions have separate rows.'
 TEXT_PALETTE = ['225EA8', 'A4470A', '7343A1', '23713D', 'AA3364', '876500', '007D85', '5353A8', '865A36', '5C7116', '97408F', '476581']
 META_HEADERS = ['Fragment', 'Type', 'Plate', 'Well', 'Physical bp', 'Stock ng/µL', 'Resuspend µL', 'Yield ng', 'Stock basis', 'Assemblies']
 
@@ -29,14 +29,28 @@ def _plate_text_colors(key):
 
 def _plate_runs(value,key):
     """Color just the plate alias in each (Plate-Well-Volume) tuple."""
-    aliases=sorted(key.values(),key=lambda entry:len(entry['short']),reverse=True)
-    runs=[]
-    for line in str(value).splitlines(keepends=True):
-        plate=next((entry for entry in aliases if line.startswith('('+entry['short']+'-')),None)
-        if plate:
-            runs.extend([('(',None),(plate['short'],plate['text_color']),(line[len(plate['short'])+1:],None)])
-        else:runs.append((line,None))
+    aliases={entry['short']:entry['text_color'] for entry in key.values()}
+    text=str(value)
+    if not aliases:return [(text,None)]
+    pattern=r'\(('+'|'.join(re.escape(alias) for alias in sorted(aliases,key=len,reverse=True))+r')-'
+    runs=[];position=0
+    for match in re.finditer(pattern,text):
+        runs.extend([(text[position:match.start(1)],None),(match[1],aliases[match[1]])])
+        position=match.end(1)
+    runs.append((text[position:],None))
     return runs
+
+
+def _pack_inputs(value,fits):
+    """Keep transfer order while fitting whole tuples side by side."""
+    lines=[];current=''
+    for item in str(value).splitlines():
+        candidate=current+'  '+item if current else item
+        if current and not fits(candidate):
+            lines.append(current);current=item
+        else:current=candidate
+    if current:lines.append(current)
+    return '\n'.join(lines)
 
 def matrix_data(sections):
     metadata=[];lookup={};key=plate_key(sections);_plate_text_colors(key);rows=[]
@@ -74,7 +88,6 @@ def _csv(sections):
     for row in metadata:write(row)
     write([]);write(['Plate key']);write(['Plate','Full plate identifier','Color'])
     for entry in key.values():write([entry['short'],entry['name'],'#'+entry['text_color']])
-    write([]);write([NOTE])
     return out.getvalue().encode('utf-8-sig')
 
 
@@ -87,32 +100,35 @@ def _excel(sections,legacy_factory):
     headers,rows,metadata,key=matrix_data(sections)
     wb=load_workbook(io.BytesIO(legacy_factory())) if legacy_factory else Workbook()
     if not legacy_factory:wb.remove(wb.active)
-    tables=[('Assemblies',headers,rows,[18,9,27,7,10,7,7,15]),
+    tables=[('Assemblies',headers,rows,[18,9,43,7,10,7,7,12]),
             ('Fragment metadata',META_HEADERS,metadata,[22,8,7,6,8,10,10,9,18,17]),
             ('Plate key',['Plate','Full plate identifier','Color'],[[e['short'],e['name'],'#'+e['text_color']] for e in key.values()],[10,56,12])]
     for index,(name,columns,values,widths) in enumerate(tables):
-        ws=wb.create_sheet(name,index);ws.append([name]);ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(columns));ws['A1'].font=Font(size=16,bold=True,color='1D443B');ws.row_dimensions[1].height=30
-        ws.append([NOTE if index==0 else 'Stock snapshot. Plate labels use the first four alphanumeric characters after pSHPs; duplicate labels receive a suffix.' if index==1 else 'Color and full identifier for each short plate label.'])
-        ws.merge_cells(start_row=2,start_column=1,end_row=2,end_column=len(columns));ws['A2'].alignment=Alignment(wrap_text=True,vertical='top');ws.row_dimensions[2].height=48 if index==0 else 32
+        ws=wb.create_sheet(name,index);ws.append([name]);ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(columns));ws['A1'].font=Font(name='Arial',size=14,bold=True,color='1D443B');ws.row_dimensions[1].height=24
+        # Keep the title/header row coordinates stable for spreadsheet consumers.
+        ws.append([]);ws.row_dimensions[2].hidden=True
         ws.append(columns)
         for row in values:ws.append([_safe_cell(v) for v in row])
-        for c in ws[3]:c.fill=PatternFill('solid',fgColor='1D443B');c.font=Font(bold=True,color='FFFFFF');c.alignment=Alignment(wrap_text=True,vertical='center')
-        ws.row_dimensions[3].height=32
+        for c in ws[3]:c.fill=PatternFill('solid',fgColor='1D443B');c.font=Font(name='Arial',size=9,bold=True,color='FFFFFF');c.alignment=Alignment(wrap_text=True,vertical='center')
+        ws.row_dimensions[3].height=36
+        if index==0:
+            for r in range(4,ws.max_row+1):
+                ws.cell(r,3).value=_pack_inputs(ws.cell(r,3).value,lambda text:len(text)<=widths[2]-2)
         for r in range(4,ws.max_row+1):
             lines=1
             for c,width in enumerate(widths,1):
-                cell=ws.cell(r,c);cell.fill=PatternFill('solid',fgColor='F1F6F3' if r%2==0 else 'FFFFFF');cell.alignment=Alignment(wrap_text=True,vertical='top');cell.font=Font(size=11)
+                cell=ws.cell(r,c);cell.fill=PatternFill('solid',fgColor='F1F6F3' if r%2==0 else 'FFFFFF');cell.alignment=Alignment(wrap_text=True,vertical='top',horizontal='center' if index==0 and 4<=c<=7 else None);cell.font=Font(name='Arial',size=11)
                 if isinstance(cell.value,float):cell.number_format='0.00'
                 lines=max(lines,sum(max(1,math.ceil(len(line)/max(8,width-2))) for line in str(cell.value or '').split('\n')))
-            ws.row_dimensions[r].height=max(28,lines*15)
+            ws.row_dimensions[r].height=max(22,lines*15+4)
             if index==0:
                 cell=ws.cell(r,3)
-                cell.value=CellRichText([TextBlock(InlineFont(color=color,b=True),text) if color else text for text,color in _plate_runs(cell.value,key)])
+                cell.value=CellRichText([TextBlock(InlineFont(rFont='Arial',sz=11,color=color,b=True),text) if color else text for text,color in _plate_runs(cell.value,key)])
             elif index==1:
                 plate=next((e for e in key.values() if e['short']==ws.cell(r,3).value),None)
-                if plate:ws.cell(r,3).font=Font(size=11,bold=True,color=plate['text_color'])
+                if plate:ws.cell(r,3).font=Font(name='Arial',size=11,bold=True,color=plate['text_color'])
             elif index==2:
-                for col in (1,2):ws.cell(r,col).font=Font(size=11,bold=True,color=values[r-4][2].lstrip('#'))
+                for col in (1,2):ws.cell(r,col).font=Font(name='Arial',size=11,bold=True,color=values[r-4][2].lstrip('#'))
         for c,width in enumerate(widths,1):ws.column_dimensions[get_column_letter(c)].width=width
         ws.freeze_panes='C4';ws.auto_filter.ref=f'A3:{get_column_letter(len(columns))}{ws.max_row}';ws.sheet_view.showGridLines=False;ws.print_title_rows='1:3'
         ws.oddFooter.center.text='Junction | Page &P of &N'
@@ -128,11 +144,16 @@ def _pdf(sections):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
+    from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,PageBreak,LongTable,TableStyle
     headers,rows,metadata,key=matrix_data(sections)
-    page_width,_=A4;available=page_width-64;out=io.BytesIO()
-    widths=[90,45,150,38,55,38,38,available-454]
-    styles={k:ParagraphStyle(k,fontSize=s,leading=s+3,fontName='Helvetica-Bold' if k in ('title','head') else 'Helvetica',textColor=colors.white if k=='head' else colors.HexColor('#1D443B')) for k,s in [('title',16),('head',7),('cell',8),('meta',7),('note',9)]}
+    page_width,_=A4;available=page_width-52;out=io.BytesIO()
+    widths=[82,40,205,33,49,33,33,available-475]
+    styles={k:ParagraphStyle(k,fontSize=s,leading=s+2,fontName='Helvetica-Bold' if k in ('title','head') else 'Helvetica',textColor=colors.white if k=='head' else colors.HexColor('#1D443B')) for k,s in [('title',14),('head',7),('cell',8),('meta',7),('note',8)]}
+    def packed_inputs(value):
+        def fits(text):
+            return sum(stringWidth(run,'Helvetica-Bold' if color else 'Helvetica',8) for run,color in _plate_runs(text,key))<=widths[2]-6
+        return _pack_inputs(value,fits)
     def p(v,kind='cell',plate_label=False,input_tuples=False):
         if isinstance(v,float):v=f'{v:.2f}'
         text='—' if v is None else str(v)
@@ -145,9 +166,9 @@ def _pdf(sections):
         return Paragraph(markup.replace('µ','&#181;').replace('\n','<br/>'),styles[kind])
     def table(columns,values,widths,kind='cell'):
         data=[[p(c,'head') for c in columns]]+[[p(v,kind,plate_label=columns[i] in ('Plate','Full plate identifier'),input_tuples=columns[i]=='Inputs (Plate-Well-µL)') for i,v in enumerate(row)] for row in values]
-        t=LongTable(data,colWidths=widths,repeatRows=1,splitInRow=1,hAlign='LEFT');t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1D443B')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#F1F6F3'),colors.white]),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),3),('RIGHTPADDING',(0,0),(-1,-1),3),('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),6)]));return t
-    display_rows=[row[:-1]+['Pass' if row[-1]=='Pass' else 'Check; see notes'] for row in rows]
-    flow=[p('Assemblies','title'),Spacer(1,9),p(NOTE,'note'),Spacer(1,12),table(headers,display_rows,widths)]
+        t=LongTable(data,colWidths=widths,repeatRows=1,splitInRow=1,hAlign='LEFT');t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1D443B')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#F1F6F3'),colors.white]),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),3),('RIGHTPADDING',(0,0),(-1,-1),3),('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3)]));return t
+    display_rows=[row[:2]+[packed_inputs(row[2])]+row[3:-1]+['Pass' if row[-1]=='Pass' else 'Check'] for row in rows]
+    flow=[p('Assemblies','title'),Spacer(1,7),table(headers,display_rows,widths)]
     for row in rows:
         if row[-1]!='Pass':flow.extend([Spacer(1,7),p('CHECK: '+row[0]+': '+row[-1],'note')])
     flow.extend([PageBreak(),p('Fragment metadata','title'),Spacer(1,10)])
@@ -156,8 +177,8 @@ def _pdf(sections):
     plates=table(['Plate','Full plate identifier'],[[e['short'],e['name']] for e in key.values()],[70,available-70])
     flow.append(plates)
     def footer(canvas,doc):
-        canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(26,14,'Junction | Export snapshot');canvas.drawRightString(page_width-26,14,f'Page {doc.page}');canvas.restoreState()
-    SimpleDocTemplate(out,pagesize=A4,leftMargin=26,rightMargin=26,topMargin=26,bottomMargin=28,title='Junction assemblies').build(flow,onFirstPage=footer,onLaterPages=footer)
+        canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(20,14,'Junction');canvas.drawRightString(page_width-20,14,f'Page {doc.page}');canvas.restoreState()
+    SimpleDocTemplate(out,pagesize=A4,leftMargin=20,rightMargin=20,topMargin=20,bottomMargin=26,title='Junction assemblies').build(flow,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
 
 
