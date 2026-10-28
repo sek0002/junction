@@ -311,18 +311,18 @@ class WorksheetFormatAPITests(unittest.TestCase):
             self.assertEqual(item['plan']['reaction']['rows'][0]['volume_ul'],1)
             self.assertIsNone(item['plan']['reaction']['rows'][0]['concentration_ng_ul'])
 
-    def test_build_list_filename_has_local_date_and_snapshot_id_across_formats(self):
+    def test_build_list_filename_has_local_date_and_unique_id_for_every_download(self):
         import re
         created=self.client.post('/api/build-list',json=self.request)
         self.assertEqual(created.status_code,200)
         identifiers=[]
-        for format in ('pdf','xlsx','csv'):
+        for format in ('pdf','xlsx','csv','csv'):
             response=self.client.get('/api/build-list/worksheet',params={'format':format,'export_date':'2026-10-28'})
             self.assertEqual(response.status_code,200)
-            match=re.fullmatch(r'attachment; filename="Build_list_2026-10-28_(BL-[a-f0-9]{10})\.'+format+r'"',response.headers['content-disposition'])
+            match=re.fullmatch(r'attachment; filename="Build_list_2026-10-28_(BL-[a-f0-9]{32})\.'+format+r'"',response.headers['content-disposition'])
             self.assertIsNotNone(match,response.headers['content-disposition'])
             identifiers.append(match.group(1))
-        self.assertEqual(len(set(identifiers)),1)
+        self.assertEqual(len(set(identifiers)),4)
         updated=self.client.patch(f"/api/build-list/{created.json()['id']}/settings",json={'reaction_volume_ul':25})
         self.assertEqual(updated.status_code,200)
         changed=self.client.get('/api/build-list/worksheet',params={'format':'csv','export_date':'2026-10-28'})

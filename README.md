@@ -326,7 +326,7 @@ assemblies to the build list.
 **Export assemblies** is the dedicated third tab beside Build and Reaction
 planner. It shows every queued build's settings, input volumes, readiness,
 fragment metadata and plate key. Its Export menu downloads the full list in
-PDF, Excel or CSV. Filenames include the browser’s local date and a build-list snapshot identifier, for example `Build_list_2026-10-28_BL-a1b2c3d4e5.pdf`. The identifier stays the same across formats for an unchanged list and changes when the exported list or its plan changes. Direct API exports without a date use Australia/Melbourne. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
+PDF, Excel or CSV. Filenames include the browser’s local date and a fresh UUID for each download, for example `Build_list_2026-10-28_BL-8bba366e2dc74238a7bfefc2d394338c.pdf`. Every export gets a unique identifier, including repeated downloads of an unchanged list and exports in different formats. Direct API exports without a date use Australia/Melbourne. PDF pages and Excel print settings use compact A4 portrait tables. Transfer tuples share lines in assembly order, while plate text colors remain consistent with the metadata and plate key. Tables wrap and continue over additional pages as needed. Build and Reaction planner have no assembly-export buttons.
 
 The Name field updates automatically when fragments are added, swapped,
 reordered or removed, including changes to the backbone and nested inserts.

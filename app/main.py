@@ -9,6 +9,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse, Response, JSONResponse, HTMLResponse
@@ -817,8 +818,7 @@ def export_build_list(format:Literal['xlsx','pdf','csv']='xlsx',export_date:date
     items=active_build_list()
     if not items:raise HTTPException(422,'Add an assembly to the build list first.')
     export_day = export_date or datetime.now(ZoneInfo('Australia/Melbourne')).date()
-    snapshot = json.dumps(items,sort_keys=True,separators=(',',':'),ensure_ascii=True,default=str).encode('utf8')
-    identifier = 'BL-' + hashlib.sha256(snapshot).hexdigest()[:10]
+    identifier = 'BL-' + uuid4().hex
     filename = f'Build_list_{export_day.isoformat()}_{identifier}.{format}'
     return download(guide_bytes(format,build_sections(items),lambda:build_list_workbook(items)), filename, FORMATS[format])
 
