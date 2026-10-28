@@ -159,3 +159,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--green); outline
 }
 
 .nav-archive{display:flex;align-items:center;justify-content:center}.nav-archive svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* One release number in the wordmark and page footer. */
+.app-version { color: var(--muted); font-size: 11px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+.topbar .brand-version { margin-left: 8px; font-size: 10px; }

@@ -2,6 +2,10 @@
 
 A local FastAPI app for selecting plate fragments, assembling circular plasmids, inspecting sequence checks, calculating reaction inputs, and comparing uploaded plasmids with saved and inferred designs.
 
+## Versioning
+
+The version beside the logo, in the footer and in API metadata comes from `app/version.py`. Each published update increments it once: **patch** for fixes and small interface changes, **minor** for new features, and **major** for breaking changes. Start a release with `python3 scripts/bump_version.py patch` (or `minor` / `major`); minor and major increments reset the lower numbers. The version persists across restarts and deployments, and does not change just because the server starts.
+
 ## Start
 
 On macOS, double-click **start.command**, or run:

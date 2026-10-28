@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import FileResponse, Response, JSONResponse
+from fastapi.responses import FileResponse, Response, JSONResponse, HTMLResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
 from . import database as store
+from .version import VERSION
 from .auth import AuthMiddleware, router as auth_router, user_id, check_plasmid_write
 from .workspace import router as workspace_router, begin_comparison, finish_comparison
 from .imports import import_plate, parse_plate, dna
@@ -126,7 +127,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title='Junction — Golden Gate workbench',version='1.0.0',lifespan=lifespan)
+app = FastAPI(title='Junction — Golden Gate workbench',version=VERSION,lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 app.include_router(auth_router)
 app.include_router(workspace_router)
@@ -143,7 +144,8 @@ async def validation_error(request,exc):
 
 @app.get('/',include_in_schema=False)
 def home():
-    return FileResponse(ROOT/'app'/'static'/'index.html',headers={'Cache-Control':'no-cache'})
+    html = (ROOT/'app'/'static'/'index.html').read_text(encoding='utf8')
+    return HTMLResponse(html.replace('__JUNCTION_VERSION__', VERSION),headers={'Cache-Control':'no-cache'})
 
 
 @app.get('/manifest.webmanifest',include_in_schema=False)
