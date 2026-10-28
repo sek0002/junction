@@ -19,7 +19,7 @@ function showView(name){
   document.body.classList.toggle('home-active',name==='home');
   history.replaceState(null,'','#'+name);window.JunctionHomeController?.viewChanged(name);
   window.JunctionWorksheetController?.setScope(name);if(name==='workbenches')window.JunctionWorkbenchController?.load();if(name==='design')window.JunctionDesign?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();
-  if(profile)$('account-open').click();
+  if(profile)window.JunctionHomeController.onReady(()=>$('account-open').click());
 }
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
 function referenceParams(){const q=new URLSearchParams();for(const[k,v]of Object.entries(settings()))if(v!==null)q.set(k,v);const value=$('backbone').value;q.set('no_backbone',!value);if(value.startsWith('p:'))q.set('backbone_id',value.slice(2));return q;}
@@ -2413,7 +2413,16 @@ $('junction-list-close').onclick=()=>$('junction-list-dialog').close();
 window.JunctionHomeController=JunctionHome.setup(window,document,{navigate:showView});
 window.addEventListener('hashchange',()=>showView(JunctionHome.resolveView(location.hash.slice(1))));
 showView(JunctionHome.resolveView(location.hash.slice(1)));
-(async()=>{busy('Opening your sandbox…');try{await JunctionAccount.ready;const [workspace,runs]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons')]);
-  sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
-  await refresh();await loadBuildList();await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());await api('/api/worksheets/bootstrap',jsonBody({}));await window.JunctionWorksheetController.loadAll();window.JunctionHomeController.welcome();window.JunctionWorkbenchController.load();runCompareQueue();
-}catch(e){toast('Could not load the app: '+e.message);}finally{busy('');}})();
+(async()=>{const splash=window.JunctionHomeController;
+  try{
+    splash.status('Checking your account…');await JunctionAccount.ready;
+    splash.status('Loading your instance…');const [workspace,runs]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons')]);
+    sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
+    splash.status('Loading fragments, backbones and rules…');await refresh();
+    splash.status('Restoring build plans…');await loadBuildList();
+    splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());
+    splash.status('Loading saved worksheets and Workbenches…');await api('/api/worksheets/bootstrap',jsonBody({}));
+    await Promise.all([window.JunctionWorksheetController.loadAll(),window.JunctionWorkbenchController.load(),refreshLibraryMetrics()]);
+    splash.ready();runCompareQueue();
+  }catch(error){splash.fail(error.message);}
+})();

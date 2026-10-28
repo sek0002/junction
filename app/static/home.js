@@ -1,4 +1,4 @@
-/* Home navigation and the one-time entrance after a successful sign-in. */
+/* Home navigation and the animated loading screen for instance restoration. */
 (function(root,factory){
   if(typeof module==='object'&&module.exports)module.exports=factory();
   else root.JunctionHome=factory();
@@ -14,9 +14,14 @@
     const home=doc.getElementById('home'),intro=doc.getElementById('home-intro');
     const skip=doc.getElementById('home-intro-skip'),heading=doc.getElementById('home-heading');
     const reduced=win.matchMedia('(prefers-reduced-motion: reduce)');
-    const background=[doc.querySelector('.topbar'),doc.querySelector('main'),doc.querySelector('body > footer')].filter(Boolean);
-    let timer=null,closing=null,playing=false;
-    function finish({focus=false,immediate=false}={}){
+    const background=[doc.querySelector('.topbar'),doc.querySelector('main'),doc.querySelector('body > footer'),doc.getElementById('workbench-floating')].filter(Boolean);
+    const status=doc.getElementById('home-intro-status'),retryButton=doc.getElementById('home-intro-retry');
+    const clock=()=>win.performance?.now?.()??Date.now();
+    let timer=null,closing=null,playing=false,loading=false,failed=false,started=0,previousFocus=null;
+    const readyCallbacks=[];
+    function setStatus(message){status.textContent=message;}
+    function finish({focus=false,immediate=false,restore=false}={}){
+      if(loading||failed)return;
       win.clearTimeout(timer);win.clearTimeout(closing);playing=false;
       background.forEach(node=>node.inert=false);
       intro.inert=true;intro.removeAttribute('aria-modal');
@@ -24,24 +29,43 @@
       if(immediate||reduced.matches)intro.hidden=true;
       else closing=win.setTimeout(()=>{intro.hidden=true;},350);
       home.classList.add('jhome-revealed');
-      if(focus&&home.classList.contains('active')){heading.focus({preventScroll:true});win.scrollTo({top:0,behavior:'auto'});}
+      if(focus){
+        const target=restore&&previousFocus?.isConnected?previousFocus:home.classList.contains('active')?heading:doc.querySelector('.view.active h1');
+        if(target&&!(restore&&target===previousFocus))target.setAttribute('tabindex','-1');target?.focus({preventScroll:true});
+      }
+      const callbacks=readyCallbacks.splice(0);callbacks.forEach(fn=>fn());
     }
-    function play(){
-      if(!home.classList.contains('active')||reduced.matches){finish({immediate:true});return;}
-      win.clearTimeout(closing);win.clearTimeout(timer);playing=true;
-      intro.hidden=false;intro.inert=false;intro.setAttribute('aria-modal','true');
-      intro.classList.remove('home-intro-done');home.classList.remove('jhome-revealed');
+    function start(message='Opening Junction…'){
+      win.clearTimeout(closing);win.clearTimeout(timer);started=clock();previousFocus=doc.activeElement;
+      playing=true;loading=true;failed=false;
+      intro.hidden=false;intro.inert=false;intro.setAttribute('aria-modal','true');intro.setAttribute('aria-label','Loading Junction');intro.setAttribute('aria-busy','true');
+      intro.classList.remove('home-intro-done','home-intro-error');home.classList.remove('jhome-revealed');
+      skip.hidden=true;skip.disabled=true;retryButton.hidden=true;setStatus(message);
       background.forEach(node=>node.inert=true);
       for(const node of intro.querySelectorAll('.j-part,.splash-type,.intro-orbit,.intro-wordmark')){
         node.style.animation='none';void node.offsetWidth;node.style.animation='';
       }
-      skip.focus({preventScroll:true});
-      timer=win.setTimeout(()=>finish({focus:true}),1850);
+      intro.focus({preventScroll:true});
     }
+    function ready(message='Ready'){
+      if(!playing)return;
+      loading=false;failed=false;intro.setAttribute('aria-busy','false');intro.setAttribute('aria-label','Junction ready');
+      skip.hidden=false;skip.disabled=false;setStatus(message);consumeWelcome(win);
+      const remaining=reduced.matches?0:Math.max(0,1300-(clock()-started));
+      if(!remaining)finish({focus:true,immediate:reduced.matches});
+      else timer=win.setTimeout(()=>finish({focus:true}),remaining);
+    }
+    function fail(message){
+      win.clearTimeout(timer);loading=false;failed=true;
+      intro.setAttribute('aria-busy','false');intro.setAttribute('aria-label','Junction loading error');intro.classList.add('home-intro-error');
+      skip.hidden=true;skip.disabled=true;retryButton.hidden=false;setStatus('Could not load Junction. '+message);retryButton.focus();
+    }
+    function cancel(){loading=false;failed=false;retryButton.hidden=true;finish({focus:true,immediate:true,restore:true});}
     skip.addEventListener('click',()=>finish({focus:true}));
+    retryButton.addEventListener('click',()=>win.location.reload());
     intro.addEventListener('keydown',event=>{
-      if(event.key==='Escape'){event.preventDefault();finish({focus:true});}
-      if(event.key==='Tab'){event.preventDefault();skip.focus();}
+      if(event.key==='Escape'&&!loading&&!failed){event.preventDefault();finish({focus:true});}
+      if(event.key==='Tab'){event.preventDefault();(failed?retryButton:loading?intro:skip).focus();}
     });
     for(const card of home.querySelectorAll('[data-home-view]')){
       card.addEventListener('click',event=>{
@@ -57,12 +81,15 @@
         card.style.setProperty('--my',(event.clientY-rect.top)/rect.height*100+'%');
       });
     }
-    const motionChange=()=>{if(reduced.matches&&playing)finish({focus:true,immediate:true});};
+    const motionChange=()=>{if(reduced.matches&&playing&&!loading&&!failed)finish({focus:true,immediate:true});};
     reduced.addEventListener('change',motionChange);
+    start();
     return {
-      welcome(){if(consumeWelcome(win))play();else home.classList.add('jhome-revealed');win.scrollTo({top:0,behavior:'auto'});},
+      start,status:setStatus,ready,fail,cancel,
+      onReady(fn){if(playing)readyCallbacks.push(fn);else fn();},
+      get isLoading(){return loading;},
       viewChanged(name){
-        if(name!=='home'){if(playing)finish({immediate:true});home.classList.remove('jhome-revealed');}
+        if(name!=='home')home.classList.remove('jhome-revealed');
         else if(!playing)home.classList.add('jhome-revealed');
       }
     };

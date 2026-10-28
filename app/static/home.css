@@ -64,3 +64,9 @@ body.home-active>footer{display:none}
  .jhome-card{min-height:198px;padding:17px;gap:10px}
  .jhome-art{height:120px}
 }
+
+.home-intro .skip[hidden],#home-intro-retry[hidden]{display:none}
+.home-intro .splash-status{font-size:12px;letter-spacing:.15px;text-align:center;max-width:min(460px,85vw);margin:14px 0 0;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.home-intro .splash-progress{display:flex;gap:4px;width:96px;height:3px;margin-top:27px}.splash-progress i{flex:1;background:var(--green);border-radius:3px;animation:jhome-loading 1.3s ease-in-out infinite}.splash-progress i:nth-child(2){background:#8eb99a;animation-delay:.15s}.splash-progress i:nth-child(3){background:#d9b95d;animation-delay:.3s}.home-intro[aria-busy=false] .splash-progress i{animation:none}
+.home-intro-error .splash-status{color:var(--red)}#home-intro-retry{margin-top:16px}
+@keyframes jhome-loading{0%,100%{opacity:.3}50%{opacity:1}}
