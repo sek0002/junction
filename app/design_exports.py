@@ -7,7 +7,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 
 def fragment_rows(result):
-    return [dict(zip([
+    rows = [dict(zip([
         'Name', 'Assembly row', 'Region', 'Target sequence', 'Full sequence',
         'Target length nt', 'Full length nt', 'GC %', '5′ overhang', '3′ overhang',
         '5′ RE', '3′ RE', '5′ recognition site', '3′ recognition site',
@@ -19,6 +19,13 @@ def fragment_rows(result):
         row['right_adapter_enzyme'] if row['include_re_sites'] else '',
         row['left_re_site'], row['right_re_site'], row['five_prime_sequence'], row['three_prime_sequence'],
         row['include_re_sites'], row['source_start'] + 1, row['source_end'], row.get('output_orientation','Forward')])) for row in result['generated']]
+    if result.get('make_twist_compatible'):
+        for exported, row in zip(rows, result['generated']):
+            exported.update({'Unpadded full sequence': row['unpadded_full_sequence'],
+                             'Unpadded full length nt': row['unpadded_length'],
+                             row.get('padding_end','3′')+' padding sequence': row['synthesis_padding'],
+                             row.get('padding_end','3′')+' padding length nt': row['padding_length']})
+    return rows
 
 
 def assembly_rows(result):

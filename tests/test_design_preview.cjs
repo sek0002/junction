@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {record}=require('../app/static/design-preview.js');
+const {record,assembly}=require('../app/static/design-preview.js');
 test('insert viewer includes every Constant gap and named Dynamic region in displayed coordinates',()=>{
  const entry={name:'Insert',reverse:true,sections:[{name:'Cargo',start:4,end:8,mode:'dynamic'}]};
  const sites=[{enzyme:'BsaI',start:2,end:8,strand:1,motif:'GGTCTC'}];
@@ -18,4 +18,16 @@ test('donor viewer keeps the oriented full sequence, detected sites and exact fo
 });
 test('viewing incomplete or invalid DNA reports a useful error without removing invalid bases',()=>{
  for(const sequence of ['', 'ACGN', 'ACGT;'])assert.throws(()=>record({sections:[]},{kind:'placeholder',sequence},'BsaI'),/A\/C\/G\/T/);
+});
+test('generated assembly preview preserves topology, oriented features and sites without mutating the result',()=>{
+ const result={name:'Designed plasmid',valid:true,assembly:{sequence:'AACCGGTT',circular:true,features:[{label:'RC donor',start:2,end:6,strand:-1,reverse_complement:true}],restriction_sites:[{enzyme:'BsmBI',start:1,end:7}]}};
+ const before=structuredClone(result),view=assembly(result);
+ assert.equal(view.name,'Designed plasmid');assert.equal(view.viewerTitle,'Example assembly');assert.equal(view.circular,true);assert.equal(view.sequence,result.assembly.sequence);
+ assert.deepEqual(view.features,result.assembly.features);assert.deepEqual(view.restriction_sites,result.assembly.restriction_sites);
+ view.features[0].start=0;view.restriction_sites[0].start=0;assert.deepEqual(result,before);
+});
+test('preview names identify the displayed table row and invalid assemblies remain labelled schematic',()=>{
+ const result={name:'Batch',table_mode:true,valid:false,assemblies:[{name:'First row'}],assembly:{sequence:'ACGT',circular:false}};
+ const view=assembly(result);assert.equal(view.name,'Batch · First row');assert.match(view.viewSummary,/Schematic/);assert.match(view.viewSummary,/Linear/);
+ for(const product of [null,{sequence:''},{sequence:'ACGN'}])assert.throws(()=>assembly({assembly:product}),/Generate an assembly/);
 });

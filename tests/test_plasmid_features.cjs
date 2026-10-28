@@ -24,7 +24,7 @@ test('viewer draws both joined parts and includes one-base uploaded annotations'
   const source=fs.readFileSync(path.join(__dirname,'../app/static/app.js'),'utf8');
   const state={result:{sequence:'A'.repeat(1000),name:'Annotations',circular:true,storedReference:true,features:[wrap,{type:'protein_bind',label:'Short site',start:25,end:26,strand:1},{type:'source',start:0,end:1000}]}};
   const context=vm.createContext({state,PlasmidFeatures:F,MapLabelLayout:require('../app/static/map-layout.js'),colors:['red','blue'],esc:v=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))});
-  vm.runInContext(source.slice(source.indexOf('function mapFeatures(){'),source.indexOf('let mapTooltipFeature=')),context);
+  vm.runInContext(source.slice(source.indexOf('function mapFeatures('),source.indexOf('let mapTooltipFeature=')),context);
   vm.runInContext(source.slice(source.indexOf('function mapFeatureGroup('),source.indexOf('const mapSiteColors=')),context);
   vm.runInContext(source.slice(source.indexOf('function linearMapSvg('),source.indexOf('function renderMap(){')),context);
   const features=context.mapFeatures(),text={fit:v=>({text:String(v),width:String(v).length*6}),measure:v=>String(v).length*6};

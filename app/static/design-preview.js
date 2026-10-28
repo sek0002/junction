@@ -25,5 +25,15 @@
       restriction_sites:node.sites||node.digest?.all_sites||node.digest?.sites||[],
       viewSummary:(node.kind==='placeholder'?'Insert':'Fragment')+' · '+length+' nt'+context};
   }
-  return {record};
+  function assembly(result){
+    const product=result.assembly;
+    if(!product?.sequence||/[^ACGT]/.test(product.sequence))throw Error('Generate an assembly before viewing it.');
+    const output=JSON.parse(JSON.stringify(product));
+    const variant=result.table_mode?result.assemblies?.[0]?.name:null;
+    output.name=(result.name||'New design')+(variant?' · '+variant:'');
+    output.viewerTitle='Example assembly';
+    output.viewSummary=(result.valid?'Example assembly':'Schematic · Resolve assembly errors')+' · '+output.sequence.length.toLocaleString()+' bp · '+(output.circular?'Circular':'Linear');
+    return output;
+  }
+  return {record,assembly};
 });

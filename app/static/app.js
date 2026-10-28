@@ -971,7 +971,7 @@ function renderResult(){
 function reactionIsReady(r){return !!r?.rows?.length&&r.rows.every(p=>p.feasible===true&&p.volume_ul!==null)&&r.water_ul!==null&&r.water_ul>=0;}
 function renderReaction(r){const ready=(state.assemblyResult?.nested_reactions||[]).every(s=>!s.errors.length&&reactionIsReady(s.reaction))&&r.rows?.length&&r.rows.every(x=>x.feasible===true&&x.volume_ul!==null&&(x.role==='backbone'||(x.volume_ul>=(state.result?.effective_settings?.min_input_volume_ul||settings().min_input_volume_ul)-1e-9&&x.volume_ul<=(state.result?.effective_settings?.max_input_volume_ul||settings().max_input_volume_ul)+1e-9)))&&r.water_ul!==null&&r.water_ul>=0;$('reaction-status').className='badge '+(ready?'':'error');$('reaction-status').textContent=ready?'READY':'CHECK REQUIRED';$('reaction-empty').classList.add('hidden');$('reaction-results').innerHTML=(r.rows||[]).map(x=>`<div class="reaction-line"><span>${esc(x.name)}<small>${esc(x.well||(String(x.id).startsWith('prepared:')?'Prepared parent':x.role==='backbone'?'Backbone':''))} · ${x.feasibility==='default_volume'?'Target: ':''}${fmt(x.target_ng)} ng · ${fmt(x.target_fmol)} fmol</small><small>${x.concentration_ng_ul?inventoryQuantity(x.concentration_ng_ul)+' ng/µL · ':''}${x.feasibility==='default_volume'?'Default 1 µL':x.role==='backbone'||String(x.id).startsWith('prepared:')?'Manual':x.concentration_basis?.includes('Instance')?'Instance':x.concentration_basis?.match(/ASSUMED|PROPOSED|planned/i)?'Planned':'Saved'}</small>${x.warnings?.filter(w=>!w.match(/planning assumption/i)).length?`<small class="reaction-warning">${esc(x.warnings.filter(w=>!w.match(/planning assumption/i)).join(' '))}</small>`:''}</span><strong>${inventoryQuantity(x.volume_ul)} µL</strong></div>`).join('')+`<div class="reaction-line"><span>Master mix + reagents</span><strong>${fmt(r.master_mix_ul)} µL</strong></div><div class="reaction-line"><span>Water</span><strong>${fmt(r.water_ul)} µL</strong></div>`+(r.warnings||[]).map(w=>`<div class="reaction-warning">${esc(w)}</div>`).join('');}
 const colors=Array.from({length:8},(_,i)=>`var(--feature-${i})`);
-function mapFeatures(){const result=state.result;return(result?.features||[]).filter(f=>f.type!=='source'&&PlasmidFeatures.segments(f,result.sequence.length).length&&(result.storedReference||f.end-f.start>12));}
+function mapFeatures(result=state.result){return(result?.features||[]).filter(f=>f.type!=='source'&&PlasmidFeatures.segments(f,result.sequence.length).length&&(result.storedReference||f.end-f.start>12));}
 let mapTooltipFeature=null,mapResizeFrame=null,mapRenderedWidth=0;
 function hideMapTooltip(){
   mapTooltipFeature=null;$('map-tooltip').classList.add('hidden');
@@ -985,8 +985,8 @@ function positionMapTooltip(event,node){
   tooltip.style.left=Math.max(10,Math.min(x+14,window.innerWidth-box.width-10))+'px';
   tooltip.style.top=Math.max(10,Math.min(y+18+box.height<window.innerHeight-10?y+18:y-box.height-12,window.innerHeight-box.height-10))+'px';
 }
-function featureSummary(feature){
-  const length=state.result.sequence.length,parts=PlasmidFeatures.segments(feature,length),strand=feature.strand===-1?'Reverse':feature.strand===1?'Forward':'Mixed / unstranded';
+function featureSummary(feature,result=state.result){
+  const length=result.sequence.length,parts=PlasmidFeatures.segments(feature,length),strand=feature.strand===-1?'Reverse':feature.strand===1?'Forward':'Mixed / unstranded';
   return [feature.type||'Feature',PlasmidFeatures.location(feature,length)||'No local coordinates',parts.length?fmt(PlasmidFeatures.size(feature,length),0)+' bp':'Remote location',strand].join(' · ');
 }
 function showMapTooltip(event,node,feature,index,features){
@@ -1020,9 +1020,9 @@ function renderViewerAnnotations(){
     button.onfocus=()=>showMapTooltip(null,button,feature,index,mapped);button.onblur=hideMapTooltip;
   });
 }
-function mapTextTools(){
+function mapTextTools(map=$('plasmid-map')){
   const context=document.createElement('canvas').getContext('2d');
-  const family=getComputedStyle($('plasmid-map')).fontFamily;
+  const family=getComputedStyle(map).fontFamily;
   const measure=(text,size=11)=>{if(!context)return [...text].length*size*.7;context.font=`600 ${size}px ${family}`;return context.measureText(text).width;};
   const fit=(value,limit,width,size=11)=>{
     const full=String(value||'Feature');let chars=[...full].slice(0,limit),cut=[...full].length>limit;
@@ -1032,8 +1032,8 @@ function mapTextTools(){
   };
   return{measure,fit};
 }
-function mapFeatureGroup(index,feature,content,kind='geometry'){
-  return `<g class="map-feature map-${kind}" data-feature="${index}" role="button" tabindex="${kind==='geometry'?0:-1}" aria-label="${esc(PlasmidFeatures.name(feature))} · ${esc(PlasmidFeatures.location(feature,state.result.sequence.length))}" aria-describedby="map-tooltip">${content}</g>`;
+function mapFeatureGroup(index,feature,content,kind='geometry',length=state.result.sequence.length,tooltipId='map-tooltip'){
+  return `<g class="map-feature map-${kind}" data-feature="${index}" role="button" tabindex="${kind==='geometry'?0:-1}" aria-label="${esc(PlasmidFeatures.name(feature))} · ${esc(PlasmidFeatures.location(feature,length))}" aria-describedby="${tooltipId}">${content}</g>`;
 }
 const mapSiteColors={BsaI:'var(--site-bsai)',BsmBI:'var(--site-bsmbi)',BbsI:'var(--site-bbsi)',HindIII:'var(--site-hindiii)'};
 function mapSites(){
@@ -1041,12 +1041,11 @@ function mapSites(){
   return(state.result?.restriction_sites||[]).map((site,index)=>({...site,index,type:'restriction_site',label:site.enzyme}))
     .filter(site=>mode==='all'||(mode==='BsmBI + BsaI'?['BsmBI','BsaI'].includes(site.enzyme):site.enzyme===mode));
 }
-function mapSiteRange(site){
-  const length=state.result.sequence.length;
+function mapSiteRange(site,length=state.result.sequence.length){
   return `${site.start+1}–${site.wraps_origin?site.end%length:site.end}${site.wraps_origin?' · across origin':''}`;
 }
-function mapSiteGroup(site,content,kind='geometry'){
-  return `<g class="map-site map-site-${kind}" data-site="${site.index}" role="button" tabindex="${kind==='geometry'?0:-1}" style="--site-color:${mapSiteColors[site.enzyme]||'var(--muted)'}" aria-label="${esc(site.enzyme)} site · ${esc(mapSiteRange(site))}" aria-describedby="map-tooltip">${content}</g>`;
+function mapSiteGroup(site,content,kind='geometry',length=state.result.sequence.length,tooltipId='map-tooltip'){
+  return `<g class="map-site map-site-${kind}" data-site="${site.index}" role="button" tabindex="${kind==='geometry'?0:-1}" style="--site-color:${mapSiteColors[site.enzyme]||'var(--muted)'}" aria-label="${esc(site.enzyme)} site · ${esc(mapSiteRange(site,length))}" aria-describedby="${tooltipId}">${content}</g>`;
 }
 function mapSiteLeader(site,path){return `<path class="map-leader map-site-leader" data-site-leader="${site.index}" style="stroke:${mapSiteColors[site.enzyme]||'var(--muted)'}" d="${path}"/>`;}
 function renderMapSiteLegend(sites){
@@ -1069,7 +1068,9 @@ function selectMapSite(site){
   $('feature-detail').textContent=`${site.enzyme} · ${mapSiteRange(site)} · ${site.motif} · ${site.strand===-1?'Reverse':'Forward'} strand`;
   $('sequence-start').value=site.start+1;renderSequence();
 }
-function linearMapSvg(result,features,width,textTools,sites){
+function linearMapSvg(result,features,width,textTools,sites,tooltipId='map-tooltip'){
+  const featureGroup=(i,f,content,kind)=>mapFeatureGroup(i,f,content,kind,result.sequence.length,tooltipId);
+  const siteGroup=(site,content,kind)=>mapSiteGroup(site,content,kind,result.sequence.length,tooltipId);
   const startX=30,endX=width-30,length=result.sequence.length,lanes=PlasmidFeatures.lanes(features,length);
   const labels=features.map((feature,index)=>{
     const anchor=startX+(endX-startX)*PlasmidFeatures.anchor(feature,length)/length;
@@ -1094,10 +1095,10 @@ function linearMapSvg(result,features,width,textTools,sites){
       const path=part.strand===-1?`M${x+tip},${y}H${x+w}V${y+16}H${x+tip}L${x},${y+8}Z`:part.strand===1?`M${x},${y}H${x+w-tip}L${x+w},${y+8}L${x+w-tip},${y+16}H${x}Z`:null;
       return path?`<path d="${path}" fill="${color}"/>`:`<rect x="${x}" y="${y}" width="${w}" height="16" rx="2" fill="${color}"/>`;
     }).join('');
-    geometry+=mapFeatureGroup(item.index,item.feature,shapes);
+    geometry+=featureGroup(item.index,item.feature,shapes);
   }
   for(const item of siteLabels){
-    geometry+=mapSiteGroup(item.site,`<rect class="map-site-hit" x="${item.anchor-6}" y="${axisY-12}" width="12" height="24"/><path class="map-site-tick" d="M${item.anchor},${axisY-10}v20"/><circle class="map-site-dot" cx="${item.anchor}" cy="${axisY}" r="3"/>`);
+    geometry+=siteGroup(item.site,`<rect class="map-site-hit" x="${item.anchor-6}" y="${axisY-12}" width="12" height="24"/><path class="map-site-tick" d="M${item.anchor},${axisY-10}v20"/><circle class="map-site-dot" cx="${item.anchor}" cy="${axisY}" r="3"/>`);
   }
   for(const [side,layout] of [[-1,top],[1,bottom]])for(const item of layout.labels){
     const y=side===-1?topY-18-item.row*26:bottomY+48+item.row*26;
@@ -1105,11 +1106,13 @@ function linearMapSvg(result,features,width,textTools,sites){
     const endY=y+(side===-1?9:-9),path=`M${item.anchor},${anchorY} L${item.anchor},${anchorY+side*7} L${item.position},${endY}`;
     const content=`<rect class="map-label-background" x="${item.position-item.size/2}" y="${y-9}" width="${item.size}" height="18" rx="3"/><text class="map-label${item.site?' map-site-label':''}" data-map-label="${item.site?'site-'+item.site.index:item.index}" x="${item.position}" y="${y}" text-anchor="middle" dominant-baseline="middle">${esc(item.text)}</text>`;
     leaders.push(item.site?mapSiteLeader(item.site,path):`<path class="map-leader" data-map-leader="${item.index}" d="${path}"/>`);
-    texts.push(item.site?mapSiteGroup(item.site,content,'annotation'):mapFeatureGroup(item.index,item.feature,content,'annotation'));
+    texts.push(item.site?siteGroup(item.site,content,'annotation'):featureGroup(item.index,item.feature,content,'annotation'));
   }
   return `<svg class="plasmid-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" aria-label="Linear plasmid map">${geometry}<g class="map-leaders">${leaders.join('')}</g>${texts.join('')}<text x="${startX}" y="${height-18}" font-size="11" fill="var(--muted)">1</text><text x="${endX}" y="${height-18}" text-anchor="end" font-size="11" fill="var(--muted)">${length.toLocaleString()} bp</text></svg>`;
 }
-function circularMapSvg(result,features,width,textTools,sites){
+function circularMapSvg(result,features,width,textTools,sites,tooltipId='map-tooltip'){
+  const featureGroup=(i,f,content,kind)=>mapFeatureGroup(i,f,content,kind,result.sequence.length,tooltipId);
+  const siteGroup=(site,content,kind)=>mapSiteGroup(site,content,kind,result.sequence.length,tooltipId);
   const radius=Math.min(165,width*.2),cx=width/2,lanes=PlasmidFeatures.lanes(features,result.sequence.length);
   const gap=Math.min(3,(radius-45)/(lanes.count*3)),band=Math.min(24,(radius-45)/lanes.count-gap);
   const labels=features.map((feature,index)=>{
@@ -1134,11 +1137,11 @@ function circularMapSvg(result,features,width,textTools,sites){
       const mark=part.strand?(part.strand===-1?start:end):null,head=mark===null?'':`<path d="M${cx+(radiusAt-band*.38)*Math.cos(mark)},${cy+(radiusAt-band*.38)*Math.sin(mark)} L${cx+(radiusAt+band*.38)*Math.cos(mark)},${cy+(radiusAt+band*.38)*Math.sin(mark)}" stroke="var(--paper)" stroke-width="1.5"/>`;
       return `<path d="M${x1},${y1} A${radiusAt},${radiusAt} 0 ${end-start>Math.PI?1:0} 1 ${x2},${y2}" stroke="${color}" stroke-width="${band}" fill="none"/>${head}`;
     }).join('');
-    geometry+=mapFeatureGroup(item.index,item.feature,shapes);
+    geometry+=featureGroup(item.index,item.feature,shapes);
   }
   for(const item of siteLabels){
     const x1=cx+(radius-17)*Math.cos(item.mid),y1=cy+(radius-17)*Math.sin(item.mid),x2=cx+(radius+19)*Math.cos(item.mid),y2=cy+(radius+19)*Math.sin(item.mid);
-    geometry+=mapSiteGroup(item.site,`<path class="map-site-hit" d="M${x1},${y1} L${x2},${y2}"/><path class="map-site-tick" d="M${x1},${y1} L${x2},${y2}"/><circle class="map-site-dot" cx="${x2}" cy="${y2}" r="3"/>`);
+    geometry+=siteGroup(item.site,`<path class="map-site-hit" d="M${x1},${y1} L${x2},${y2}"/><path class="map-site-tick" d="M${x1},${y1} L${x2},${y2}"/><circle class="map-site-dot" cx="${x2}" cy="${y2}" r="3"/>`);
   }
   const leaders=[],texts=[];
   for(const side of [-1,1]){
@@ -1152,7 +1155,7 @@ function circularMapSvg(result,features,width,textTools,sites){
       const fitted=textTools.fit(label,item.site?30:23,available-8);
       leaders.push(item.site?mapSiteLeader(item.site,`M${anchorX},${anchorY} L${elbowX},${anchorY} L${endX},${y}`):`<path class="map-leader" data-map-leader="${item.index}" d="M${anchorX},${anchorY} L${elbowX},${anchorY} L${endX},${y}"/>`);
       const content=`<rect class="map-label-background" x="${side===-1?x-fitted.width-4:x-4}" y="${y-9}" width="${fitted.width+8}" height="18" rx="3"/><text class="map-label${item.site?' map-site-label':''}" data-map-label="${item.site?'site-'+item.site.index:item.index}" x="${x}" y="${y}" dominant-baseline="middle" text-anchor="${side===-1?'end':'start'}">${esc(fitted.text)}</text>`;
-      texts.push(item.site?mapSiteGroup(item.site,content,'annotation'):mapFeatureGroup(item.index,item.feature,content,'annotation'));
+      texts.push(item.site?siteGroup(item.site,content,'annotation'):featureGroup(item.index,item.feature,content,'annotation'));
     }
   }
   return `<svg class="plasmid-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" aria-label="Circular plasmid map">${geometry}<g class="map-leaders">${leaders.join('')}</g>${texts.join('')}</svg>`;
@@ -1250,7 +1253,7 @@ function restorePlasmidViewer(){
   if((session.recheck||!session.result)&&(state.parts.length||$('backbone').value))assemblyCheckTimer=setTimeout(checkAssembly,220);
 }
 async function viewPlasmid(id){return viewSequenceRecord(()=>api('/api/plasmids/'+id),'/api/plasmids/'+id+'/genbank',id);}
-window.JunctionSequenceViewer={open:record=>viewSequenceRecord(async()=>record),openPlasmid:viewPlasmid};
+window.JunctionSequenceViewer={open:record=>viewSequenceRecord(async()=>record),openPlasmid:viewPlasmid,preview:createSequenceMapPreview};
 async function viewSequenceRecord(load,downloadUrl='',id=null){
   const dialog=$('plasmid-view-dialog');if(dialog.open)return;
   const panel=document.querySelector('.viewer-panel'),tooltip=$('map-tooltip');
@@ -1271,6 +1274,52 @@ async function viewSequenceRecord(load,downloadUrl='',id=null){
     $('plasmid-view-context').textContent=plasmid.viewSummary||'';
     $('feature-detail').classList.add('hidden');panel.classList.remove('hidden');$('plasmid-view-loading').classList.add('hidden');renderResult();
   }catch(error){if(request===plasmidViewRequest&&dialog.open)$('plasmid-view-loading').textContent=error.message;}
+}
+let sequenceMapPreviewIndex=0;
+function createSequenceMapPreview(host,input){
+  // A separate record and DOM scope keep Design previews out of the builder draft.
+  const record=JSON.parse(JSON.stringify(input)),length=record.sequence.length,tooltipId='sequence-preview-tooltip-'+(++sequenceMapPreviewIndex);
+  let mode=record.circular?'circular':'linear',filter='all',disposed=false,frame=null,renderedWidth=-1;
+  host.innerHTML=`<div class="sequence-preview-toolbar"><h3>${esc(record.viewerTitle||'Assembly')}</h3><div class="segmented"><button type="button" data-preview-mode="circular" ${record.circular?'':'disabled'}>Circular</button><button type="button" data-preview-mode="linear">Linear</button></div><label>Sites<select data-preview-sites aria-label="Example assembly restriction sites"><option value="all">All enzymes</option><option value="BsmBI + BsaI">BsmBI + BsaI</option><option>BsaI</option><option>BsmBI</option><option value="none">Hide sites</option></select></label><button type="button" class="icon-button" data-preview-open aria-label="View example assembly" title="View sequence" aria-haspopup="dialog">${inventoryIcon('view')}</button></div><div class="sequence-preview-map" aria-label="Example assembly map"></div><div class="sequence-preview-detail hidden" role="status"></div><div id="${tooltipId}" class="map-tooltip hidden" role="tooltip"></div>`;
+  const map=host.querySelector('.sequence-preview-map'),detail=host.querySelector('.sequence-preview-detail'),tooltip=host.querySelector('.map-tooltip');
+  const features=mapFeatures({...record,storedReference:true});
+  function hide(){tooltip.classList.add('hidden');map.querySelectorAll('.is-hovered').forEach(node=>node.classList.remove('is-hovered'));}
+  function description(feature,site=false){return site?`${feature.enzyme} · ${mapSiteRange(feature,length)} · ${feature.motif||''}`:featureSummary(feature,record);}
+  function hover(event,node,feature,index,site=false){
+    hide();
+    const selector=site?`[data-site="${index}"],[data-site-leader="${index}"]`:`[data-feature="${index}"],[data-map-leader="${index}"]`;
+    map.querySelectorAll(selector).forEach(item=>item.classList.add('is-hovered'));
+    tooltip.innerHTML=`<strong>${esc(site?feature.enzyme:PlasmidFeatures.name(feature))}</strong><small>${esc(description(feature,site))}</small>${site?'':PlasmidFeatures.qualifiers(feature,true).slice(0,6).map(([key,value])=>`<small><b>${esc(key)}</b>: ${esc(value)}</small>`).join('')}`;
+    tooltip.classList.remove('hidden');
+    const rect=node.getBoundingClientRect(),box=tooltip.getBoundingClientRect(),x=event?.clientX??rect.left+rect.width/2,y=event?.clientY??rect.top;
+    tooltip.style.left=Math.max(10,Math.min(x+14,window.innerWidth-box.width-10))+'px';
+    tooltip.style.top=Math.max(10,Math.min(y+18+box.height<window.innerHeight-10?y+18:y-box.height-12,window.innerHeight-box.height-10))+'px';
+  }
+  function select(feature,site=false){
+    detail.classList.remove('hidden');detail.textContent=(site?feature.enzyme:PlasmidFeatures.name(feature))+' · '+description(feature,site);
+  }
+  function render(){
+    if(disposed)return;hide();renderedWidth=map.clientWidth;
+    const sites=(record.restriction_sites||[]).map((site,index)=>({...site,index})).filter(site=>filter==='all'||(filter==='BsmBI + BsaI'?['BsmBI','BsaI'].includes(site.enzyme):site.enzyme===filter));
+    const width=Math.max(620,renderedWidth||780),tools=mapTextTools(map);
+    map.innerHTML=(mode==='circular'?circularMapSvg:linearMapSvg)(record,features,width,tools,sites,tooltipId);
+    host.querySelectorAll('[data-preview-mode]').forEach(button=>{const active=button.dataset.previewMode===mode;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
+    function bind(selector,lookup,site){map.querySelectorAll(selector).forEach(node=>{
+      const index=Number(site?node.dataset.site:node.dataset.feature),feature=lookup(index);if(!feature)return;
+      node.onpointerenter=node.onpointermove=event=>hover(event,node,feature,index,site);
+      node.onpointerleave=hide;node.onfocus=()=>hover(null,node,feature,index,site);node.onblur=hide;
+      node.onclick=()=>select(feature,site);
+      node.onkeydown=event=>{if(event.key==='Escape'){hide();node.blur();}if(event.key==='Enter'||event.key===' '){event.preventDefault();select(feature,site);}};
+    });}
+    bind('[data-feature]',index=>features[index],false);bind('[data-site]',index=>sites.find(site=>site.index===index),true);
+  }
+  host.querySelectorAll('[data-preview-mode]').forEach(button=>button.onclick=()=>{mode=button.dataset.previewMode;render();});
+  host.querySelector('[data-preview-sites]').onchange=event=>{filter=event.target.value;render();};
+  host.querySelector('[data-preview-open]').onclick=()=>{hide();viewSequenceRecord(async()=>record);};
+  const observer=new ResizeObserver(()=>{if(disposed||!map.clientWidth||Math.abs(map.clientWidth-renderedWidth)<1)return;cancelAnimationFrame(frame);frame=requestAnimationFrame(render);});
+  observer.observe(map);window.addEventListener('scroll',hide,{passive:true,capture:true});window.addEventListener('resize',hide,{passive:true});
+  render();
+  return{destroy(){if(disposed)return;disposed=true;observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener('scroll',hide,true);window.removeEventListener('resize',hide);hide();host.replaceChildren();}};
 }
 function renderPlasmidLibraries(){
   finishPlasmidSelectionDrag();

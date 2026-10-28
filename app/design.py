@@ -16,6 +16,7 @@ from .design_output import output_view
 from .design_table import check_rows, table_design, sequence_metadata
 from .design_exports import fragment_rows, assembly_rows, csv_bytes, workbook_bytes
 from .exports import genbank_bytes
+from .synthesis_padding import apply_synthesis_padding
 from .sequence_engine import find_backbone_slots, fragment_orientations
 
 router = APIRouter(prefix='/api/design')
@@ -58,6 +59,7 @@ class DesignRequest(BaseModel):
     right_adapter_enzyme: Literal['BsaI', 'BsmBI'] | None = None
     include_re_sites: bool = True
     reverse_output: bool = False
+    make_twist_compatible: bool = False
     use_table: bool = False
     table_rows: list[TableRow] = Field(default_factory=list,max_length=384)
     backbone_id: int | None = Field(default=None, gt=0)
@@ -141,6 +143,12 @@ def preview_design(payload, generate=True):
             result['errors'].extend(errors)
             result.update(table_mode=True, table_rows=statuses)
     sequence_metadata(result, payload.include_re_sites)
+    if payload.make_twist_compatible and result['valid']:
+        try:
+            apply_synthesis_padding(result)
+        except ValueError as exc:
+            result['errors'].append(str(exc))
+            result['valid'] = False
     result['name'] = payload.name
     return result
 

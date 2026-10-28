@@ -30,18 +30,20 @@
   if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,exportPayload,fragmentRcTag};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
-    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false;
+    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false,assemblyPreview=null;
   const current=()=>saved.designs.find(design=>design.id===saved.activeId);
   const entry=()=>current()?.entries.find(item=>item.id===activeEntry);
   const tableUI=root.DesignTable.create({getDesign:current,getContext:()=>preview?.entries||[],onChange:()=>{dirty();renderSections();},report:message=>note(message)});
-  function fresh(){return{id:uid(),name:'New design',enzyme:'BsaI',adapter_enzyme:'BsaI',left_adapter_enzyme:null,right_adapter_enzyme:null,include_re_sites:true,reverse_output:false,use_table:false,table_rows:[],backbone_id:null,slot_id:null,entries:[],left_overhang:'',right_overhang:'',window:20,avoid_sites:[],excluded_overhangs:[]};}
+  function fresh(){return{id:uid(),name:'New design',enzyme:'BsaI',adapter_enzyme:'BsaI',left_adapter_enzyme:null,right_adapter_enzyme:null,include_re_sites:true,reverse_output:false,make_twist_compatible:false,use_table:false,table_rows:[],backbone_id:null,slot_id:null,entries:[],left_overhang:'',right_overhang:'',window:20,avoid_sites:[],excluded_overhangs:[]};}
   function note(message,error=false){$('design-save-status').textContent=message;$('design-save-status').classList.toggle('reaction-warning',error);}
   function persist(){
     note('Saving…');root.JunctionSandbox?.schedule();
     clearTimeout(saveTimer);const changed=revision;
     saveTimer=setTimeout(async()=>{try{if(root.JunctionSandbox?.ready){await root.JunctionSandbox.flush();if(changed===revision)note('Saved · Private sandbox');}}catch(error){note('Not saved · '+error.message,true);}},650);
   }
+  function clearAssemblyPreview(){assemblyPreview?.destroy();assemblyPreview=null;}
   function dirty(){
+    clearAssemblyPreview();
     revision++;requestRevision++;generating=false;lastResult=null;tableUI.clear();$('design-download').disabled=true;$('design-generate').disabled=false;
     $('design-output').innerHTML='<span class="small muted">Generate to update fragments</span>';
     persist();
@@ -64,6 +66,8 @@
     for(const[id,key]of Object.entries({'design-name':'name','design-enzyme':'enzyme','design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme','design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).value=d[key]??'';
     $('design-add-re').checked=d.include_re_sites!==false;
     $('design-export-rc').checked=!!d.reverse_output;
+    $('design-twist-compatible').checked=!!d.make_twist_compatible;
+    $('design-twist-help').hidden=!d.make_twist_compatible;
     $('design-excluded').value=d.excluded_overhangs.join(', ');
     $('design-left').disabled=$('design-right').disabled=!!d.backbone_id;
   }
@@ -154,10 +158,12 @@
     const selection=window.getSelection();if(!$('design-sequence')?.contains(selection?.anchorNode)||selection?.isCollapsed)renderSequence();
   }
   function renderOutput(result){
+    clearAssemblyPreview();
     const assembly=result.assembly;
-    const summary=assembly?`<div class="design-result-summary"><strong class="${result.valid?'design-pass':'reaction-warning'}">${result.valid?'✓ Pass':'! Fail'}</strong><span>${assembly.length.toLocaleString()} bp · ${assembly.circular?'Circular':'Linear'} · ${assembly.gc.toFixed(2)}% GC</span><span>${result.generated.length} new fragments · ${result.assemblies?.length||1} assemblies</span></div><div class="design-assembly-map">${assembly.features.filter(f=>f.source==='fragment'||f.source==='retained_backbone').map(f=>`<span style="flex:${Math.max(1,f.end-f.start)}" title="${esc(f.label)} · ${f.start+1}–${f.end}">${esc(f.label)}</span>`).join('')}</div>`:'';
-    $('design-output').innerHTML=summary+(result.generated.length?`<div class="table-scroll"><table class="design-generated"><thead><tr><th>Fragment</th><th>Region</th><th>Target / Full nt</th><th>GC %</th><th>5′</th><th>3′</th><th>Reference bases</th><th>Sequence</th></tr></thead><tbody>${result.generated.map((row,index)=>`<tr><td>${esc(row.name)}</td><td>${row.region_mode==='dynamic'?'Dynamic':'Constant'}${row.variant_name?' · '+esc(row.variant_name):''}</td><td>${row.target_length??row.target.length} / ${row.length}</td><td>${row.gc.toFixed(2)}</td><td>${label(row.left_overhang)}</td><td>${label(row.right_overhang)}</td><td>${row.source_start+1}–${row.source_end}</td><td><details><summary>Target</summary><pre>${esc(row.target_sequence??row.target)}</pre></details><details><summary>Full</summary><pre>${esc(row.full_sequence??row.sequence)}</pre><button type="button" class="text-button" data-design-copy="${index}">Copy</button></details></td></tr>`).join('')}</tbody></table></div>`:'<span class="small muted">No generated fragments</span>')+(result.boundary_shifts.length?`<details><summary>Boundaries</summary><div class="design-boundary-list">${result.boundary_shifts.map(b=>`<span>${b.requested+1} → ${b.actual+1} ${label(b.overhang)}${b.actual!==b.requested?' · '+(b.actual-b.requested>0?'+':'')+(b.actual-b.requested)+' nt':''}</span>`).join('')}</div></details>`:'')+(result.assemblies?.length>1?`<details><summary>Variant assemblies (${result.assemblies.length})</summary>${result.assemblies.map(item=>`<details class="design-product"><summary>${esc(item.name)} · ${item.length.toLocaleString()} bp</summary><pre class="design-final-sequence">${esc(item.sequence)}</pre></details>`).join('')}</details>`:'')+(assembly?`<details><summary>Assembly sequence</summary><pre class="design-final-sequence">${esc(assembly.sequence)}</pre></details>`:'');
+    const summary=assembly?`<div class="design-result-summary"><strong class="${result.valid?'design-pass':'reaction-warning'}">${result.valid?'✓ Pass':'! Fail'}</strong><span>${assembly.length.toLocaleString()} bp · ${assembly.circular?'Circular':'Linear'} · ${assembly.gc.toFixed(2)}% GC</span><span>${result.generated.length} new fragments · ${result.assemblies?.length||1} assemblies</span></div><div id="design-assembly-preview"></div>`:'';
+    $('design-output').innerHTML=summary+(result.generated.length?`<div class="table-scroll"><table class="design-generated"><thead><tr><th>Fragment</th><th>Region</th><th>Target / Full nt</th><th>GC %</th><th>5′</th><th>3′</th><th>Reference bases</th><th>Sequence</th></tr></thead><tbody>${result.generated.map((row,index)=>`<tr><td>${esc(row.name)}</td><td>${row.region_mode==='dynamic'?'Dynamic':'Constant'}${row.variant_name?' · '+esc(row.variant_name):''}</td><td>${row.target_length??row.target.length} / ${row.length}${row.padding_length?'<small class="muted"> · +'+row.padding_length+' bp padding</small>':''}</td><td>${row.gc.toFixed(2)}</td><td>${label(row.left_overhang)}</td><td>${label(row.right_overhang)}</td><td>${row.source_start+1}–${row.source_end}</td><td><details><summary>Target</summary><pre>${esc(row.target_sequence??row.target)}</pre></details><details><summary>Full${row.padding_length?' · includes 3′ padding':''}</summary><pre>${esc(row.full_sequence??row.sequence)}</pre><button type="button" class="text-button" data-design-copy="${index}">Copy</button></details></td></tr>`).join('')}</tbody></table></div>`:'<span class="small muted">No generated fragments</span>')+(result.boundary_shifts.length?`<details><summary>Boundaries</summary><div class="design-boundary-list">${result.boundary_shifts.map(b=>`<span>${b.requested+1} → ${b.actual+1} ${label(b.overhang)}${b.actual!==b.requested?' · '+(b.actual-b.requested>0?'+':'')+(b.actual-b.requested)+' nt':''}</span>`).join('')}</div></details>`:'')+(result.assemblies?.length>1?`<details><summary>Variant assemblies (${result.assemblies.length})</summary>${result.assemblies.map(item=>`<details class="design-product"><summary>${esc(item.name)} · ${item.length.toLocaleString()} bp</summary><pre class="design-final-sequence">${esc(item.sequence)}</pre></details>`).join('')}</details>`:'')+(assembly?`<details><summary>Assembly sequence</summary><pre class="design-final-sequence">${esc(assembly.sequence)}</pre></details>`:'');
     $('design-output').querySelectorAll('[data-design-copy]').forEach(button=>button.onclick=async()=>{try{await navigator.clipboard.writeText(result.generated[Number(button.dataset.designCopy)].sequence);button.textContent='Copied';}catch{note('Select the sequence to copy.',true);}});
+    if(assembly?.sequence)assemblyPreview=root.JunctionSequenceViewer.preview($('design-assembly-preview'),root.DesignPreview.assembly(result));
     $('design-download').disabled=!result.valid;
   }
   async function check(generate){
@@ -210,6 +216,7 @@
   for(const[id,key]of Object.entries({'design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme'})){const field=$(id);field.onchange=event=>{current()[key]=key==='window'?Number(event.target.value):event.target.value.toUpperCase();if(key==='adapter_enzyme')current()[key]=event.target.value;dirty();};if(field.tagName==='INPUT')field.oninput=field.onchange;}
   $('design-excluded').onchange=event=>{current().excluded_overhangs=event.target.value.toUpperCase().split(/[\s,;]+/).filter(Boolean);dirty();};
   $('design-avoid').onchange=()=>{current().avoid_sites=[...$('design-avoid').querySelectorAll('input:checked')].map(input=>input.value);dirty();};
+  $('design-twist-compatible').onchange=event=>{current().make_twist_compatible=event.target.checked;$('design-twist-help').hidden=!event.target.checked;dirty();};
   $('design-add-re').onchange=event=>{current().include_re_sites=event.target.checked;dirty();};
   for(const[id,key]of Object.entries({'design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).onchange=event=>{current()[key]=event.target.value||null;dirty();};
   $('design-generate').onclick=()=>check(true);
@@ -226,7 +233,7 @@
   root.JunctionDesign={
     snapshot:()=>JSON.parse(JSON.stringify(saved)),
     restore(data){
-      if(data&&Array.isArray(data.designs)&&data.designs.length){saved=JSON.parse(JSON.stringify(data));saved.designs=saved.designs.filter(d=>d&&typeof d.id==='string'&&Array.isArray(d.entries)).map(d=>({include_re_sites:true,reverse_output:false,left_adapter_enzyme:null,right_adapter_enzyme:null,use_table:false,table_rows:[],...d}));}
+      if(data&&Array.isArray(data.designs)&&data.designs.length){saved=JSON.parse(JSON.stringify(data));saved.designs=saved.designs.filter(d=>d&&typeof d.id==='string'&&Array.isArray(d.entries)).map(d=>({include_re_sites:true,reverse_output:false,make_twist_compatible:false,left_adapter_enzyme:null,right_adapter_enzyme:null,use_table:false,table_rows:[],...d}));}
       if(!saved.designs.length)saved={designs:[fresh()],activeId:null};
       if(!saved.designs.some(d=>d.id===saved.activeId))saved.activeId=saved.designs[0].id;
       activeEntry=current().entries.find(item=>item.kind==='placeholder')?.id||null;ready=true;render();
