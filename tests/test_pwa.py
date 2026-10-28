@@ -29,7 +29,7 @@ class PwaTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertIn('application/manifest+json',response.headers['content-type'])
         manifest=response.json()
-        self.assertEqual((manifest['id'],manifest['scope'],manifest['start_url'],manifest['display']),('/','/','/#build','standalone'))
+        self.assertEqual((manifest['id'],manifest['scope'],manifest['start_url'],manifest['display']),('/','/','/#home','standalone'))
         self.assertEqual({i['sizes'] for i in manifest['icons'] if i['purpose']=='any'},{'192x192','512x512'})
         for icon in manifest['icons']:
             image=Image.open(io.BytesIO(self.client.get(icon['src']).content))

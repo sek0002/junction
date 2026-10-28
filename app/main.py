@@ -22,6 +22,8 @@ from . import database as store
 from .version import VERSION
 from .auth import AuthMiddleware, router as auth_router, user_id, check_plasmid_write
 from .workspace import router as workspace_router, begin_comparison, finish_comparison
+from .workbenches import router as workbench_router
+from .worksheets import router as worksheet_router
 from .design import router as design_router
 from .imports import import_plate, parse_plate, dna
 from .sequence_engine import assemble, digest_fragment, find_backbone_slots, restriction_sites, active_enzymes, fragment_orientations
@@ -136,6 +138,8 @@ app = FastAPI(title='Junction — Golden Gate workbench',version=VERSION,lifespa
 app.add_middleware(AuthMiddleware)
 app.include_router(auth_router)
 app.include_router(workspace_router)
+app.include_router(workbench_router)
+app.include_router(worksheet_router)
 app.include_router(design_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 
@@ -176,6 +180,37 @@ def summary():
         'plasmids':len(store.plasmids()),'known_stocks':sum(p['stock_ng_ul'] is not None for p in fragments),
         'plate_ids':sorted({p['plate_id'] for p in fragments}),
         'plate_labels':plate_aliases(p['plate_id'] for p in store.plate_records(include_archived=True))}
+
+
+@app.get('/api/library/metrics')
+def library_metrics():
+    from .sequence_engine import reverse_complement as revcomp
+    from . import worksheets
+    fragments=store.fragments();backbones=[p for p in store.plasmids() if p['circular'] and
+        (p['recipe'].get('example_backbone') or p['recipe'].get('backbone_template')) and not p['recipe'].get('legacy_example')]
+    junctions={}
+    def add(overhang,enzyme,name,kind):
+        value=(overhang or '').upper()
+        if len(value)!=4 or set(value)-set('ACGT'):return
+        canonical=min(value,revcomp(value));item=junctions.setdefault(canonical,{'overhang':canonical,'reverse_complement':revcomp(canonical),'enzymes':set(),'fragments':set(),'backbones':set()})
+        item['enzymes'].add(enzyme);item[kind].add(name)
+    for fragment in fragments:
+        for enzyme in ('BsaI','BsmBI','BsmBI + BsaI'):
+            digest=digest_fragment(fragment['sequence'],enzyme)
+            for side in ('left','right'):add(digest.get(side+'_overhang'),digest.get(side+'_adapter_enzyme',enzyme),fragment['name'],'fragments')
+            for nested in digest.get('nested_cassettes',[]):
+                for side in ('left','right'):add(nested.get(side+'_overhang'),nested.get(side+'_boundary_enzyme',enzyme),fragment['name'],'fragments')
+    for backbone in backbones:
+        for enzyme in ('BsaI','BsmBI','BsmBI + BsaI'):
+            for slot in find_backbone_slots(backbone['sequence'],enzyme):
+                for side in ('left','right'):add(slot.get(side+'_overhang'),slot.get(side+'_boundary_enzyme',slot.get('enzyme',enzyme)),backbone['name'],'backbones')
+    with store.connection() as db:
+        workspace=worksheets.wb.working(db);records=worksheets.registry(db,live=False)
+    designs={d.get('id') for d in workspace.get('design',{}).get('designs',[])}
+    for record in records:
+        if record['scope']=='design':designs.update(d.get('id') for d in record['snapshot']['workspace'].get('design',{}).get('designs',[]))
+    return {'backbones':len(backbones),'designs':len(designs-{None}),'junctions':[
+        {key:sorted(value) if isinstance(value,set) else value for key,value in item.items()} for _,item in sorted(junctions.items())]}
 
 
 @app.get('/api/fragments')

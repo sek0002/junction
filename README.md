@@ -1,6 +1,27 @@
 # Junction — Golden Gate workbench
 
+## Home
+
+After sign-in, Junction opens Home with a short animated logo entrance. The six cards open Assembly, Design, Fragments, Uploads, Compare and Workbench. Clicking the Junction logo returns Home without resetting drafts or queued builds. Direct links to tools still work. The intro runs once after each successful sign-in; Skip, Escape and reduced-motion preferences bypass it. Home supports light/dark themes, keyboard navigation and responsive layouts.
+
+
 A local FastAPI app for selecting plate fragments, assembling circular plasmids, inspecting sequence checks, calculating reaction inputs, and comparing uploaded plasmids with saved and inferred designs.
+
+## Uploads
+
+Drop multiple plate maps or plasmid files into their upload boxes, or select several files in the picker. Additional selections append to the queue. Each file shows its own status and error; duplicate selections are ignored. Preview plate maps with the import rules, then import the valid files together. Imported files are skipped on subsequent runs. The resuspension export includes only the imported rows from the current queue. Plasmid topology and backbone settings apply to the selected batch. File queues stay in the current browser tab; imported inventory persists in the database.
+
+## Worksheets and Workbenches
+
+A **Worksheet** is the data on one page. Assembly worksheets include the current draft, Build list, reaction settings and stock overrides. Each Design worksheet contains one design, its regions and variant table. Compare worksheets contain uploaded inputs, results and view settings. Each page has a worksheet selector plus New, Archive and Share icons. Assembly and Design card names are edited with the pencil beside the title. Existing multi-design sandboxes migrate to selectable Design worksheets without discarding designs.
+
+The bottom-right floating menu has two rows. **Worksheet** Save, Share and New apply only to Assembly, Design or Compare. **Workbench** actions, marked **All**, apply to the complete instance: all page data, preferences and saved worksheets. Fragments and Uploads continue to edit the shared database. Switching worksheets preserves the other pages. New autosaves an already named worksheet or workbench; unnamed work prompts Save and continue, Start without saving, or Cancel. Opening another saved item keeps a named snapshot or an automatic recovery copy. Archived worksheets can be restored from **Workbench → Archived worksheets**.
+
+The Home **Workbench** card opens the saved-instances page. Save dialogs accept a name and notes; metadata records dates, creator, app version, and counts. Workbenches and worksheets remain private to the signed-in account. Sharing downloads a data-only **`.junc`** file; it does not publish anything. Choose an individual worksheet or the complete workbench in the share dialog. A saved workbench card can also export one of its page worksheets. Import Auto detects worksheet versus workbench files; choosing a page under Import as extracts that worksheet from a full workbench.
+
+Bundles include referenced DNA and physical metadata, with accounts, PINs, session tokens, activity logs and unrelated library records excluded. Imports validate format, size (25 MiB maximum), checksum, structure and references before saving. On opening, Junction remaps IDs by sequence and physical identity. Missing DNA requires Upload permission; occupied wells and existing plasmids are preserved. Conflicting plates receive a `JUNC-` prefix. Opening an item changes only the relevant private worksheet or workbench; inventory remains shared.
+
+Assembly shows library counts for fragments, selectable backbones, unique junctions and designs in the current workbench. The junction popup groups reverse-complement pairs, colours fusion sequences, highlights palindromic overhangs in yellow and lists their source fragments/backbones. It includes detected BsaI/BsmBI donor, nested and backbone boundaries. These library counts do not replace per-assembly QC.
 
 ## Versioning
 

@@ -4,14 +4,23 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const plateLabel=id=>state.plateLabels?.[id]??(/^pSHPs/i.test(String(id||''))?(String(id).slice(5).replace(/[^a-z0-9]/gi,'').slice(0,4)||id):String(id||''));
 const spanLabel=(a,b)=>a===b?'gap after '+a:`${a+1}–${b}`;
 const fmt=(x,n=2)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:n});
-const state={plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
+const state={worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
 let toastTimer,searchTimer,previewTimer,assemblyCheckTimer,searchCounter=0,checkCounter=0,resuspCounter=0;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),6000);}
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
 async function api(url,options={}){const r=await fetch(url,options);if(!r.ok){let d;try{d=await r.json();}catch{d={detail:r.statusText};}let detail=d.detail||d;const error=Error(typeof detail==='string'?detail:detail.message?detail.message+(detail.errors?' '+detail.errors.join(' '):''):JSON.stringify(detail));error.sandboxId=Number(r.headers.get('X-Junction-Comparison-Id'))||null;throw error;}return r.json();}
 const jsonBody=data=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-async function fileDownload(url,body,fallback){if(url.includes('worksheet')){const invalid=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalid){invalid.reportValidity();toast('Enter positive stock values before exporting');return;}}busy('Preparing download…');try{const r=await fetch(url,body?jsonBody(body):{});if(!r.ok){const d=await r.json();throw Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));}const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);}catch(e){toast(e.message);}finally{busy('');}}
-function showView(name){hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===name));document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));history.replaceState(null,'','#'+name);if(name==='design')window.JunctionDesign?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();}
+async function fileDownload(url,body,fallback){if(url.includes('worksheet')){const invalid=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalid){invalid.reportValidity();toast('Enter positive stock values before exporting');return;}}busy('Preparing download…');try{const r=await fetch(url,body?jsonBody(body):{});if(!r.ok){const d=await r.json();throw Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));}const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);return true;}catch(e){toast(e.message);return false;}finally{busy('');}}
+function showView(name){
+  name=JunctionHome.resolveView(name);const profile=name==='profile';if(profile)name='home';
+  hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();
+  document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===name));
+  document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
+  document.body.classList.toggle('home-active',name==='home');
+  history.replaceState(null,'','#'+name);window.JunctionHomeController?.viewChanged(name);
+  window.JunctionWorksheetController?.setScope(name);if(name==='workbenches')window.JunctionWorkbenchController?.load();if(name==='design')window.JunctionDesign?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();
+  if(profile)$('account-open').click();
+}
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
 function referenceParams(){const q=new URLSearchParams();for(const[k,v]of Object.entries(settings()))if(v!==null)q.set(k,v);const value=$('backbone').value;q.set('no_backbone',!value);if(value.startsWith('p:'))q.set('backbone_id',value.slice(2));return q;}
 function selectSubtab(name){hideNestedCardTooltip();closeFragmentSwap();state.subtab=name;updateAssemblyNext();document.querySelectorAll('[data-subtab]').forEach(b=>{const active=b.dataset.subtab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});$('assembly-subpanel').classList.toggle('hidden',name!=='assembly');$('reaction-subpanel').classList.toggle('hidden',name!=='reaction');$('export-subpanel').classList.toggle('hidden',name!=='export');if(name==='export')refreshExportAssemblies();if(name==='reaction'){loadResuspension();renderBuildList();loadBuildList().catch(error=>toast(error.message));}}
@@ -249,12 +258,30 @@ function applyRecommendedAssemblyName(){
   const input=$('assembly-name');input.value=name;assemblyNameChanged(false);input.focus();
 }
 function payload(){const value=$('backbone').value;return{name:$('assembly-name').value||'New assembly',name_mode:state.assemblyNameManual?'manual':'auto',enzyme:$('enzyme').value,fragment_ids:state.parts.map(p=>p.id),starter_fragment_id:null,backbone_id:value.startsWith('p:')?Number(value.slice(2)):null,slot_id:value?$('slot').value||null:null,circular:value?true:null,nested_assemblies:selectedNested(),settings:settings()};}
+let libraryMetricsTimer=null,libraryMetricsRevision=0;
+function scheduleLibraryMetrics(){clearTimeout(libraryMetricsTimer);libraryMetricsTimer=setTimeout(refreshLibraryMetrics,120);}
+async function refreshLibraryMetrics(){
+  const revision=++libraryMetricsRevision;
+  try{const metrics=await api('/api/library/metrics');if(revision!==libraryMetricsRevision)return;state.libraryMetrics=metrics;
+    $('backbone-count').textContent=metrics.backbones;$('junction-count').textContent=metrics.junctions.length;$('design-count').textContent=metrics.designs;
+    if($('junction-list-dialog').open)renderJunctionList();
+  }catch(error){toast(error.message);}
+}
+function renderJunctionList(){
+  const junctions=state.libraryMetrics?.junctions||[];
+  $('junction-list-summary').textContent=`${junctions.length} unique fusion sequences · Reverse-complement pairs grouped`;
+  $('junction-list').innerHTML=junctions.map(item=>{
+    const hue=[...item.overhang].reduce((sum,base)=>sum*7+base.charCodeAt(0),0)%360;
+    return `<details class="junction-item" style="--junction-hue:${hue}"><summary><span class="junction-sequence${Overhangs.isPalindromic(item.overhang)?' palindrome':''}">${esc(item.overhang)}</span><span class="junction-complement">${esc(item.reverse_complement)}</span><small>${esc(item.enzymes.join(' · '))}</small></summary><div>${item.fragments.length?`<b>Fragments</b><p>${esc(item.fragments.join(', '))}</p>`:''}${item.backbones.length?`<b>Backbones</b><p>${esc(item.backbones.join(', '))}</p>`:''}</div></details>`;
+  }).join('')||'<span class="muted">No junctions</span>';
+}
+
 async function refresh(){
   const requestedEnzyme=$('enzyme').value;
   const [summary,fragments,plasmids,recipes,rulesResult]=await Promise.all([api('/api/summary'),api('/api/fragments?limit=1000&enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/plasmids?enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/recipes'),api('/api/inventory/rules')]);
   if(requestedEnzyme!==$('enzyme').value)return false;
   applyInventoryRules(rulesResult.rules);
-  state.plateLabels=summary.plate_labels||{};state.fragments=fragments;state.plasmids=plasmids;state.recipes=recipes;$('library-count').textContent=summary.fragments;
+  state.plateLabels=summary.plate_labels||{};state.fragments=fragments;state.plasmids=plasmids;state.recipes=recipes;$('library-count').textContent=summary.fragments;scheduleLibraryMetrics();
   const current=$('backbone').value;
   const examples=plasmids.filter(p=>p.circular&&p.recipe?.example_backbone&&!p.recipe?.legacy_example);
   const templates=plasmids.filter(p=>p.circular&&p.recipe?.backbone_template&&!p.recipe?.example_backbone);
@@ -523,6 +550,7 @@ function applyBackboneStock(kind,id,input){
   })());
 }
 function renderBuildList(){
+  window.JunctionWorksheetController?.syncTitles();
   updateBuildListOutcome();updateBuildActions();
   hideBuildPreview();
   $('build-list-count').textContent=state.buildList.length?`(${state.buildList.length})`:'';
@@ -1668,28 +1696,75 @@ function updateUploadRuleLabels(){
   $('upload-rule-resuspension').textContent=`Resuspension ≤${fmt(rules.max_resuspension_ul)} µL`;
 }
 function uploadRuleParams(){return new URLSearchParams({...uploadRules(),no_backbone:'true',resuspension_mode:'constrained',apply_import_rules:'true'});}
-function clearPlatePreview(){
-  state.uploadParams=null;state.uploadPlan=null;state.uploadPreviewSignature=null;
-  $('commit-upload').disabled=true;$('upload-preview').innerHTML='';$('upload-resuspension-download').classList.add('hidden');
+const plateUploads=JunctionUploadQueue.create({extensions:['csv','tsv','xlsx'],changed:renderPlateUploads});
+const plasmidUploads=JunctionUploadQueue.create({extensions:['gb','gbk','genbank','fa','fasta','fna'],changed:renderPlasmidUploads});
+function renderUploadFiles(queue,kind){
+  const count=queue.jobs.length,done=queue.jobs.filter(job=>job.status==='Imported').length;
+  $(kind+'-upload-count').textContent=count?`${count} files · ${done} imported`:'';
+  $(kind+'-upload-clear').disabled=!count||queue.running;
+  $(kind+'-upload-files').innerHTML=queue.jobs.map(job=>`<div class="upload-file-row"><span class="upload-file-name">${esc(job.file.name)}<small>${fmt(job.file.size/1024,1)} KB</small>${job.error?`<small class="upload-file-error">${esc(job.error)}</small>`:''}</span><span class="upload-file-status ${job.status.toLowerCase()}">${job.status==='Imported'?'✓ ':''}${job.status}</span><button type="button" class="icon-button" data-remove-upload="${job.id}" aria-label="Remove ${esc(job.file.name)}" ${queue.running?'disabled':''}>${inventoryIcon('close')}</button></div>`).join('');
+  $(kind+'-upload-files').querySelectorAll('[data-remove-upload]').forEach(button=>button.onclick=()=>queue.remove(Number(button.dataset.removeUpload)));
 }
-let plateUploadBusy=false;
+function renderPlateUploads(){
+  renderUploadFiles(plateUploads,'plate');
+  const waiting=plateUploads.jobs.filter(job=>!job.invalid&&job.status!=='Imported');
+  const signature=uploadRuleParams().toString();
+  $('preview-upload').disabled=plateUploads.running||!waiting.length;
+  $('commit-upload').disabled=plateUploads.running||!waiting.some(job=>job.status==='Ready'&&job.signature===signature);
+  document.querySelectorAll('[data-upload-rule]').forEach(button=>button.disabled=plateUploads.running);
+  const completed=plateUploads.jobs.filter(job=>job.status==='Imported');
+  state.uploadPlan={rows:completed.flatMap(job=>job.result?.resuspension?.rows||[])};
+  state.uploadParams=completed.length?new URLSearchParams(completed[0].signature):null;
+  $('upload-resuspension-download').classList.toggle('hidden',!completed.length||plateUploads.running);
+  $('upload-preview').innerHTML=plateUploads.jobs.filter(job=>job.result).map(job=>{
+    const result=job.result,rows=result.resuspension?.rows||[];
+    return `<details class="upload-result"><summary>${esc(job.file.name)} · ${result.count} ${job.status==='Imported'?'imported':'fragments'} · ${result.unchanged||0} unchanged</summary><div class="table-scroll"><table><thead><tr><th>Fragment</th><th>Plate / well</th><th>Target ng/µL</th><th>Resuspend µL</th><th>Use µL</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name)}${row.warnings?.length?`<small class="reaction-warning">${esc(row.warnings.join(' '))}</small>`:''}</td><td>${esc(plateLabel(row.plate_id))} / ${esc(row.well)}</td><td>${inventoryQuantity(row.target_ng_ul)}</td><td>${inventoryQuantity(row.resuspension_ul)}</td><td>${inventoryQuantity(row.input_volume_ul)}</td></tr>`).join('')}</tbody></table></div></details>`;
+  }).join('');
+}
+function renderPlasmidUploads(){
+  renderUploadFiles(plasmidUploads,'plasmid');
+  $('import-plasmid').disabled=plasmidUploads.running||!plasmidUploads.jobs.some(job=>!job.invalid&&job.status!=='Imported');
+  document.querySelectorAll('[data-upload-topology],#upload-backbone-toggle').forEach(button=>button.disabled=plasmidUploads.running);
+  $('plasmid-upload-result').innerHTML=plasmidUploads.jobs.filter(job=>job.result).map(job=>`<div class="notice">${esc(job.file.name)} · ${job.result.count} imported · ${esc(job.result.names.join(', '))}</div>`).join('');
+}
+function clearPlatePreview(){plateUploads.invalidate();}
 async function plateUpload(preview){
-  const file=$('plate-upload').files[0];if(!file){toast('Choose file');return;}if(plateUploadBusy)return;
-  const params=uploadRuleParams(),signature=params.toString();
-  if(!preview&&signature!==state.uploadPreviewSignature){await plateUpload(true);return;}
-  const fd=new FormData();fd.append('file',file);plateUploadBusy=true;
-  const controls=[$('plate-upload'),$('preview-upload'),...document.querySelectorAll('[data-upload-rule]')];controls.forEach(el=>el.disabled=true);$('commit-upload').disabled=true;
-  busy(preview?'Previewing…':'Importing…');
+  if(plateUploads.running)return;
+  const signature=uploadRuleParams().toString();
+  if(!preview){
+    // Never commit a file that has not been previewed with the current settings.
+    if(plateUploads.jobs.some(job=>!job.invalid&&!['Imported','Error'].includes(job.status)&&(job.status!=='Ready'||job.signature!==signature))){await plateUpload(true);return;}
+  }
+  const wasImported=plateUploads.jobs.filter(job=>job.status==='Imported').length;
+  busy(preview?'Previewing plate maps…':'Importing plate maps…');
   try{
-    params.set('preview',String(preview));const result=await api('/api/uploads/plate?'+params,{method:'POST',body:fd});
-    const rows=result.resuspension?.rows||[];state.uploadPlan=result.resuspension;state.uploadParams=new URLSearchParams(params);state.uploadParams.delete('preview');
-    const plates=[...new Set(rows.map(row=>row.plate_id))];if(plates.length===1)state.uploadParams.set('plate',plates[0]);
-    state.uploadPreviewSignature=signature;
-    $('upload-preview').innerHTML=`<div class="notice">${preview?result.count:result.count+' imported'} · ${result.unchanged||0} unchanged</div><div class="table-scroll"><table><thead><tr><th>Fragment</th><th>Plate / well</th><th>Target ng/µL</th><th>Resuspend µL</th><th>Use µL</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name)}${row.warnings?.length?`<small class="reaction-warning">${esc(row.warnings.join(' '))}</small>`:''}</td><td>${esc(plateLabel(row.plate_id))} / ${esc(row.well)}</td><td>${inventoryQuantity(row.target_ng_ul)}</td><td>${inventoryQuantity(row.resuspension_ul)}</td><td>${inventoryQuantity(row.input_volume_ul)}</td></tr>`).join('')}</tbody></table></div>`;
-    $('commit-upload').disabled=!preview;$('upload-resuspension-download').classList.toggle('hidden',preview);
-    if(!preview){await refresh();await loadUploads();toast('Imported');}
-  }catch(error){$('upload-preview').innerHTML=messages([error.message]);$('commit-upload').disabled=true;$('upload-resuspension-download').classList.add('hidden');}
-  finally{plateUploadBusy=false;controls.forEach(el=>el.disabled=false);busy('');}
+    await plateUploads.run({preview,signature,eligible:job=>preview||(job.status==='Ready'&&job.signature===signature),request:async(file,job)=>{
+      if(!preview&&(job.status!=='Importing'||job.signature!==signature))throw Error('Preview this file before importing');
+      const params=new URLSearchParams(signature);params.set('preview',String(preview));
+      const fd=new FormData();fd.append('file',file);
+      return api('/api/uploads/plate?'+params,{method:'POST',body:fd});
+    }});
+    if(plateUploads.jobs.filter(job=>job.status==='Imported').length>wasImported){await refresh();await loadUploads();}
+  }catch(error){toast(error.message);}finally{busy('');}
+}
+async function importPlasmids(){
+  if(plasmidUploads.running)return;
+  const params=new URLSearchParams({topology:$('upload-topology').value,backbone_template:$('upload-backbone').checked});
+  const wasImported=plasmidUploads.jobs.filter(job=>job.status==='Imported').length;
+  busy('Importing plasmids…');
+  try{
+    await plasmidUploads.run({request:file=>{const fd=new FormData();fd.append('file',file);return api('/api/uploads/plasmid?'+params,{method:'POST',body:fd});}});
+    if(plasmidUploads.jobs.filter(job=>job.status==='Imported').length>wasImported){await refresh();renderPlasmidLibraries();}
+  }catch(error){toast(error.message);}finally{busy('');}
+}
+function initializeUploads(){
+  for(const[kind,queue]of [['plate',plateUploads],['plasmid',plasmidUploads]]){
+    JunctionUploadQueue.bindDrop($(kind+'-drop-zone'),$(kind+'-upload'),files=>queue.add(files));
+    $(kind+'-upload-clear').onclick=()=>queue.clear();
+  }
+  $('preview-upload').onclick=()=>plateUpload(true);$('commit-upload').onclick=()=>plateUpload(false);
+  $('import-plasmid').onclick=importPlasmids;
+  renderPlateUploads();renderPlasmidUploads();
 }
 
 // Files remain in this tab; comparisons are read-only and do not import inventory.
@@ -1961,7 +2036,7 @@ function renderDifferenceList(){
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));
 document.querySelector('.brand').onclick=event=>{
   if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
-  event.preventDefault();showView('build');selectSubtab('assembly');window.scrollTo({top:0,behavior:'auto'});
+  event.preventDefault();showView('home');window.scrollTo({top:0,behavior:'auto'});$('home-heading').focus({preventScroll:true});
 };
 async function changeAssemblyEnzyme(){
   busy('Updating cut sites…');
@@ -2011,7 +2086,7 @@ function openPlannerRule(group,scope='planner'){
   $('planner-rule-error').classList.add('hidden');$('planner-rule-editor').showModal();
 }
 function applyPlannerRule(values){
-  if(editingRuleScope==='upload'){Object.assign(state.uploadRuleOverrides,values);if(window.JunctionSandbox){window.JunctionSandbox.preferences.uploadRuleOverrides={...state.uploadRuleOverrides};window.JunctionSandbox.schedule();}updateUploadRuleLabels();$('planner-rule-editor').close();clearPlatePreview();if($('plate-upload').files.length)plateUpload(true);return;}
+  if(editingRuleScope==='upload'){Object.assign(state.uploadRuleOverrides,values);if(window.JunctionSandbox){window.JunctionSandbox.preferences.uploadRuleOverrides={...state.uploadRuleOverrides};window.JunctionSandbox.schedule();}updateUploadRuleLabels();$('planner-rule-editor').close();clearPlatePreview();if(plateUploads.jobs.some(job=>!job.invalid&&job.status!=='Imported'))plateUpload(true);return;}
   Object.assign(state.plannerOverrides,values);
   for(const[id,key]of Object.entries(plannerInputKeys))if(key in values)$(id).value=values[key];
   updatePlannerRuleLabels();$('planner-rule-editor').close();planChanged();
@@ -2200,7 +2275,14 @@ async function downloadWorksheet(kind,format){
       else await fileDownload('/api/assemblies/worksheet?format='+format,payload(),'assembly.'+format);
     }
     else if(kind==='library')await fileDownload('/api/inventory/worksheet?format='+format,{...state.rules,no_backbone:true,resuspension_mode:'constrained',planner_stock_mode:'saved',plate:$('plate-filter').value||''},'resuspension.'+format);
-    else if(kind==='upload'){const params=new URLSearchParams(state.uploadParams||referenceParams());params.set('format',format);params.set('planner_stock_mode','saved');await fileDownload('/api/inventory/worksheet?'+params,null,'resuspension.'+format);}
+    else if(kind==='upload'){
+      const keys=new Set((state.uploadPlan?.rows||[]).map(row=>JSON.stringify([row.plate_id,row.well])));
+      const ids=state.fragments.filter(part=>keys.has(JSON.stringify([part.plate_id,part.well]))).map(part=>part.id);
+      if(!ids.length)throw Error('Import plate maps before exporting');
+      const values=Object.fromEntries(state.uploadParams||[]);delete values.apply_import_rules;
+      for(const key of Object.keys(values))if(!['no_backbone','resuspension_mode'].includes(key))values[key]=Number(values[key]);
+      await fileDownload('/api/inventory/worksheet?format='+format,{...values,no_backbone:true,planner_stock_mode:'saved',fragment_ids:ids},'resuspension.'+format);
+    }
   }catch(error){toast(error.message);}
   finally{if(assemblyExport)assemblyExportBusy=false;}
 }
@@ -2225,10 +2307,9 @@ document.querySelectorAll('[data-inventory-sort]').forEach(button=>button.onclic
 $('select-bin').onchange=event=>{$('bin-body').querySelectorAll('[data-bin-id]').forEach(input=>input.checked=event.target.checked);updateBinSelection();};
 $('restore-bin').onclick=async()=>{try{const selected=[...$('bin-body').querySelectorAll('[data-bin-id]:checked')];const selection={fragment_ids:selected.filter(i=>i.dataset.binKind==='fragment').map(i=>Number(i.dataset.binId)),plasmid_ids:selected.filter(i=>i.dataset.binKind==='plasmid').map(i=>Number(i.dataset.binId)),plate_ids:selected.filter(i=>i.dataset.binKind==='plate').map(i=>i.dataset.binId)};await api('/api/bin/restore',jsonBody(selection));await refresh();renderPlasmidLibraries();await loadBin();toast('Items restored');}catch(e){toast(e.message);}};
 $('library-search').oninput=()=>{state.fragmentSelection.clear();clearTimeout(searchTimer);searchTimer=setTimeout(loadInventory,200);};$('plate-filter').onchange=()=>{state.fragmentSelection.clear();loadInventory();};$('library-enzyme').onchange=loadInventory;
-$('plate-upload').onchange=clearPlatePreview;$('preview-upload').onclick=()=>plateUpload(true);$('commit-upload').onclick=()=>plateUpload(false);
+initializeUploads();
 document.querySelectorAll('[data-upload-topology]').forEach(button=>{button.innerHTML=inventoryIcon(button.dataset.uploadTopology);button.onclick=()=>{$('upload-topology').value=button.dataset.uploadTopology;if(button.dataset.uploadTopology!=='circular')$('upload-backbone').checked=false;updateUploadPlasmidIcons();};});
 $('upload-backbone-toggle').innerHTML=inventoryIcon('backbone');$('upload-backbone-toggle').onclick=()=>{$('upload-backbone').checked=!$('upload-backbone').checked;if($('upload-backbone').checked)$('upload-topology').value='circular';updateUploadPlasmidIcons();};updateUploadPlasmidIcons();
-$('import-plasmid').onclick=async()=>{const file=$('plasmid-upload').files[0];if(!file){toast('Choose a plasmid file first.');return;}const fd=new FormData();fd.append('file',file);busy('Importing plasmid…');try{const r=await api('/api/uploads/plasmid?topology='+$('upload-topology').value+'&backbone_template='+$('upload-backbone').checked,{method:'POST',body:fd});$('plasmid-upload-result').innerHTML=`<div class="notice">${r.count} imported · ${esc(r.names.join(', '))}</div>`;await refresh();renderPlasmidLibraries();}catch(e){$('plasmid-upload-result').innerHTML=messages([e.message]);}finally{busy('');}};
 $('select-plates').onchange=event=>{state.plateSelection=new Set(event.target.checked?state.plateMaps.map(p=>p.plate_id):[]);renderPlateMaps();};
 $('archive-plates').onclick=archivePlateMaps;
 $('plate-export-format').onchange=async event=>{
@@ -2270,11 +2351,12 @@ document.addEventListener('click',event=>{
 });
 
 function sandboxSnapshot(){
-  return {version:1,design:window.JunctionDesign?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
+  return {version:1,workbench_id:state.workbenchId,worksheet_ids:state.worksheetIds,design:window.JunctionDesign?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
     backboneStocks:Object.fromEntries(backboneStockCache),subtab:state.subtab,view:location.hash.slice(1),
     compareView:{...compareFileView,enzyme:$('compare-enzyme').value,jobs:Object.fromEntries(compareJobs.filter(j=>j.sandboxId).map(j=>[j.sandboxId,{expanded:!!j.expanded,recordIndex:j.recordIndex,selected:compareSelection.has(j.id),path:j.path}]))}};
 }
 async function restoreSandbox(saved,runs){
+  state.workbenchId=saved.workbench_id||null;state.worksheetIds=saved.worksheet_ids||{};
   window.JunctionDesign?.restore(saved.design);
   const draft=saved.draft;
   if(draft){
@@ -2299,14 +2381,35 @@ async function restoreSandbox(saved,runs){
     compareJobs.push({id,sandboxId:run.id,key:[meta.path||run.filename,file.size,0].join('|'),file,path:meta.path||run.filename,status:run.error?'Error':run.result?'Done':'Queued',error:run.error||'',result:run.result,expanded:!!meta.expanded,recordIndex:meta.recordIndex||0,candidateIndex:0});if(meta.selected)compareSelection.add(id);
   }
   comparisonQueue();selectSubtab(['assembly','reaction','export'].includes(saved.subtab)?saved.subtab:'assembly');
-  const viewName=location.hash.slice(1)||saved.view;showView(['build','design','library','uploads','compare','bin'].includes(viewName)?viewName:'build');renderBuildList();
+  showView(JunctionHome.resolveView(location.hash.slice(1)));renderBuildList();
 }
 const sandbox=SandboxState.create({request:(url,body)=>api(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),capture:sandboxSnapshot,report:error=>toast('Sandbox not saved: '+error.message)});
 window.JunctionSandbox=Object.assign(sandbox,{preferences:{}});
 for(const event of ['input','change','click'])document.addEventListener(event,()=>sandbox.schedule());
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sandbox.flush().catch(error=>toast(error.message));});
 window.addEventListener('pagehide',()=>{if(sandbox.ready)fetch('/api/workspace',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:sandboxSnapshot()}),keepalive:true}).catch(()=>{});});
+window.JunctionWorkbenchController=JunctionWorkbenches.setup(window,document,{
+  api,download:fileDownload,notify:toast,
+  setCurrent:id=>{state.workbenchId=id;},
+  recommendedName:()=>{const name=$('assembly-name').value.trim();return name&&name!=='New assembly'?name:'Workbench '+new Date().toLocaleDateString();},
+  stats:()=>`${state.buildList.length} builds · ${window.JunctionDesign?.snapshot()?.designs?.length||0} designs · ${compareJobs.length} comparison files · v${document.querySelector('.brand-version').textContent.replace(/^v/,'')}`,
+  flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
+  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching workbenches.');sandbox.stop();},
+  resume:()=>sandbox.start(sandboxSnapshot())
+});
+window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
+  api,flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
+  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching worksheets.');sandbox.stop();},resume:()=>sandbox.start(sandboxSnapshot()),
+  reload:view=>location.replace('/?instance='+Date.now()+'#'+view),download:fileDownload,notify:toast,
+  nameFor:scope=>scope==='design'?$('design-name').value:scope==='build'?$('assembly-name').value:'Compare worksheet',
+  setCurrent:(scope,id)=>{state.worksheetIds[scope]=id;},changed:scheduleLibraryMetrics
+});
+$('junction-count-button').onclick=async()=>{await refreshLibraryMetrics();renderJunctionList();$('junction-list-dialog').showModal();};
+$('junction-list-close').onclick=()=>$('junction-list-dialog').close();
+window.JunctionHomeController=JunctionHome.setup(window,document,{navigate:showView});
+window.addEventListener('hashchange',()=>showView(JunctionHome.resolveView(location.hash.slice(1))));
+showView(JunctionHome.resolveView(location.hash.slice(1)));
 (async()=>{busy('Opening your sandbox…');try{await JunctionAccount.ready;const [workspace,runs]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons')]);
   sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
-  await refresh();await loadBuildList();await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());runCompareQueue();
+  await refresh();await loadBuildList();await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());await api('/api/worksheets/bootstrap',jsonBody({}));await window.JunctionWorksheetController.loadAll();window.JunctionHomeController.welcome();window.JunctionWorkbenchController.load();runCompareQueue();
 }catch(e){toast('Could not load the app: '+e.message);}finally{busy('');}})();

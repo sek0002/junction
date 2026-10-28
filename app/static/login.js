@@ -5,7 +5,7 @@ document.getElementById('login-form').onsubmit=async event=>{
   try{
     const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('username').value.trim(),pin:document.getElementById('pin').value})});
     if(!response.ok){const data=await response.json();throw Error(typeof data.detail==='string'?data.detail:'Enter a username and a 6–12 digit PIN.');}
-    document.getElementById('pin').value='';location.replace('/#build');
+    document.getElementById('pin').value='';location.replace('/?welcome=1#home');
   }catch(e){error.textContent=e.message||'Unable to sign in.';error.hidden=false;document.getElementById('pin').value='';}
   finally{button.disabled=false;}
 };

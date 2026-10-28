@@ -3,7 +3,7 @@
   "name": "Junction",
   "short_name": "Junction",
   "description": "Golden Gate assembly and reaction planning.",
-  "start_url": "/#build",
+  "start_url": "/#home",
   "scope": "/",
   "display": "standalone",
   "display_override": [

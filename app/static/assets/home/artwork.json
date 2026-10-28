@@ -1,0 +1,48 @@
+{
+  "generator": "Built-in imagegen",
+  "artwork": "Approved Junction home illustrations",
+  "sources": {
+    "assembly": "assembly-simple-notches-v8.png",
+    "design": "design-simple-v3.png",
+    "fragments": "fragments-simple-v3.png",
+    "uploads": "uploads-96-prominent-v6.png",
+    "compare": "compare-simple-v3.png",
+    "profile": "profile-simple-v3.png"
+  },
+  "prompts": {
+    "assembly": {
+      "mode": "built-in imagegen edit",
+      "prompt": "Use case: precise-object-edit\nEdit target: the supplied plain segmented circular assembly ring.\nChange ONLY the connectors between segments. Replace all complicated multi-tooth staircase/jigsaw edges with a SIMPLE SINGLE RECTANGULAR NOTCH at each join: one shallow square tab and its matching square recess. No multiple steps, no teeth, no zigzags. Use the same simple single-notch design for the ends around the gap and both ends of the detached gold piece.\nKeep the segmented circular ring, detached gold arc at upper right, all segment colors, dark green outlines, ring thickness, overall composition and genuine transparent background. Colored segment interiors remain plain and empty, without DNA motifs or marks. Flat minimal illustration. No text, added objects, shadows, 3D or watermark."
+    },
+    "uploads": {
+      "mode": "built-in imagegen",
+      "prompt": "Use case: precise-object-edit\nEdit target: the supplied transparent Uploads illustration.\nChange ONLY the gold upward arrow at the right. Make it substantially more prominent: about 35 percent wider, with a thicker straight shaft and a larger bold rounded chevron head, a little taller. Use a strong mustard gold fill #D9B95D. It should be legible at small homepage-card size and feel balanced with the plate.\nKeep the entire 96-well plate at the left EXACTLY unchanged: its position, size, shape, green colors and its verified EIGHT rows by TWELVE columns of wells, 96 total. Do not redraw or change the plate grid. Keep the transparent background, flat style, generous margins and full composition uncropped. No new objects, text, labels, shadow, texture or 3D."
+    },
+    "retained": [
+      {
+        "id": "assembly",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: An almost complete circular plasmid ring made of three broad green arcs and one small gold arc floating just above the gap. Only one simple stepped connector at each side of the gap. No DNA helix, no inner decorations.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      },
+      {
+        "id": "design",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: A horizontal DNA fragment represented by two sage rounded blocks with a gap, and a gold block poised directly above that gap. One simple green pencil beside it. No helix, no arrows, no document.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      },
+      {
+        "id": "fragments",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: Three broad horizontal DNA fragment bars stacked with generous space, two sage and one gold. Each bar has one distinct stepped end. No organizer frame, no nucleotide marks, no helix.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      },
+      {
+        "id": "uploads",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: One simple rounded microplate rectangle with just six large well dots in two rows of three, and a gold upward arrow beside it. A symbolic plate, not a literal scientific well count. No document or spreadsheet.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      },
+      {
+        "id": "compare",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: Two clean horizontal green sequence bars, each split into four broad blocks. One corresponding block is gold on the upper row and hollow on the lower row. No magnifier, no connectors, no helix.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      },
+      {
+        "id": "profile",
+        "prompt": "Use case: stylized-concept\nAsset type: very simple flat homepage illustration for Junction, a Golden Gate cloning workbench.\nPrimary request: One simple green account silhouette with a round head and rounded shoulders inside a thin sage circle, plus one small gold accent dot. No face, hair, notebook, coat, plants, or DNA.\nStyle: ultra-minimal 2D flat pictogram illustration. Reduce to a few large, clear solid shapes. Flat fills, generous negative space, consistent rounded corners. Readable at 80 pixels. Absolutely no small decorative details.\nPalette: sage #9CBD9F and pale mint #C5DBBF for the main forms, dark forest #315D47 only where needed, mustard gold #D9B95D for one accent. Maximum four colors, solid fills only.\nComposition: centered, square canvas, complete object, occupying 75 percent of canvas, transparent margins. Front view or top down only.\nBackground: genuinely transparent.\nAvoid: gradients, shadows, texture, 3D, bevels, realism, isometric perspective, shine, tiny markings, extra props, letters, words, numbers, labels, logos, watermark. This should be much simpler than a detailed editorial illustration."
+      }
+    ]
+  }
+}

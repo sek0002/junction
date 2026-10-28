@@ -64,6 +64,7 @@
   function renderFields(){
     const d=current();if(!d)return;renderSaved();
     for(const[id,key]of Object.entries({'design-name':'name','design-enzyme':'enzyme','design-left':'left_overhang','design-right':'right_overhang','design-window':'window','design-adapter':'adapter_enzyme','design-left-enzyme':'left_adapter_enzyme','design-right-enzyme':'right_adapter_enzyme'}))$(id).value=d[key]??'';
+    $('design-card-title').textContent=d.name;
     $('design-add-re').checked=d.include_re_sites!==false;
     $('design-export-rc').checked=!!d.reverse_output;
     $('design-twist-compatible').checked=!!d.make_twist_compatible;
@@ -186,7 +187,7 @@
   function chooseDesign(id){saved.activeId=id;activeEntry=current().entries.find(item=>item.kind==='placeholder')?.id||null;lastResult=null;preview=null;dirty();render();loadReferences();}
   $('design-new').onclick=()=>{if(saved.designs.length>=20){note('Use at most 20 designs in one sandbox.',true);return;}const d=fresh();saved.designs.push(d);chooseDesign(d.id);};
   $('design-saved').onchange=event=>chooseDesign(event.target.value);
-  $('design-name').oninput=event=>{current().name=event.target.value||'New design';dirty();renderSaved();};
+  $('design-name').oninput=event=>{current().name=event.target.value||'New design';dirty();renderSaved();$('design-card-title').textContent=current().name;};
   $('design-enzyme').onchange=event=>{current().enzyme=event.target.value;current().slot_id=null;refs=null;preview=null;dirty();render();loadReferences();};
   $('design-backbone').onchange=event=>{const d=current();d.backbone_id=Number(event.target.value)||null;d.slot_id=chosenBackbone()?.slots[0]?.id||null;preview=null;dirty();render();};
   $('design-slot').onchange=event=>{current().slot_id=event.target.value||null;preview=null;dirty();renderChain();tableUI.render();};

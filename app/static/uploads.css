@@ -1,0 +1,14 @@
+#uploads .upload-grid>.panel{min-width:0}
+#uploads .drop-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:125px;cursor:pointer;position:relative;transition:border-color .15s,background .15s;overflow:hidden}
+#uploads .drop-zone strong{font-size:13px;font-weight:600}
+#uploads .drop-zone span{font-size:11px;color:var(--muted)}
+#uploads .drop-zone input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+#uploads .drop-zone:focus-within,#uploads .drop-zone.drag-over{outline:2px solid var(--green);outline-offset:3px;background:var(--green-light);border-color:var(--green)}
+.upload-file-list{margin:12px 0;display:grid;gap:6px;max-height:260px;overflow:auto}
+.upload-file-row{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:7px;padding:8px 10px;min-width:0}
+.upload-file-name{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12px}.upload-file-name small{display:block;color:var(--muted);font-size:10px}
+.upload-file-status{font-size:11px;white-space:nowrap;color:var(--muted)}.upload-file-status.ready,.upload-file-status.imported{color:var(--green)}.upload-file-status.error{color:var(--red)}
+.upload-file-row .icon-button{flex-shrink:0;width:28px;height:28px}.upload-file-row .upload-file-error{color:var(--red)}
+.upload-batch-heading{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:11px;color:var(--muted)}
+.upload-result{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.upload-result summary{cursor:pointer;font-size:12px;font-weight:600;overflow-wrap:anywhere}.upload-result .table-scroll{margin-top:9px;max-height:300px;overflow:auto}
+@media(prefers-reduced-motion:reduce){#uploads .drop-zone{transition:none}}

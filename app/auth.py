@@ -111,6 +111,19 @@ def initialize():
             result TEXT,error TEXT,removed_at TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX IF NOT EXISTS comparison_owner ON comparison_runs(user_id,removed_at,id);
+        CREATE TABLE IF NOT EXISTS saved_workbenches(
+            id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES auth_users(id),
+            name TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',payload TEXT NOT NULL,metadata TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+        CREATE INDEX IF NOT EXISTS workbench_owner ON saved_workbenches(user_id,updated_at);
+        CREATE TABLE IF NOT EXISTS saved_worksheets(
+            id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES auth_users(id),
+            workbench_id TEXT,scope TEXT NOT NULL,name TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL,metadata TEXT NOT NULL,archived_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+        CREATE INDEX IF NOT EXISTS worksheet_owner ON saved_worksheets(user_id,workbench_id,scope,archived_at);
         ''')
         columns={r['name'] for r in db.execute('PRAGMA table_info(auth_users)')}
         for field in PERMISSIONS:
@@ -144,7 +157,7 @@ def session_user(token):
 
 def write_permission(path,method,preview=False):
     if method in ('GET','HEAD','OPTIONS'):return None
-    if path.startswith(('/api/auth/','/api/workspace','/api/build-list')):return None
+    if path.startswith(('/api/auth/','/api/workspace','/api/build-list','/api/workbenches','/api/worksheets')):return None
     if path=='/api/uploads/plate' and preview:return None
     if path in ('/api/uploads/plate','/api/uploads/plasmid','/api/assemblies'):return 'can_upload'
     if path in ('/api/inventory/rules','/api/inventory/rules/reset'):return 'can_manage_rules'
