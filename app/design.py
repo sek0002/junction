@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from . import database as store
 from .design_engine import TYPE_II, design
 from .design_example import example_features
+from .design_output import output_view
 from .design_table import check_rows, table_design, sequence_metadata
 from .design_exports import fragment_rows, assembly_rows, csv_bytes, workbook_bytes
 from .exports import genbank_bytes
@@ -56,6 +57,7 @@ class DesignRequest(BaseModel):
     left_adapter_enzyme: Literal['BsaI', 'BsmBI'] | None = None
     right_adapter_enzyme: Literal['BsaI', 'BsmBI'] | None = None
     include_re_sites: bool = True
+    reverse_output: bool = False
     use_table: bool = False
     table_rows: list[TableRow] = Field(default_factory=list,max_length=384)
     backbone_id: int | None = Field(default=None, gt=0)
@@ -161,23 +163,28 @@ def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'targ
         raise HTTPException(422, dict(message='Resolve design errors before exporting.', errors=result['errors']))
     if format not in ('gb','example_gb','assemblies_csv','xlsx') and not result['generated']:
         raise HTTPException(422, 'No new fragments to export. Choose GenBank for the assembled sequence.')
+    if example:
+        result['assembly']['features'] = example_features(result)
+    result = output_view(result, payload.reverse_output)
+    strand_note = 'Reverse-complement output; the design inputs and intended assembly are unchanged.' if payload.reverse_output else ''
+    strand_suffix = '_RC' if payload.reverse_output else ''
     suffix = ''
     if example:
         item = result['assembly']
-        content = genbank_bytes(payload.name + '_example', item['sequence'], example_features(result),
-            circular=item['circular'], notes='Reference design example. Dynamic regions use the reference insert sequence; table rows and pasted alternatives are not generated.')
+        content = genbank_bytes(payload.name + '_example' + strand_suffix, item['sequence'], item['features'],
+            circular=item['circular'], notes=['Reference design example. Dynamic regions use the reference insert sequence; table rows and pasted alternatives are not generated.',strand_note])
         mime,extension,suffix = 'text/plain','gb','_example'
     elif format == 'gb':
         def record_name(index,item):
             if result.get('table_mode'):
                 return f'{index:03d}_' + item['name']
             return (f'{index:02d}_' + payload.name + '_' + item['name']) if len(result['assemblies']) > 1 else payload.name
-        content = b''.join(genbank_bytes(record_name(index,item), item['sequence'], item['features'], circular=item['circular'])
+        content = b''.join(genbank_bytes(record_name(index,item) + strand_suffix, item['sequence'], item['features'], circular=item['circular'], notes=[strand_note] if strand_note else [])
                            for index,item in enumerate(result['assemblies'],1))
         mime,extension = 'text/plain','gb'
     elif format in ('fasta','target_fasta'):
         key = 'target_sequence' if format == 'target_fasta' else 'full_sequence'
-        content = ''.join('>' + re.sub(r'[\r\n>]', '_', row['name']) + '\n' + '\n'.join(row[key][i:i+80] for i in range(0, len(row[key]), 80)) + '\n' for row in result['generated']).encode()
+        content = ''.join('>' + re.sub(r'[\r\n>]', '_', row['name']) + ('|RC' if payload.reverse_output else '') + '\n' + '\n'.join(row[key][i:i+80] for i in range(0, len(row[key]), 80)) + '\n' for row in result['generated']).encode()
         mime,extension = 'text/plain','fasta'
         suffix = '_targets' if format == 'target_fasta' else '_full'
     elif format == 'xlsx':
@@ -191,5 +198,5 @@ def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'targ
         mime,extension = 'text/csv','csv'
         suffix = '_assemblies' if format == 'assemblies_csv' else '_fragments'
     day = datetime.now(ZoneInfo('Australia/Melbourne')).date().isoformat()
-    filename = f'Design_{day}_{uuid4().hex[:12]}{suffix}.{extension}'
+    filename = f'Design_{day}_{uuid4().hex[:12]}{suffix}{strand_suffix}.{extension}'
     return Response(content, media_type=mime, headers={'Content-Disposition': f'attachment; filename="{filename}"'})

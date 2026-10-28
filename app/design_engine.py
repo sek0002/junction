@@ -11,6 +11,8 @@ from math import prod
 from .sequence_engine import (ENZYMES, active_enzymes, assemble, digest_fragment,
                               normalize, prepare_backbone, reverse_complement)
 
+from .design_orientation import orient_fragments, annotate_orientations
+
 TYPE_II = {name: motifs[0] for name, motifs in ENZYMES.items()} | {
     'EcoRI': 'GAATTC', 'BamHI': 'GGATCC', 'XbaI': 'TCTAGA',
     'NotI': 'GCGGCCGC', 'XhoI': 'CTCGAG', 'PstI': 'CTGCAG',
@@ -78,12 +80,13 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     if bb:
         errors.extend(bb['errors'])
         reserved.update(fusion_key(bb[key]) for key in ('left_overhang', 'right_overhang') if bb[key])
+    resolved = orient_fragments(entries, enzyme, bb, left_overhang, right_overhang)
     for index, entry in enumerate(entries):
         node = dict(entry, index=index)
         if entry['kind'] == 'fragment':
-            sequence = reverse_complement(entry['sequence']) if entry.get('reverse') else entry['sequence']
-            node['oriented_sequence'] = sequence
-            node['digest'] = digest_fragment(sequence, enzyme)
+            node['digest'] = resolved[index]
+            node['reverse'] = bool(node['digest']['reverse_complement'])
+            node['oriented_sequence'] = node['digest']['input_sequence']
             errors.extend(f"{entry['name']}: {message}" for message in node['digest']['errors'])
             reserved.update(fusion_key(node['digest'][key]) for key in ('left_overhang', 'right_overhang') if node['digest'][key])
         else:
@@ -115,6 +118,10 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             errors.append(f"Backbone → {nodes[0]['name']}: expected {bb['right_overhang']} at the first donor.")
         if nodes[-1]['kind'] == 'fragment' and nodes[-1]['digest']['right_overhang'] != bb['left_overhang']:
             errors.append(f"{nodes[-1]['name']} → Backbone: expected {bb['left_overhang']} at the last donor.")
+    if not bb and nodes:
+        for node,key,expected in [(nodes[0],'left_overhang',left_overhang),(nodes[-1],'right_overhang',right_overhang)]:
+            if expected and node['kind']=='fragment' and node['digest'][key]!=expected:
+                errors.append(f"{node['name']}: expected fixed {key.replace('_',' ')} {expected}.")
     for node in nodes:
         if node['kind'] == 'fragment':
             for key in ('left_overhang', 'right_overhang'):
@@ -289,7 +296,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
         elif node['run'] not in emitted:
             emitted.add(node['run'])
             donors.extend(fragment for fragment in generated if fragment['run'] == node['run'] and not fragment.get('variant_of'))
-    assembly = assemble(donors, enzyme, backbone, slot_id, circular=None)
+    assembly = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None), nodes)
     result['assembly'] = assembly
     errors.extend(assembly['errors'])
     warnings.extend(assembly['warnings'])
@@ -317,6 +324,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     total_bases = 0
     for index, combination in enumerate(product(*families)):
         assembled = assembly if index == 0 else assemble(list(combination), enzyme, backbone, slot_id, circular=None)
+        annotate_orientations(assembled, nodes)
         total_bases += assembled['length']
         names = [row.get('variant_name', row['name']) for family, row in zip(families, combination) if len(family) > 1]
         product_name = ' / '.join(names) if names else 'Reference'

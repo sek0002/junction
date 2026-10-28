@@ -12,18 +12,19 @@ def fragment_rows(result):
         'Target length nt', 'Full length nt', 'GC %', '5′ overhang', '3′ overhang',
         '5′ RE', '3′ RE', '5′ recognition site', '3′ recognition site',
         '5′ complete end', '3′ complete end', 'RE sites included',
-        'Reference start', 'Reference end'], [
+        'Reference start', 'Reference end', 'Output orientation'], [
         row['name'], row['row_name'], row['region_mode'], row['target_sequence'], row['full_sequence'],
         row['target_length'], row['length'], round(row['gc'], 2), row['left_overhang'], row['right_overhang'],
         row['left_adapter_enzyme'] if row['include_re_sites'] else '',
         row['right_adapter_enzyme'] if row['include_re_sites'] else '',
         row['left_re_site'], row['right_re_site'], row['five_prime_sequence'], row['three_prime_sequence'],
-        row['include_re_sites'], row['source_start'] + 1, row['source_end']])) for row in result['generated']]
+        row['include_re_sites'], row['source_start'] + 1, row['source_end'], row.get('output_orientation','Forward')])) for row in result['generated']]
 
 
 def assembly_rows(result):
     return [{'Name': row['name'], 'Length bp': row['length'], 'Circular': row['circular'],
              'GC %': round(row['gc'], 2), 'Target sequence': row['sequence'],
+             'Output orientation': row.get('output_orientation','Forward'),
              'Fragment order': ' → '.join(feature['label'] for feature in row['features']
                                           if feature.get('source') in ('fragment','retained_backbone'))}
             for row in result.get('assemblies', [])]
@@ -46,7 +47,8 @@ def workbook_bytes(result):
     workbook = Workbook()
     workbook.remove(workbook.active)
     overhangs = [{'Region': row['name'], '5′ overhang': row['left_overhang'],
-                 '3′ overhang': row['right_overhang'], 'Constant across rows': row['valid']}
+                 '3′ overhang': row['right_overhang'], 'Constant across rows': row['valid'],
+                 'Output orientation': row.get('output_orientation','Forward')}
                 for row in result.get('constant_overhangs', [])]
     for title, rows in [('Fragments',fragment_rows(result)),('Assemblies',assembly_rows(result)),('Overhangs',overhangs)]:
         sheet = workbook.create_sheet(title)

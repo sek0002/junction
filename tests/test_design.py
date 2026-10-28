@@ -116,7 +116,7 @@ class DesignEngineTests(unittest.TestCase):
         sequence=clean_dna(10,200)
         existing=donor('TTTG','AACCAA','ACCT')
         fixed=dict(id='old',kind='fragment',fragment_id=1,name='Existing',sequence=reverse_complement(existing),reverse=True)
-        result=design([fixed,placeholder(sequence)],right_overhang='TGCC')
+        result=design([fixed,placeholder(sequence)],left_overhang='TTTG',right_overhang='TGCC')
         self.assertTrue(result['valid'],result['errors'])
         self.assertEqual(result['assembly']['sequence'],'TTTG'+'AACCAA'+'ACCT'+sequence+'TGCC')
         cut=design([placeholder('AACCGGTCTCAACCAA')],left_overhang='TTTG',right_overhang='ACCT')

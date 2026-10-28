@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from .design_engine import donor_sequence, insert_dna, scan_type_ii
+from .design_orientation import annotate_orientations
 from .sequence_engine import ENZYMES, active_enzymes, assemble, digest_fragment
 
 
@@ -96,7 +97,7 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
             elif node['run'] not in emitted:
                 emitted.add(node['run'])
                 donors.extend(by_id[item['id']] for item in original if item['run'] == node['run'])
-        assembled = assemble(donors, enzyme, backbone, slot_id, circular=None)
+        assembled = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None), base['entries'])
         row_errors.extend(assembled['errors'])
         result['warnings'].extend(f"{row['name']}: {message}" for message in assembled['warnings'])
         for site in scan_type_ii(assembled['sequence'], assembled['circular']):
