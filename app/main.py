@@ -37,6 +37,7 @@ from .comparison_export import comparison_workbook
 from .plate_exports import export_bytes as plate_export_bytes, MIME as PLATE_EXPORT_MIME
 from .assembly_matrix import matrix_data, META_HEADERS
 from .plate_labels import plate_aliases
+from .build_genbank import build_genbank_zip
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_UPLOAD = 10 * 1024 * 1024
@@ -823,6 +824,34 @@ def export_build_list(format:Literal['xlsx','pdf','csv']='xlsx',export_date:date
     identifier = 'BL-' + uuid4().hex
     filename = f'Build_list_{export_day.isoformat()}_{identifier}.{format}'
     return download(guide_bytes(format,build_sections(items),lambda:build_list_workbook(items)), filename, FORMATS[format])
+
+
+@app.get('/api/build-list/genbank')
+def export_build_genbanks(export_date:date | None=None):
+    # Rebuild from current inventory instead of exporting stale preview sequences.
+    with store.connection() as db:
+        rows=db.execute('SELECT id,request FROM build_list WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),)).fetchall()
+    if not rows:raise HTTPException(422,'Add an assembly to the build list first.')
+    builds=[]
+    errors=[]
+    for row in rows:
+        name=f"Build {row['id']}"
+        try:
+            data=json.loads(row['request'])
+            name=data.get('name',name)
+            request=AssemblyRequest.model_validate(data)
+            result,_=build(request)
+            if result.get('errors'):
+                errors.append(name+': '+' '.join(result['errors']))
+            else:
+                builds.append((row['id'],request,result))
+        except (HTTPException,ValueError) as error:
+            detail=error.detail if isinstance(error,HTTPException) else str(error)
+            errors.append(name+': '+str(detail))
+    if errors:raise HTTPException(422,{'message':'Resolve assembly errors before exporting the build list.','errors':errors})
+    export_day=export_date or datetime.now(ZoneInfo('Australia/Melbourne')).date()
+    filename=f'Build_list_{export_day.isoformat()}_BL-{uuid4().hex}_GenBank.zip'
+    return download(build_genbank_zip(builds),filename,'application/zip')
 
 
 @app.post('/api/assemblies/preview')

@@ -1,5 +1,7 @@
 """Shared inventory, isolated persistent sandboxes and admin authorization."""
 import json
+import io
+from zipfile import ZipFile
 import os
 from pathlib import Path
 import tempfile
@@ -170,6 +172,56 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(len(self.admin.get('/api/build-list').json()['items']),1)
         self.assertEqual(self.alice.get('/api/build-list').json()['items'],[])
         with store.connection() as db:self.assertEqual(db.execute('SELECT user_id FROM build_list').fetchone()[0],1)
+
+
+    def test_genbank_zip_is_owner_scoped_excludes_removed_and_keeps_topology(self):
+        from app.exports import parse_sequence_file
+        self.assertEqual(self.alice.get('/api/build-list/genbank').status_code,422)
+        linear=self.build|{'name':'../Same / name'}
+        first=self.alice.post('/api/build-list',json=linear).json()
+        with store.connection() as db:
+            circle_id=db.execute('INSERT INTO fragments(name,plate_id,well,sequence,yield_ng) VALUES(?,?,?,?,?)',
+                ('Circle','P1','A2','GGTCTCAAAAAACGTCATGCTAGCTGACAAAACGAGACC',300)).lastrowid
+        circular=self.build|{'name':'.._Same _ name','fragment_ids':[circle_id]}
+        second=self.alice.post('/api/build-list',json=circular).json()
+        removed=self.alice.post('/api/build-list',json=self.build|{'name':'Removed'}).json()
+        self.alice.delete('/api/build-list/'+str(removed['id']))
+        self.bob.post('/api/build-list',json=self.build|{'name':'Bob only'})
+        response=self.alice.get('/api/build-list/genbank?export_date=2026-10-28')
+        self.assertEqual(response.status_code,200,response.text if response.status_code!=200 else '')
+        self.assertEqual(response.headers['content-type'],'application/zip')
+        self.assertRegex(response.headers['content-disposition'],r'Build_list_2026-10-28_BL-[0-9a-f]{32}_GenBank.zip')
+        with ZipFile(io.BytesIO(response.content)) as archive:
+            self.assertEqual(len(archive.namelist()),2)
+            for filename,item,expected_circular in zip(archive.namelist(),(first,second),(False,True)):
+                self.assertNotIn('/',filename)
+                self.assertFalse(filename.startswith('.'))
+                text=archive.read(filename).decode()
+                parsed=parse_sequence_file(text,filename)[0]
+                expected=self.alice.post('/api/assemblies/preview',json=item['request']).json()
+                self.assertEqual(parsed['sequence'],expected['sequence'])
+                self.assertEqual(parsed['circular'],expected_circular)
+                self.assertTrue(parsed['features'])
+                self.assertIn('Build list entry: '+str(item['id']),text)
+        again=self.alice.get('/api/build-list/genbank?export_date=2026-10-28')
+        self.assertNotEqual(response.headers['content-disposition'],again.headers['content-disposition'])
+        self.assertEqual(self.admin.get('/api/build-list/genbank').status_code,422)
+        self.alice.post('/api/auth/logout')
+        self.assertEqual(self.alice.get('/api/build-list/genbank').status_code,401)
+
+    def test_genbank_zip_revalidates_all_entries_and_does_not_silently_skip_failures(self):
+        self.alice.post('/api/build-list',json=self.build)
+        with store.connection() as db:
+            db.execute("UPDATE fragments SET sequence='ACGT' WHERE id=?",(self.fragment_id,))
+        response=self.alice.get('/api/build-list/genbank')
+        self.assertEqual(response.status_code,422,response.text)
+        self.assertIn('Private design',response.json()['detail']['errors'][0])
+        self.assertNotIn('attachment',response.headers.get('content-disposition',''))
+        with store.connection() as db:
+            db.execute('DELETE FROM fragments WHERE id=?',(self.fragment_id,))
+        missing=self.alice.get('/api/build-list/genbank')
+        self.assertEqual(missing.status_code,422,missing.text)
+        self.assertIn('Private design',missing.json()['detail']['errors'][0])
 
 
 if __name__=='__main__':unittest.main()

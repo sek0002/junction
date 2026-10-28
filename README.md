@@ -80,6 +80,8 @@ The seed manifest's `precalculated_plate_files` list is restricted to its `plate
 
 The builder search provides plasmid recipes for pIVT, pULT, and two pHR variants using the four-part F21 split. Type **Plasmid** to list the presets, optionally followed by a name; select one to load its full assembly. Presets stay hidden unless the search includes the word Plasmid. AAV6 is shown as unavailable because F12 is absent from the delivered maps. Actual delivered sequences produce a 2,827-bp pIVT (the vendor F10 differs from the earlier 2,937-bp design), 7,457-bp pULT BsaI-ve, 7,760-bp pHR BsaI-ve, and 8,201-bp pHR U6. Recipe checks always use the inventory, rather than substituting an old reference.
 
+The **GenBank** icon in the assembly viewer downloads the displayed assembly with its current name, topology and annotations. The download icon in the **Build list** exports every queued product as a separate GenBank file in a dated ZIP with a unique build-list identifier. Removed entries and other users' builds are excluded. Queued designs are rebuilt against current inventory; an invalid or unavailable entry blocks the ZIP rather than being silently omitted. Reaction-volume warnings do not block sequence downloads. The **+** beside the fragment chain still adds an independent assembly to the list.
+
 ## Design
 
 **Design** creates new synthesis fragments without changing the shared library or the current Assembly draft. Designs autosave in the signed-in user's private sandbox; the saved-design selector keeps separate designs across refreshes and sign-ins.

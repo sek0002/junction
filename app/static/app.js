@@ -402,7 +402,8 @@ function activeBuild(){return state.buildList.find(item=>item.id===state.activeB
 function buildIsDirty(){const item=activeBuild();return item&&buildDesign(item.request)!==buildDesign(payload());}
 function updateBuildActions(){
   const disabled=state.buildBusy||(!state.parts.length&&!$('backbone').value);
-  for(const id of ['add-build','add-build-inline'])if($(id))$(id).disabled=disabled;
+  if($('add-build-inline'))$('add-build-inline').disabled=disabled;
+  $('export-build-genbank').disabled=state.buildBusy||!state.buildList.length;
 }
 const planInputTimers=new Map();
 function flushPlanInputs(){for(const pending of [...planInputTimers.values()]){clearTimeout(pending.timer);pending.save();}}
@@ -804,13 +805,13 @@ function renderFragmentAssemblyActions(){
   actions.className='fragment-chain-actions';
   actions.setAttribute('role','group');
   actions.setAttribute('aria-label','Fragment assembly actions');
-  for(const [id,action] of [['new-build',newBuild],['add-build',addCurrentBuild]]){
-    const button=$(id).cloneNode(true);
-    button.id=id+'-inline';
-    button.type='button';
-    button.onclick=action;
-    actions.append(button);
-  }
+  const fresh=$('new-build').cloneNode(true);
+  fresh.id='new-build-inline';fresh.type='button';fresh.onclick=newBuild;
+  const add=document.createElement('button');
+  add.id='add-build-inline';add.type='button';add.className='icon-button add-build';
+  add.setAttribute('aria-label','Add current assembly as a new entry');add.title='Add current assembly as a new entry';
+  add.innerHTML='<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+  add.onclick=addCurrentBuild;actions.append(fresh,add);
   $('selected-parts').append(actions);
   updateBuildActions();
 }
@@ -960,6 +961,8 @@ function renderAssemblyFeedback(r){
 }
 function renderResult(){
   const r=state.result;$('viewer-name').readOnly=!!r.viewerReadOnly||!!r.viewerPlasmidId&&!!window.JunctionAccount&&!window.JunctionAccount.allowed('can_edit');if(document.activeElement!==$('viewer-name'))$('viewer-name').value=r.name||'';$('viewer-name-status').textContent='';$('viewer-name').title=r.viewerReadOnly?'Read-only Design preview':'Click to rename';
+  $('viewer-download-gb').classList.toggle('hidden',!!r.storedReference&&!r.viewerPlasmidId);
+  $('viewer-download-gb').disabled=!r.sequence||!!r.errors?.length;
   if(!r.storedReference){state.assemblyResult=r;updateChainTopology(r);renderAssemblyFeedback(r);renderReaction(r.reaction);renderNestedStatus();renderNestedReactions();}
   $('viewer-title').textContent=r.viewerTitle||(r.circular?'Plasmid':'Linear assembly');$('view-circular').disabled=r.circular===false;$('results').classList.remove('hidden');renderMap();renderViewerAnnotations();renderSequence();if(state.subtab==='reaction'&&!r.storedReference)loadResuspension();
   const counts={};for(const site of r.restriction_sites||[])counts[site.enzyme]=(counts[site.enzyme]||0)+1;$('site-list').textContent='Recognition sites: '+Object.entries(counts).map(([key,value])=>key+' '+value).join(' · ');
@@ -1919,7 +1922,7 @@ $('search-results').onkeydown=e=>{const options=[...$('search-results').querySel
 document.addEventListener('click',e=>{if(!e.target.closest('.nested-search-wrap')&&$('nested-search-results')){$('nested-search-results').classList.add('hidden');$('nested-search')?.setAttribute('aria-expanded','false');}if(!e.target.closest('.search-wrap'))closeAssemblySearch();});
 
 $('build-preview').onmouseenter=()=>clearTimeout(buildPreviewTimer);$('build-preview').onmouseleave=scheduleHideBuildPreview;
-$('add-build').onclick=()=>addCurrentBuild();
+$('export-build-genbank').onclick=()=>downloadBuildGenbanks();
 $('new-build').onclick=newBuild;
 $('undo-build-remove').onclick=undoBuildRemove;
 
@@ -2049,7 +2052,51 @@ $('viewer-name').oninput=()=>{
 };
 $('viewer-name').onchange=renameViewer;
 $('viewer-name').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();renameViewer();event.target.blur();}if(event.key==='Escape'){event.preventDefault();clearTimeout(viewerRenameTimer);event.target.value=state.result?.name||'';if(state.result&&!state.result.storedReference){$('assembly-name').value=state.result.name;scheduleBuildSettingsSave();}event.target.setCustomValidity('');$('viewer-name-status').textContent='';event.target.blur();}};
-$('download-gb').onclick=()=>fileDownload('/api/assemblies/genbank',payload(),'assembly.gb');
+function genbankExportDate(){
+  const now=new Date();return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+}
+async function downloadViewedGenbank(){
+  if(assemblyExportBusy)return;
+  const result=state.result;
+  if(!result?.sequence||result.errors?.length||result.storedReference&&!result.viewerPlasmidId)return;
+  assemblyExportBusy=true;
+  try{
+    renameViewer();
+    // Preserve the displayed recipe even if another assembly opens while exporting.
+    const request=result.storedReference?null:JSON.parse(JSON.stringify({...result.recipe,name:result.name}));
+    await viewerRenameChain;
+    if(result.storedReference)await fileDownload('/api/plasmids/'+result.viewerPlasmidId+'/genbank',null,result.name+'.gb');
+    else{
+      if(!request.fragment_ids)throw Error('Recheck this assembly before exporting');
+      if(result.warnings?.length&&!await confirmAssemblyExportWarnings([{name:result.name,messages:result.warnings}]))return;
+      await fileDownload('/api/assemblies/genbank',request,result.name+'.gb');
+    }
+  }catch(error){toast(error.message);}
+  finally{assemblyExportBusy=false;}
+}
+async function downloadBuildGenbanks(){
+  if(assemblyExportBusy||state.buildBusy)return;
+  assemblyExportBusy=true;
+  try{
+    flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);
+    if(state.buildSaveError)throw Error('Save build list changes before exporting');
+    await loadBuildList();
+    const failures=state.buildList.filter(item=>!item.plan||item.plan.errors?.length).map(item=>({name:item.request.name,messages:item.plan?.errors?.length?item.plan.errors:[item.error||'Assembly unavailable.']}));
+    if(!state.buildList.length)failures.push({name:'Build list',messages:['Add an assembly to the build list first.']});
+    if(failures.length){
+      $('assembly-warning-continue').hidden=true;
+      try{await confirmAssemblyExportWarnings(failures);}finally{$('assembly-warning-continue').hidden=false;}
+      return;
+    }
+    const warnings=state.buildList.filter(item=>item.plan.warnings?.length).map(item=>({name:item.request.name,messages:item.plan.warnings}));
+    if(warnings.length&&!await confirmAssemblyExportWarnings(warnings))return;
+    // Reaction volumes do not affect a valid sequence export.
+    await fileDownload('/api/build-list/genbank?export_date='+genbankExportDate(),null,'Build_list_GenBank.zip');
+  }catch(error){toast(error.message);}
+  finally{assemblyExportBusy=false;updateBuildActions();}
+}
+$('viewer-download-gb').onclick=downloadViewedGenbank;
+$('download-gb').onclick=downloadViewedGenbank;
 async function saveAssembly(asBackbone=false){
   const button=$(asBackbone?'save-backbone':'save-assembly');button.disabled=true;
   try{const r=await api('/api/assemblies',jsonBody({...payload(),save_as_backbone:asBackbone}));if(state.result)state.result.viewerPlasmidId=r.id;await refresh();toast(asBackbone?'Saved backbone · '+r.name+' · '+r.backbone_enzymes.join(' / '):'Saved '+r.name+' to the plasmid library.');}

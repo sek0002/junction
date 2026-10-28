@@ -1,5 +1,6 @@
 """Nested cassette sequence, physical-input and persistence regression checks."""
 import io
+from zipfile import ZipFile
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,22 @@ def cassette(left='CACC',right='CTCG',reverse='GAGACG',forward='CGTCTC'):
 
 
 class NestedAssemblyTests(unittest.TestCase):
+    def test_genbank_build_list_preserves_nested_products_and_annotations(self):
+        expected=[]
+        for mode in ('together','separate'):
+            request=self.request(mode)|{'name':'Nested '+mode}
+            expected.append(self.preview(request))
+            self.assertEqual(self.client.post('/api/build-list',json=request).status_code,200)
+        response=self.client.get('/api/build-list/genbank')
+        self.assertEqual(response.status_code,200,response.text if response.status_code!=200 else '')
+        with ZipFile(io.BytesIO(response.content)) as archive:
+            for filename,result in zip(archive.namelist(),expected):
+                parsed=parse_sequence_file(archive.read(filename).decode(),filename)[0]
+                self.assertEqual(parsed['sequence'],result['sequence'])
+                self.assertEqual(parsed['circular'],result['circular'])
+                labels={feature.get('label') for feature in parsed['features']}
+                self.assertIn('Child',labels)
+
     def setUp(self):
         self.folder=tempfile.TemporaryDirectory()
         self.old=os.environ.get('GOLDEN_GATE_DB')
