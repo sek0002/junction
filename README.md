@@ -96,7 +96,7 @@ Use **+** beneath Fragments to add an independent snapshot of the current assemb
 
 ## Concentrations and printable reference sheets
 
-The builder has **Build** and **Reaction planner** subtabs. The default plan uses **0.05 pmol backbone**, a **1:1** insert-to-backbone ratio, **1–5 µL per fragment input**, and **less than 100 µL resuspension per fragment**. Backbone stock is entered in a separate calculator: volume = input pmol × backbone bp × 660 / 1000 / stock ng/µL. Fragment resuspension and aliquot limits do not apply to the backbone, and planned-stock estimation never substitutes for a missing backbone stock. In **No backbone** mode, each fragment receives 0.05 pmol without using any fragment as a backbone reference. Legacy API calls can still request an explicit fragment reference; the app selector uses only whole plasmids.
+The builder has **Build**, **Reaction planner** and **Export assemblies** tabs. The default plan uses **0.05 pmol backbone**, a **1:1** insert-to-backbone ratio, **1–5 µL per fragment input**, and **less than 100 µL resuspension per fragment**. Backbone stock is entered in a separate calculator: volume = input pmol × backbone bp × 660 / 1000 / stock ng/µL. When no entered or saved backbone stock is available, use **1 µL** and keep the stock concentration unknown. This default is included in water calculations and exports; supplying a stock restores the calculated volume. Fragment resuspension and aliquot limits do not apply to the backbone. In **No backbone** mode, each fragment receives 0.05 pmol without using any fragment as a backbone reference. Legacy API calls can still request an explicit fragment reference; the app selector uses only whole plasmids.
 
 Click the **Inputs** or **Resuspension** rule card in the reaction planner to edit its limits. DNA amount, insert ratio, total volume, and other reagents can be edited directly. Planner overrides are remembered in this browser and included in exports without changing the library default rules or recorded fragment stocks. Each rule card has a Reset action.
 
@@ -310,6 +310,12 @@ detected enzymes and terminal overhangs; detailed site-location tables are not
 included. Exports never change inventory.
 
 ## Assembly tables and build settings
+
+Use **Next** to proceed from Build to Reaction planner to Export assemblies.
+Forward navigation refreshes plans and shows sequence, stock and reaction
+warnings in a popup. Continue proceeds; Back, Escape or clicking outside keeps
+the current tab. A popup also flags an empty build list or an unqueued current
+assembly before export. Next does not add assemblies to the build list.
 
 **Export assemblies** is the dedicated third tab beside Build and Reaction
 planner. It shows every queued build's settings, input volumes, readiness,

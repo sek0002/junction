@@ -209,3 +209,53 @@ test('restoring preserves manual and legacy names, and keeps unique automatic na
     assert.equal(s.nodes['assembly-name'].value,request.name);assert.equal(s.state.assemblyNameManual,true);
   }
 });
+
+function navigationSetup(){
+  const nodes=new Map(),events=[],state={subtab:'assembly',parts:[],buildList:[],assemblyResult:null};
+  const $=id=>{if(!nodes.has(id))nodes.set(id,{value:'',innerHTML:'',disabled:false,open:false,classList:{toggle(key,value){this[key]=value;}},setAttribute(){},showModal(){this.open=true;},close(){this.open=false;this.onclose?.();}});return nodes.get(id);};
+  const context=vm.createContext({state,$,Promise,planEditOperations:new Set(),payload:()=>({name:'Draft'}),buildDesign:JSON.stringify,flushPlanInputs:()=>events.push('flush'),persistPendingBuild:async()=>events.push('save'),checkAssembly:async()=>events.push('check'),loadBuildList:async()=>events.push('list'),selectSubtab:target=>{state.subtab=target;events.push(target);}});
+  vm.runInContext(source.slice(source.indexOf('const esc='),source.indexOf('const plateLabel='))+source.slice(source.indexOf('let assemblyNavigationBusy='),source.indexOf('async function loadResuspension()')),context);
+  $('assembly-warning-dialog').onclose=()=>vm.runInContext('pendingAssemblyTab=null',context);
+  return{state,$,context,events};
+}
+test('Next proceeds through the planner and export after flushing pending edits',async()=>{
+  const s=navigationSetup();await s.context.navigateAssemblyTab('reaction');
+  assert.equal(s.state.subtab,'reaction');assert.deepEqual(s.events,['flush','save','list','reaction']);
+  s.state.buildList=[{request:{name:'Built'},plan:{}}];await s.context.navigateAssemblyTab('export');
+  assert.equal(s.state.subtab,'export');assert.equal(s.$('assembly-next').classList.hidden,true);
+  assert.equal(s.$('assembly-warning-dialog').open,false);
+});
+test('warnings open a popup and require Continue before proceeding; cancelling stays on the same tab',async()=>{
+  const s=navigationSetup();s.state.parts=[{id:1}];s.state.assemblyResult={warnings:['Warning <tag>','Warning <tag>'],reaction:{rows:[{warnings:['Low stock']}],warnings:['Overfilled']},nested_reactions:[{name:'Nested first',errors:['Nested mismatch']}]};
+  s.$('assembly-name').value='Draft';await s.context.navigateAssemblyTab('reaction');
+  assert.equal(s.state.subtab,'assembly');assert.equal(s.$('assembly-warning-dialog').open,true);
+  const text=s.$('assembly-warning-list').innerHTML;
+  assert.equal((text.match(/Warning &lt;tag&gt;/g)||[]).length,1);assert.ok(text.includes('Low stock'));assert.ok(text.includes('Nested mismatch'));
+  s.$('assembly-warning-dialog').close();s.context.continueAssemblyNavigation();assert.equal(s.state.subtab,'assembly');
+  await s.context.navigateAssemblyTab('reaction');s.context.continueAssemblyNavigation();
+  assert.equal(s.state.subtab,'reaction');assert.equal(s.$('assembly-warning-dialog').open,false);
+});
+test('empty exports and unqueued drafts produce warnings without silently adding builds',async()=>{
+  const s=navigationSetup();s.state.subtab='reaction';await s.context.navigateAssemblyTab('export');
+  assert.ok(s.$('assembly-warning-list').innerHTML.includes('No assemblies to export'));assert.equal(s.state.buildList.length,0);
+  s.$('assembly-warning-dialog').close();s.state.parts=[{id:1}];s.state.assemblyResult={};s.state.buildList=[{request:{name:'Other'},plan:{}}];
+  await s.context.navigateAssemblyTab('export');assert.ok(s.$('assembly-warning-list').innerHTML.includes('current assembly is not in the build list'));
+});
+test('backwards navigation remains direct and failed checks do not advance',async()=>{
+  const s=navigationSetup();s.state.subtab='export';await s.context.navigateAssemblyTab('reaction');
+  assert.deepEqual(s.events,['reaction']);assert.equal(s.$('assembly-warning-dialog').open,false);
+  s.context.loadBuildList=async()=>{throw Error('Plans unavailable');};await s.context.navigateAssemblyTab('export');
+  assert.equal(s.state.subtab,'reaction');assert.ok(s.$('assembly-warning-list').innerHTML.includes('Plans unavailable'));
+  assert.equal(s.$('assembly-warning-continue').classList.hidden,true);assert.equal(s.$('assembly-next').disabled,false);
+});
+test('backbone badge defaults to one microlitre and switches to calculated or mixed-stock volumes',()=>{
+  const s=setup();s.state.plasmids[0].length=5000;s.$('backbone').value='p:1';s.$('backbone-pmol').value='0.05';
+  const start=source.indexOf('function backboneInputVolume('),end=source.indexOf('\nfunction ',source.indexOf('function updateBackboneVolume(',start)+1);
+  vm.runInContext(source.slice(start,end),s.context);s.read("plannerStockKey='plasmid:1';selectedStockKey='plasmid:1'");
+  s.context.updateBackboneVolume();assert.equal(s.$('backbone-use-ul').textContent,'1 µL');assert.equal(s.$('planner-backbone-stock').value,'');
+  s.$('planner-backbone-stock').value='100';s.context.updateBackboneVolume();assert.equal(s.$('backbone-use-ul').textContent,'1.65 µL');
+  s.$('planner-backbone-stock').value='';s.state.plasmids[0].stock_ng_ul=50;s.context.updateBackboneVolume();assert.equal(s.$('backbone-use-ul').textContent,'3.3 µL');
+  delete s.state.plasmids[0].stock_ng_ul;s.state.buildList=[{...item(1,1,100),plan:{parts:[]}},{...item(2,1,null),plan:{parts:[]}}];
+  for(const entry of s.state.buildList)entry.request.settings.backbone_pmol=.05;
+  s.context.updateBackboneVolume();assert.equal(s.$('backbone-use-ul').textContent,'1–1.65 µL');
+});

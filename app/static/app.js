@@ -14,7 +14,59 @@ async function fileDownload(url,body,fallback){if(url.includes('worksheet')){con
 function showView(name){hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active',x.id===name));document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));history.replaceState(null,'','#'+name);if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();}
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
 function referenceParams(){const q=new URLSearchParams();for(const[k,v]of Object.entries(settings()))if(v!==null)q.set(k,v);const value=$('backbone').value;q.set('no_backbone',!value);if(value.startsWith('p:'))q.set('backbone_id',value.slice(2));return q;}
-function selectSubtab(name){hideNestedCardTooltip();closeFragmentSwap();state.subtab=name;document.querySelectorAll('[data-subtab]').forEach(b=>{const active=b.dataset.subtab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});$('assembly-subpanel').classList.toggle('hidden',name!=='assembly');$('reaction-subpanel').classList.toggle('hidden',name!=='reaction');$('export-subpanel').classList.toggle('hidden',name!=='export');if(name==='export')refreshExportAssemblies();if(name==='reaction'){loadResuspension();renderBuildList();loadBuildList().catch(error=>toast(error.message));}}
+function selectSubtab(name){hideNestedCardTooltip();closeFragmentSwap();state.subtab=name;updateAssemblyNext();document.querySelectorAll('[data-subtab]').forEach(b=>{const active=b.dataset.subtab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});$('assembly-subpanel').classList.toggle('hidden',name!=='assembly');$('reaction-subpanel').classList.toggle('hidden',name!=='reaction');$('export-subpanel').classList.toggle('hidden',name!=='export');if(name==='export')refreshExportAssemblies();if(name==='reaction'){loadResuspension();renderBuildList();loadBuildList().catch(error=>toast(error.message));}}
+let assemblyNavigationBusy=false,pendingAssemblyTab=null;
+function updateAssemblyNext(){
+  const next={assembly:'reaction',reaction:'export'}[state.subtab],button=$('assembly-next');
+  button.classList.toggle('hidden',!next);button.disabled=assemblyNavigationBusy;
+  button.setAttribute('aria-label','Next: '+(next==='reaction'?'Reaction planner':'Export assemblies'));
+}
+function assemblyNavigationWarnings(target){
+  const groups=new Map();
+  function add(name,messages){
+    for(const message of messages||[]){if(!message)continue;if(!groups.has(name))groups.set(name,new Set());groups.get(name).add(String(message));}
+  }
+  function inspect(name,plan){
+    if(!plan)return;
+    add(name,[...(plan.errors||[]),...(plan.warnings||[]),...(plan.reaction?.warnings||[]),...(plan.reaction?.rows||[]).flatMap(row=>row.warnings||[])]);
+    for(const nested of plan.nested_reactions||[])inspect(name+' / '+nested.name,nested);
+  }
+  const current=state.parts.length||$('backbone').value;
+  if(current){
+    if(state.assemblyResult)inspect($('assembly-name').value||'Current assembly',state.assemblyResult);
+    else add('Current assembly',['Assembly checks unavailable.']);
+  }
+  for(const item of state.buildList){inspect(item.request.name,item.plan);if(item.error)add(item.request.name,[item.error]);}
+  if(target==='export'){
+    if(!state.buildList.length)add('Build list',['No assemblies to export. Add an assembly to the build list.']);
+    else if(current&&!state.buildList.some(item=>buildDesign(item.request)===buildDesign(payload())))add('Build list',['The current assembly is not in the build list.']);
+  }
+  return [...groups].map(([name,messages])=>({name,messages:[...messages]}));
+}
+function showAssemblyNavigationWarnings(groups,target){
+  pendingAssemblyTab=target;
+  $('assembly-warning-list').innerHTML=groups.map(group=>`<section><h3>${esc(group.name)}</h3><ul>${group.messages.map(message=>`<li>${esc(message)}</li>`).join('')}</ul></section>`).join('');
+  $('assembly-warning-continue').classList.toggle('hidden',!target);
+  $('assembly-warning-dialog').showModal();
+}
+async function navigateAssemblyTab(target){
+  const order=['assembly','reaction','export'],origin=state.subtab;
+  if(!order.includes(target)||origin===target||assemblyNavigationBusy)return;
+  if(order.indexOf(target)<order.indexOf(origin)){selectSubtab(target);return;}
+  assemblyNavigationBusy=true;updateAssemblyNext();
+  try{
+    flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);
+    if(state.parts.length||$('backbone').value)await checkAssembly();
+    await loadBuildList();if(state.subtab!==origin)return;
+    const warnings=assemblyNavigationWarnings(target);
+    if(warnings.length)showAssemblyNavigationWarnings(warnings,target);else selectSubtab(target);
+  }catch(error){if(state.subtab===origin)showAssemblyNavigationWarnings([{name:'Plans',messages:[error.message]}],null);}
+  finally{assemblyNavigationBusy=false;updateAssemblyNext();}
+}
+function continueAssemblyNavigation(){
+  const target=pendingAssemblyTab;pendingAssemblyTab=null;$('assembly-warning-dialog').close();
+  if(target)selectSubtab(target);
+}
 async function loadResuspension(){
   const token=++resuspCounter;
   if(!state.parts.length&&!$('backbone').value){$('resuspension-body').innerHTML='';return;}
@@ -411,7 +463,7 @@ function renderBackboneStocks(force=false){
   input.setAttribute('aria-label',group?'Stock for '+group.name:'Backbone stock');
   input.title=count?'Apply stock to all '+count+' builds using this backbone':'Stock for the current assembly';
   if(force||(document.activeElement!==input&&!planInputTimers.has('backbone:'+plannerStockKey))){
-    input.value=stock.value??'';input.placeholder=stock.mixed?'Mixed stocks':'Enter stock';input.removeAttribute('aria-invalid');
+    input.value=stock.value??'';input.placeholder=stock.mixed?'Mixed stocks':'Optional';input.removeAttribute('aria-invalid');
   }
   updateBackboneVolume();
 }
@@ -926,7 +978,7 @@ function renderResult(){
 }
 
 function reactionIsReady(r){return !!r?.rows?.length&&r.rows.every(p=>p.feasible===true&&p.volume_ul!==null)&&r.water_ul!==null&&r.water_ul>=0;}
-function renderReaction(r){const ready=(state.assemblyResult?.nested_reactions||[]).every(s=>!s.errors.length&&reactionIsReady(s.reaction))&&r.rows?.length&&r.rows.every(x=>x.feasible===true&&x.volume_ul!==null&&(x.role==='backbone'||(x.volume_ul>=(state.result?.effective_settings?.min_input_volume_ul||settings().min_input_volume_ul)-1e-9&&x.volume_ul<=(state.result?.effective_settings?.max_input_volume_ul||settings().max_input_volume_ul)+1e-9)))&&r.water_ul!==null&&r.water_ul>=0;$('reaction-status').className='badge '+(ready?'':'error');$('reaction-status').textContent=ready?'READY':'CHECK REQUIRED';$('reaction-empty').classList.add('hidden');$('reaction-results').innerHTML=(r.rows||[]).map(x=>`<div class="reaction-line"><span>${esc(x.name)}<small>${esc(x.well||(String(x.id).startsWith('prepared:')?'Prepared parent':x.role==='backbone'?'Backbone':''))} · ${fmt(x.target_ng)} ng · ${fmt(x.target_fmol)} fmol</small><small>${x.concentration_ng_ul?inventoryQuantity(x.concentration_ng_ul)+' ng/µL':''} · ${x.role==='backbone'||String(x.id).startsWith('prepared:')?'Manual':x.concentration_basis?.includes('Instance')?'Instance':x.concentration_basis?.match(/ASSUMED|PROPOSED|planned/i)?'Planned':'Saved'}</small>${x.warnings?.filter(w=>!w.match(/planning assumption/i)).length?`<small class="reaction-warning">${esc(x.warnings.filter(w=>!w.match(/planning assumption/i)).join(' '))}</small>`:''}</span><strong>${inventoryQuantity(x.volume_ul)} µL</strong></div>`).join('')+`<div class="reaction-line"><span>Master mix + reagents</span><strong>${fmt(r.master_mix_ul)} µL</strong></div><div class="reaction-line"><span>Water</span><strong>${fmt(r.water_ul)} µL</strong></div>`+(r.warnings||[]).map(w=>`<div class="reaction-warning">${esc(w)}</div>`).join('');}
+function renderReaction(r){const ready=(state.assemblyResult?.nested_reactions||[]).every(s=>!s.errors.length&&reactionIsReady(s.reaction))&&r.rows?.length&&r.rows.every(x=>x.feasible===true&&x.volume_ul!==null&&(x.role==='backbone'||(x.volume_ul>=(state.result?.effective_settings?.min_input_volume_ul||settings().min_input_volume_ul)-1e-9&&x.volume_ul<=(state.result?.effective_settings?.max_input_volume_ul||settings().max_input_volume_ul)+1e-9)))&&r.water_ul!==null&&r.water_ul>=0;$('reaction-status').className='badge '+(ready?'':'error');$('reaction-status').textContent=ready?'READY':'CHECK REQUIRED';$('reaction-empty').classList.add('hidden');$('reaction-results').innerHTML=(r.rows||[]).map(x=>`<div class="reaction-line"><span>${esc(x.name)}<small>${esc(x.well||(String(x.id).startsWith('prepared:')?'Prepared parent':x.role==='backbone'?'Backbone':''))} · ${x.feasibility==='default_volume'?'Target: ':''}${fmt(x.target_ng)} ng · ${fmt(x.target_fmol)} fmol</small><small>${x.concentration_ng_ul?inventoryQuantity(x.concentration_ng_ul)+' ng/µL · ':''}${x.feasibility==='default_volume'?'Default 1 µL':x.role==='backbone'||String(x.id).startsWith('prepared:')?'Manual':x.concentration_basis?.includes('Instance')?'Instance':x.concentration_basis?.match(/ASSUMED|PROPOSED|planned/i)?'Planned':'Saved'}</small>${x.warnings?.filter(w=>!w.match(/planning assumption/i)).length?`<small class="reaction-warning">${esc(x.warnings.filter(w=>!w.match(/planning assumption/i)).join(' '))}</small>`:''}</span><strong>${inventoryQuantity(x.volume_ul)} µL</strong></div>`).join('')+`<div class="reaction-line"><span>Master mix + reagents</span><strong>${fmt(r.master_mix_ul)} µL</strong></div><div class="reaction-line"><span>Water</span><strong>${fmt(r.water_ul)} µL</strong></div>`+(r.warnings||[]).map(w=>`<div class="reaction-warning">${esc(w)}</div>`).join('');}
 const colors=Array.from({length:8},(_,i)=>`var(--feature-${i})`);
 function mapFeatures(){const result=state.result;return(result?.features||[]).filter(f=>f.type!=='source'&&PlasmidFeatures.segments(f,result.sequence.length).length&&(result.storedReference||f.end-f.start>12));}
 let mapTooltipFeature=null,mapResizeFrame=null,mapRenderedWidth=0;
@@ -1910,16 +1962,24 @@ function applyPlannerRule(values){
   for(const[id,key]of Object.entries(plannerInputKeys))if(key in values)$(id).value=values[key];
   updatePlannerRuleLabels();$('planner-rule-editor').close();planChanged();
 }
+function backboneInputVolume(pmol,length,stock){
+  if(stock===null||stock===undefined||stock==='')return 1;
+  return Number(stock)>0&&length>0&&pmol>0?pmol*length*660/1000/Number(stock):null;
+}
 function updateBackboneVolume(){
   const group=backboneStockChoices().find(g=>g.key===plannerStockKey);
   const source=group&&(group.kind==='plasmid'?state.plasmids:state.fragments).find(p=>p.id===group.id);
-  const length=source?.physical_length||source?.length||group?.items[0]?.plan?.parts.find(p=>p.role==='backbone')?.physical_length;
-  const stock=Number($('planner-backbone-stock').value),current=group?.key===selectedStockKey;
-  const pmols=current?[Number($('backbone-pmol').value)]:(group?.items||[]).map(item=>({...item.request.settings,...planRowDrafts.get(item.id)}).backbone_pmol);
-  const volumes=stock>0&&length?pmols.filter(p=>p>0).map(p=>p*length*660/1000/stock):[];
+  const savedPart=group?.items[0]?.plan?.parts.find(p=>p.role==='backbone');
+  const length=source?.physical_length||source?.length||savedPart?.physical_length;
+  const entered=$('planner-backbone-stock').value,current=group?.key===selectedStockKey;
+  const savedStock=source?.stock_ng_ul||savedPart?.stock_ng_ul||null;
+  const mixed=group&&plannerBackboneStock(group).mixed&&entered==='';
+  const targets=current&&!mixed?[{backbone_pmol:Number($('backbone-pmol').value)}]:(group?.items||[]).map(item=>({...item.request.settings,...planRowDrafts.get(item.id)}));
+  const volumes=group?targets.map(target=>backboneInputVolume(target.backbone_pmol,length,(mixed?target.backbone_stock_ng_ul:entered)||savedStock)).filter(value=>value!==null):[];
+  if(group&&!targets.length&&entered===''&&!savedStock)volumes.push(1);
   const low=volumes.length?Math.min(...volumes):null,high=volumes.length?Math.max(...volumes):null;
   $('backbone-use-ul').textContent=(low!==high?inventoryQuantity(low)+'–'+inventoryQuantity(high):inventoryQuantity(low))+' µL';
-  $('backbone-use-ul').title=current?'At the current backbone input':'Across queued builds';
+  $('backbone-use-ul').title=entered===''&&!savedStock&&!mixed?'Default backbone volume':current?'At the current backbone input':'Across queued builds';
 }
 function planChanged(){
   const invalidStock=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalidStock){invalidStock.reportValidity();toast('Enter positive stock values');return;}
@@ -1944,7 +2004,11 @@ $('planner-rule-form').onsubmit=event=>{
   applyPlannerRule(values);
 };
 $('planner-rule-reset').onclick=()=>{const defaults=editingRuleScope==='upload'?state.rules:plannerRuleDefaults();applyPlannerRule(Object.fromEntries(plannerRuleGroups[editingPlannerRule].fields.map(([key])=>[key,defaults[key]])));};
-document.querySelectorAll('[data-subtab]').forEach(b=>b.onclick=()=>selectSubtab(b.dataset.subtab));
+document.querySelectorAll('[data-subtab]').forEach(b=>b.onclick=()=>navigateAssemblyTab(b.dataset.subtab));
+$('assembly-next').onclick=()=>navigateAssemblyTab({assembly:'reaction',reaction:'export'}[state.subtab]);
+$('assembly-warning-back').onclick=()=>$('assembly-warning-dialog').close();
+$('assembly-warning-continue').onclick=continueAssemblyNavigation;
+$('assembly-warning-dialog').onclose=()=>{pendingAssemblyTab=null;};
 $('backbone-stock-select').onchange=selectPlannerBackboneStock;
 $('planner-backbone-stock').oninput=$('planner-backbone-stock').onchange=editPlannerBackboneStock;
 $('backbone-pmol').oninput=updateBackboneVolume;

@@ -693,7 +693,8 @@ class WorkbenchIntegrationTests(unittest.TestCase):
         for row in plan['rows']:
             if row.get('manual_stock'):
                 self.assertIsNone(row['resuspension_ul'])
-                self.assertIsNone(row['input_volume_ul'])
+                self.assertEqual(row['input_volume_ul'],1)
+                self.assertIsNone(row['target_ng_ul'])
                 continue
             self.assertTrue(row['feasible'], (row['name'], row['warnings']))
             self.assertAlmostEqual(row['target_fmol'], 50)
@@ -910,8 +911,10 @@ class WorkbenchIntegrationTests(unittest.TestCase):
         self.assertIsNone(manual['resuspension_ul'])
         payload['settings'].pop('backbone_stock_ng_ul')
         row=next(row for row in self.client.post('/api/assemblies/preview',json=payload).json()['reaction']['rows'] if row['role']=='backbone')
-        self.assertIsNone(row['volume_ul'])
-        self.assertIn('Backbone stock missing',row['warnings'])
+        self.assertEqual(row['volume_ul'],1)
+        self.assertIsNone(row['concentration_ng_ul'])
+        self.assertEqual(row['feasibility'],'default_volume')
+        self.assertEqual(row['warnings'],[])
 
     def test_constrained_upload_reports_infeasible_rows_without_invented_volumes(self):
         content = io.StringIO()

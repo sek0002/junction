@@ -224,6 +224,22 @@ class BenchExportTests(unittest.TestCase):
         self.assertIn('-2', text)
         self.assertIn('Reaction overfilled', text)
 
+    def test_default_backbone_transfer_and_water_match_in_all_exports(self):
+        assembly,settings=fixture();settings['backbone_stock_ng_ul']=None
+        assembly['parts'][0]['stock_ng_ul']=None
+        rows=calculate_volumes(assembly['parts'],settings);summary=reaction_summary(rows,settings)
+        assembly['reaction']=dict(rows=rows,water_ul=summary['water_volume_ul'],master_mix_ul=4,reaction_volume_ul=20,warnings=summary['warnings'])
+        sections=assembly_sections(assembly,settings)
+        exported=csv_table(guide_bytes('csv',sections),'Assemblies')[0]
+        self.assertEqual(exported['Inputs (Plate-Well-µL)'],'(0405-A1-1.00)\n(0622-B12-3.30)')
+        self.assertEqual(exported['Water µL'],'11.70');self.assertEqual(exported['Checks'],'Pass')
+        workbook=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
+        self.assertAlmostEqual(workbook['Assemblies']['F4'].value,11.7)
+        self.assertIsNone(workbook['Fragment metadata']['F4'].value)
+        self.assertEqual(workbook['Fragment metadata']['I4'].value,'Default backbone volume: 1 µL')
+        text=' '.join(page.extract_text() for page in PdfReader(io.BytesIO(guide_bytes('pdf',sections))).pages)
+        self.assertIn('(0405-A1-1.00)',text);self.assertIn('11.70',text)
+
     def test_plate_aliases_are_unique_and_csv_strings_are_literal(self):
         assembly, settings = fixture()
         assembly['reaction']['rows'][0]['plate_id'] = 'pSHPs0622B999901IQ'
@@ -289,6 +305,11 @@ class WorksheetFormatAPITests(unittest.TestCase):
         items=self.client.get('/api/build-list').json()['items']
         self.assertEqual([item['request']['settings']['backbone_stock_ng_ul'] for item in items],[40,40,100])
         self.assertTrue(all(item['plan']['reaction']['rows'][0]['concentration_ng_ul']==40 for item in items[:2]))
+        cleared=self.client.put('/api/build-list/backbone-stocks/apply',json={'kind':'plasmid','id':pids[0],'stock_ng_ul':None})
+        self.assertEqual(cleared.status_code,200,cleared.text)
+        for item in cleared.json()['items']:
+            self.assertEqual(item['plan']['reaction']['rows'][0]['volume_ul'],1)
+            self.assertIsNone(item['plan']['reaction']['rows'][0]['concentration_ng_ul'])
 
     def test_export_routes_and_defaults_preserve_records(self):
         self.assertEqual(ReactionSettings().master_mix_volume_ul, 4)

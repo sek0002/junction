@@ -204,8 +204,10 @@ class ExportTests(unittest.TestCase):
         rows = calculate_volumes(parts, settings)
         self.assertEqual(rows[0]["target_fmol"], 50)
         self.assertIsNone(rows[0]["resuspension_ul"])
-        self.assertIsNone(rows[0]["volume_ul"])
-        self.assertIn("Backbone stock missing",rows[0]["warnings"])
+        self.assertEqual(rows[0]["volume_ul"],1)
+        self.assertEqual(rows[0]['feasibility'],'default_volume')
+        self.assertIsNone(rows[0]['concentration_ng_ul'])
+        self.assertNotIn("Backbone stock missing",rows[0]["warnings"])
         self.assertEqual(rows[1]["concentration_ng_ul"], 30)
         self.assertFalse(rows[1]["feasible"])
         self.assertEqual(rows[1]["feasibility"], "input_volume_limit")
@@ -269,9 +271,40 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(row['warnings'],[])
         wb=load_workbook(io.BytesIO(make_workbook(parts,{'parts':parts},settings)))
         self.assertNotIn('B10',wb['Assembly pipetting']['J4'].value)
-        self.assertEqual(wb['Assembly pipetting']['N4'].value,'=IF(J4="","BACKBONE STOCK MISSING","")')
+        self.assertEqual(wb['Assembly pipetting']['N4'].value,'=""')
         self.assertIsNone(wb['Resuspension inventory']['H2'].value)
         self.assertIsNone(wb['Resuspension plan']['G3'].value)
+
+    def test_unknown_backbone_uses_one_ul_and_keeps_stock_unknown(self):
+        parts=[{'id':'b','name':'Backbone','role':'backbone','physical_length':5000},
+            {'id':'i','name':'Insert','physical_length':1000,'stock_ng_ul':10,'yield_ng':500,'plate_id':'P1','well':'A1'}]
+        settings={'resuspension_mode':'constrained','backbone_pmol':.05,'insert_ratio':1,'reaction_volume_ul':20,'master_mix_volume_ul':4,'min_input_volume_ul':2,'max_input_volume_ul':5}
+        rows=calculate_volumes(parts,settings)
+        self.assertEqual(rows[0]['volume_ul'],1)
+        self.assertIsNone(rows[0]['concentration_ng_ul']);self.assertIsNone(rows[0]['molarity_nm'])
+        self.assertTrue(rows[0]['feasible']);self.assertEqual(rows[0]['warnings'],[])
+        self.assertEqual(rows[0]['concentration_basis'],'Default backbone volume: 1 µL')
+        summary=reaction_summary(rows,settings)
+        self.assertAlmostEqual(summary['water_volume_ul'],11.7)
+        plan=resuspension_plan([parts[0]],settings|{'backbone_length_bp':5000})[0]
+        self.assertEqual(plan['input_volume_ul'],1);self.assertTrue(plan['feasible'])
+        self.assertIsNone(plan['target_ng_ul']);self.assertIsNone(plan['resuspension_ul'])
+        known=calculate_volumes(parts,settings|{'backbone_stock_ng_ul':50})
+        self.assertAlmostEqual(known[0]['volume_ul'],3.3)
+        self.assertEqual(known[0]['concentration_ng_ul'],50)
+        stored=calculate_volumes([parts[0]|{'stock_ng_ul':100},parts[1]],settings)
+        self.assertAlmostEqual(stored[0]['volume_ul'],1.65)
+        missing=calculate_volumes([parts[0],parts[1]|{'stock_ng_ul':None,'_planner_stock_fixed':True}],settings)
+        self.assertEqual(missing[0]['volume_ul'],1);self.assertIsNone(missing[1]['volume_ul'])
+        self.assertIsNone(reaction_summary(missing,settings)['water_volume_ul'])
+        wb=load_workbook(io.BytesIO(make_workbook(parts,{'parts':parts},settings)))
+        self.assertEqual(wb['Resuspension plan']['H3'].value,1)
+        self.assertIn('),1,IF(',wb['Assembly pipetting']['K4'].value)
+        self.assertIsNone(wb['Settings']['B4'].value)
+        pipetting=wb['Assembly pipetting']
+        labelled={row[0].value:row[0].row for row in pipetting if isinstance(row[0].value,str)}
+        water_formula=pipetting.cell(labelled['Water µL'],11).value
+        self.assertIn(f"Settings!B6-K{labelled['Total DNA volume µL']}-K{labelled['Master mix / other reagents µL']}",water_formula)
         wb.close()
 
     def test_invalid_assembly_prominent_and_dynamic_estimate_toggle(self):

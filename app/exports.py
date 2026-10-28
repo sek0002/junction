@@ -297,7 +297,7 @@ def resuspension_plan(fragments: list[dict[str, Any]], settings: dict[str, Any] 
             target_fmol=backbone_fmol if bp else None
             target_ng=target_fmol*bp*660/1_000_000 if target_fmol is not None else None
             stock=_number(settings.get('backbone_stock_ng_ul')) or _number(fragment.get('stock_ng_ul'))
-            volume=target_ng/stock if target_ng is not None and stock else None
+            volume=target_ng/stock if target_ng is not None and stock else 1.0 if stock is None else None
             rows.append({'id':fragment.get('id'),'name':fragment.get('name',''),
                 'plate_id':fragment.get('plate_id'),'well':fragment.get('well'),
                 'physical_length':bp or None,'yield_ng':available,'target_ng_ul':stock,
@@ -305,8 +305,9 @@ def resuspension_plan(fragments: list[dict[str, Any]], settings: dict[str, Any] 
                 'input_volume_ul':volume,'proposed_input_volume_ul':None,
                 'minimum_resuspension_ul':None,'maximum_resuspension_ul':None,
                 'manual_stock':True,'feasible':True if volume is not None else None,
-                'feasibility':'manual_stock' if stock else 'missing_stock',
-                'warnings':[] if stock else ['Backbone stock missing']})
+                'feasibility':'manual_stock' if stock else 'default_volume',
+                'stock_basis':'Manual backbone stock' if stock else 'Default backbone volume: 1 µL',
+                'warnings':[]})
             continue
         if not bp:
             warnings.append("Input construct length missing")
@@ -440,12 +441,15 @@ def calculate_volumes(parts: list[dict[str, Any]], settings: dict[str, Any] | No
             if concentration is not None:
                 basis = "ASSUMED proposed constrained stock; verify actual concentration before pipetting" if constrained else "ASSUMED proposed molar-matched stock; verify actual concentration before pipetting" if matched else "ASSUMED target stock; verify actual concentration before pipetting"
                 warnings.append("Stock concentration is an unmeasured planning assumption")
-        if concentration is None:
+        default_backbone=constrained and is_backbone and concentration is None
+        if default_backbone:
+            basis='Default backbone volume: 1 µL'
+        elif concentration is None:
             basis = "unknown"
             warnings.append("Backbone stock missing" if constrained and is_backbone else "Actual stock concentration missing; volume cannot be calculated")
-        volume = mass / concentration if mass is not None and concentration else None
+        volume = 1.0 if default_backbone else mass / concentration if mass is not None and concentration else None
         feasible = plan["feasible"] if plan else (True if constrained and is_backbone and volume is not None else None)
-        feasibility = plan["feasibility"] if plan else ("manual_stock" if constrained and is_backbone else None)
+        feasibility = plan["feasibility"] if plan else ("default_volume" if default_backbone else "manual_stock" if constrained and is_backbone else None)
         if constrained and not is_backbone and volume is not None:
             min_input = _number(settings.get("min_input_volume_ul")) or 1.0
             max_input = _number(settings.get("max_input_volume_ul")) or 5.0
@@ -646,7 +650,7 @@ def make_workbook(
         constrained_target = constrained_stock_formula(constrained_mass, f'F{row}')
         target_formula = f'=IF(Settings!B11="constrained",{constrained_target},IF(Settings!B11="one_ul",IF(Settings!B18=1,IF(OR(Settings!B12="",Settings!B12<=0,E{row}=""),"",Settings!B13*1000*E{row}*Settings!B9/1000000*{ratio_source}/Settings!B12),IF(OR(Settings!B3="",Settings!B8="",Settings!B8<=0,Settings!B12="",Settings!B12<=0,E{row}=""),"",Settings!B3*E{row}/Settings!B8*{ratio_source}/Settings!B12)),Settings!B2))'
         if constrained and fragment.get('is_backbone'):
-            warnings=[] if plan['target_ng_ul'] else ['Backbone stock missing']
+            warnings=list(plan['warnings'])
             target_formula=f'=IF(AND(Settings!B4<>"",Settings!B4>0),Settings!B4,"")'
         inventory.append([
             _safe_cell(fragment.get("id", "")), _safe_cell(fragment.get("name", "")), _safe_cell(fragment.get("plate_id", "")), _safe_cell(fragment.get("well", "")), bp or None,
@@ -676,7 +680,7 @@ def make_workbook(
     for plan in plans:
         plan_ws.append([
             _safe_cell(plan["name"]), _safe_cell(plan["plate_id"]), _safe_cell(plan["well"]), plan["physical_length"], plan["yield_ng"],
-            plan["target_ng_ul"], plan["resuspension_ul"], plan["input_volume_ul"] if (matched or constrained) and plan["target_ng_ul"] is not None else None, plan["target_fmol"] if matched or constrained else None,
+            plan["target_ng_ul"], plan["resuspension_ul"], plan["input_volume_ul"] if plan.get('manual_stock') or (matched or constrained) and plan["target_ng_ul"] is not None else None, plan["target_fmol"] if matched or constrained else None,
             _safe_cell((plan.get('stock_basis') or ("Manual backbone stock" if plan.get("manual_stock") else "Proposed constrained stock; " + plan["feasibility"] if constrained else "Proposed molar-matched stock" if matched else "Proposed fixed stock")) + ("" if plan.get("manual_stock") or plan.get('stock_basis') else "; unmeasured") + ("; " + "; ".join(plan["warnings"]) if plan["warnings"] else "")),
         ])
     _format_sheet(plan_ws, [25, 24, 8, 13, 13, 14, 13, 11, 13, 57], header_row=2, paper="A3")
@@ -818,7 +822,7 @@ def make_workbook(
                 basis_value='Prepared parent · manual stock'
             if backbone and constrained:
                 stock_value='=IF(AND(Settings!B4<>"",Settings!B4>0),Settings!B4,"")'
-                basis_value=f'=IF(J{row}="","unknown","Manual backbone stock")'
+                basis_value=f'=IF(J{row}="","Default backbone volume: 1 µL","Manual backbone stock")'
             checks = []
             if not backbone and stock is None and inventory_row is None:
                 checks.append("Stock unknown")
@@ -834,12 +838,13 @@ def make_workbook(
                 f'=IF(J{row}="","MISSING STOCK / INFEASIBLE PLAN; ",IF(K{row}<0.5,"<0.5 µL: dilute stock; ",""))&IF(AND(Settings!B11="constrained",K{row}<>"",OR(K{row}<Settings!B16,K{row}>Settings!B17)),"INPUT OUTSIDE LIMITS; ","")&IF(AND(Settings!B11="one_ul",K{row}<>"",ABS(K{row}-Settings!B12)>0.000001),"RECORDED STOCK: use calculated volume; ","")&IF(AND(L{row}<>"",I{row}>L{row}),"INSUFFICIENT MASS; ","")&"{_gb_escape("; ".join(checks)).replace(chr(34), chr(34)*2)}"',
             ])
             if backbone and constrained:
-                pipetting.cell(row,14,f'=IF(J{row}="","BACKBONE STOCK MISSING","")')
+                pipetting.cell(row,11,f'=IF(OR(J{row}="",J{row}<=0),1,IF(I{row}="","",I{row}/J{row}))')
+                pipetting.cell(row,14,'=""')
             for column in (7, 8, 9, 11):
                 pipetting.cell(row, column).fill = PatternFill("solid", fgColor="EAF5ED")
         last_part = pipetting.max_row
         pipetting.append([])
-        total_row = pipetting.max_row + 1
+        total_row = last_part + 2
         total_formula = f'=IF(COUNT(K4:K{last_part})<{len(parts)},"",SUM(K4:K{last_part}))' if parts else '=""'
         pipetting.append(["Total DNA volume µL", None, None, None, None, None, None, None, None, None, total_formula])
         pipetting.append(["Master mix / other reagents µL", None, None, None, None, None, None, None, None, None, '=IF(Settings!B7="","",Settings!B7)'])
