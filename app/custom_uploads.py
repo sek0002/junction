@@ -86,8 +86,7 @@ def upload(payload:CustomBatch):
                     if len(records)>1:raise ValueError('Use one sequence per row; upload multi-record files to split them into rows.')
                     sequence=dna(records[0]['sequence'] if records else linked['sequence'] if linked else '')
                     if len(sequence)>100000:raise ValueError('Each fragment must be 100,000 nt or shorter.')
-                    name=row.name.strip() or (linked['name'] if linked else records[0]['name'] if records else '')
-                    if not name:raise ValueError('Enter a name.')
+                    name=row.name.strip() or (linked['name'] if linked else records[0]['name'] if records else '') or 'Fragment'
                     construct=linked['construct_sequence'] if linked else ''
                     metadata={'stock_id':str(uuid4()),'source_filename':row.filename,'linked_fragment_id':linked['id'] if linked else None,
                               'linked_fragment_name':linked['name'] if linked else '',

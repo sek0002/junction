@@ -35,6 +35,15 @@ class CustomUploadTests(unittest.TestCase):
         first=self.upload(rows,request_id='repeat');second=self.upload(rows,request_id='repeat');third=self.upload(rows,request_id='new')
         self.assertEqual(first.status_code,200,first.text);self.assertEqual(second.json()['count'],0);self.assertEqual(second.json()['ids'],first.json()['ids']);self.assertEqual(third.json()['count'],2);self.assertEqual(len(store.fragments()),5)
         store.initialize();self.assertEqual(len(store.fragments()),5)
+    def test_only_sequence_or_link_is_required(self):
+        for row in ({'sequence':'ACGT'}, {'sequence':'>Named from FASTA\nACGT'}, {'link':str(self.source)}):
+            response=self.upload([row]);self.assertEqual(response.status_code,200,response.text)
+            stock=store.get_fragment(response.json()['ids'][0]);self.assertTrue(stock['name'])
+            self.assertEqual(stock['plate_id'],'');self.assertEqual(stock['well'],'');self.assertEqual(stock['location'],'');self.assertIsNone(stock['stock_ng_ul'])
+        self.assertEqual(self.upload([{'sequence':'ACGT'}]).json()['names'],['sequence'])
+        self.assertEqual(self.upload([{'link':str(self.source)}]).json()['names'],['Donor'])
+        self.assertEqual(self.upload([{}]).status_code,422)
+
     def test_optional_plate_and_well_normalization_and_atomic_conflicts(self):
         result=self.upload([{'name':'A','sequence':'ACGT','plate':'New','well':'b02'}]);self.assertEqual(result.status_code,200,result.text);self.assertEqual(store.get_fragment(result.json()['ids'][0])['well'],'B2')
         before=len(store.fragments());bad=self.upload([{'name':'First','sequence':'ACGT'},{'name':'Conflict','sequence':'AAAA','plate':'New','well':'B2'}]);self.assertEqual(bad.status_code,422);self.assertEqual(len(store.fragments()),before)
