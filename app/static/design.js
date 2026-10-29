@@ -113,7 +113,7 @@
     try{
       const response=await request('/api/fragments?'+new URLSearchParams({q:query,enzyme,limit:'30'})),matches=await response.json();
       if(token!==searchRevision||current().id!==designId||current().enzyme!==enzyme||$('design-fragment-search').value.trim()!==query)return;
-      box.innerHTML=matches.map(fragment=>{const variant=fragment.digest;return `<button type="button" data-design-add="${fragment.id}" ${!variant.valid?'disabled':''} title="${esc(variant.errors?.join(' ')||fragment.plate_id+' / '+fragment.well+' · Auto orientation')}"><span><strong>${esc(fragment.name)}</strong>${root.FragmentSearch.badge(fragment)}<small>${esc(fragment.plate_id)} / ${esc(fragment.well)} · ${fragment.length.toLocaleString()} nt</small></span><span>${label(variant.left_overhang)}${label(variant.right_overhang)}</span></button>`;}).join('')||'<span class="small muted">No matches</span>';
+      box.innerHTML=matches.map(fragment=>{const variant=fragment.digest;return `<button type="button" data-design-add="${fragment.id}" ${!variant.valid?'disabled':''} title="${esc(variant.errors?.join(' ')||root.FragmentSearch.location(fragment)+' · Auto orientation')}"><span><strong>${esc(fragment.name)}</strong>${root.FragmentSearch.badge(fragment)}<small>${esc(root.FragmentSearch.location(fragment))} · ${fragment.length.toLocaleString()} nt</small></span><span>${label(variant.left_overhang)}${label(variant.right_overhang)}</span></button>`;}).join('')||'<span class="small muted">No matches</span>';
     }catch(error){if(token===searchRevision){box.innerHTML='<span class="small muted">'+esc(error.message)+'</span>';}}
   }
   function sequenceHtml(sequence,sections,sites=[]){

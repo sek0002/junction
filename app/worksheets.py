@@ -32,7 +32,7 @@ def parent(db):return wb.working(db).get('workbench_id')
 
 def current(db,scope):
     identifier=wb.working(db).get('worksheet_ids',{}).get(scope)
-    return db.execute('SELECT * FROM saved_worksheets WHERE id=? AND user_id=? AND scope=? AND archived_at IS NULL',(identifier,user_id(),scope)).fetchone() if identifier else None
+    return db.execute('SELECT * FROM saved_worksheets WHERE id=? AND user_id=? AND scope=? AND workbench_id IS ? AND archived_at IS NULL',(identifier,user_id(),scope,parent(db))).fetchone() if identifier else None
 
 
 def owned(db,identifier):
@@ -87,6 +87,9 @@ def registry(db,live=True):
 
 def restore_registry(db,data,workbench_id):
     db.execute('UPDATE saved_worksheets SET archived_at=CURRENT_TIMESTAMP WHERE user_id=? AND workbench_id IS ? AND archived_at IS NULL',(user_id(),workbench_id))
+    db.execute('DELETE FROM worksheet_drafts WHERE user_id=? AND workbench_key=?',(user_id(),workbench_id or ''))
+    for scope,snapshot in data.get('worksheet_drafts',{}).items():
+        db.execute('INSERT INTO worksheet_drafts(user_id,workbench_key,scope,payload) VALUES(?,?,?,?)',(user_id(),workbench_id or '',scope,wb.encode(wb.checked(snapshot))))
     mapping={}
     for item in data.get('worksheets',[]):
         identifier=str(uuid4());mapping[item['id']]=identifier;payload=wb.checked(item['snapshot'])
@@ -98,6 +101,7 @@ def restore_registry(db,data,workbench_id):
 def reparent_on_save(db,data,identifier):
     if parent(db)==identifier:return wb.working(db).get('worksheet_ids',{})
     if parent(db) is None:
+        db.execute("UPDATE worksheet_drafts SET workbench_key=? WHERE user_id=? AND workbench_key=''",(identifier,user_id()))
         db.execute('UPDATE saved_worksheets SET workbench_id=? WHERE user_id=? AND workbench_id IS NULL',(identifier,user_id()))
         return wb.working(db).get('worksheet_ids',{})
     return restore_registry(db,data,identifier)
@@ -106,9 +110,10 @@ def reparent_on_save(db,data,identifier):
 @router.get('')
 def list_worksheets(scope:Scope,archived:bool=False):
     with store.connection() as db:
+        migrate_recovered(db)
         rows=db.execute('SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope=? AND (archived_at IS NOT NULL)=? ORDER BY updated_at DESC,id',(user_id(),parent(db),scope,archived)).fetchall()
-        active=current(db,scope)
-    return {'items':[summary(row) for row in rows],'current':summary(active) if active else None}
+        active=current(db,scope);has_content=meaningful(capture(db,scope),scope)
+    return {'items':[summary(row) for row in rows],'current':summary(active) if active else None,'has_content':has_content}
 
 
 @router.post('')
@@ -147,7 +152,10 @@ def export_current(scope:Scope):
 
 @router.get('/{identifier}/export')
 def export_saved(identifier:str):
-    with store.connection() as db:row=owned(db,identifier)
+    with store.connection() as db:
+        row=owned(db,identifier)
+        active=current(db,row['scope'])
+        if active and active['id']==identifier:row=save_record(db,row['name'],row['notes'],row['scope'],capture(db,row['scope']),identifier)
     return wb.download(bundle(json.loads(row['payload']),row['scope'],row['name'],row['notes']),row['name'])
 
 
@@ -204,11 +212,68 @@ def replace_page(db,data,scope,identifier=None):
     workspace.update(page);workspace.setdefault('worksheet_ids',{})[scope]=identifier;wb.set_working(db,workspace)
 
 
+def meaningful(data,scope):
+    workspace=data['workspace']
+    if scope=='build':
+        draft=workspace.get('draft') or {}
+        return bool(data['builds'] or draft.get('fragment_ids') or draft.get('backbone_id') or draft.get('starter_fragment_id') or draft.get('nested_assemblies') or draft.get('name') not in (None,'','New assembly','Golden Gate assembly'))
+    if scope=='compare':return bool(data['comparisons'])
+    return any(item.get('entries') or item.get('backbone_id') or item.get('table_rows') or item.get('name') not in (None,'','New design') for item in (workspace.get('design') or {}).get('designs',[]))
+
+
+def save_draft(db,scope,data):
+    db.execute('INSERT INTO worksheet_drafts(user_id,workbench_key,scope,payload) VALUES(?,?,?,?) ON CONFLICT(user_id,workbench_key,scope) DO UPDATE SET payload=excluded.payload,updated_at=CURRENT_TIMESTAMP',
+        (user_id(),parent(db) or '',scope,wb.encode(data)))
+
+
+def migrate_recovered(db):
+    # Old automatic recoveries remain restorable in Archive, never duplicate again.
+    rows=db.execute("SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND archived_at IS NULL AND name LIKE 'Recovered %' ORDER BY updated_at DESC,id",(user_id(),parent(db))).fetchall()
+    for row in rows:
+        if not json.loads(row['metadata']).get('automatic'):continue
+        if not db.execute('SELECT 1 FROM worksheet_drafts WHERE user_id=? AND workbench_key=? AND scope=?',(user_id(),parent(db) or '',row['scope'])).fetchone():save_draft(db,row['scope'],json.loads(row['payload']))
+        active=current(db,row['scope'])
+        if active and active['id']==row['id']:
+            save_draft(db,row['scope'],capture(db,row['scope']));set_current(db,row['scope'],None)
+        db.execute('UPDATE saved_worksheets SET archived_at=CURRENT_TIMESTAMP WHERE id=?',(row['id'],))
+
+
 def preserve(db,scope):
     record=current(db,scope);data=capture(db,scope)
     if record:save_record(db,record['name'],record['notes'],scope,data,record['id'])
-    elif data['builds'] or data['comparisons'] or any(key in data['workspace'] for key in KEYS[scope]):
-        save_record(db,'Recovered '+scope.title(),'Automatic recovery snapshot.',scope,data,automatic=True)
+    else:save_draft(db,scope,data)
+
+
+def autosave(db):
+    migrate_recovered(db)
+    for scope in KEYS:
+        try:preserve(db,scope)
+        except HTTPException as error:
+            # Incomplete fields (e.g. a two-base overhang being typed) still
+            # persist in user_workspaces; publish a snapshot once valid again.
+            if error.status_code!=422:raise
+
+
+def draft_registry(db):
+    result={row['scope']:json.loads(row['payload']) for row in db.execute('SELECT scope,payload FROM worksheet_drafts WHERE user_id=? AND workbench_key=?',(user_id(),parent(db) or ''))}
+    for scope in KEYS:
+        if not current(db,scope):result[scope]=capture(db,scope)
+    return result
+
+
+@router.post('/draft/open')
+def open_draft(payload:New):
+    with store.connection() as db:
+        db.execute('BEGIN IMMEDIATE');migrate_recovered(db)
+        if current(db,payload.scope):
+            preserve(db,payload.scope)
+            row=db.execute('SELECT payload FROM worksheet_drafts WHERE user_id=? AND workbench_key=? AND scope=?',(user_id(),parent(db) or '',payload.scope)).fetchone()
+            data=wb.checked(json.loads(row['payload'])) if row else empty(payload.scope)
+            replace_page(db,data,payload.scope)
+    return {'view':payload.scope}
+
+
+def empty(scope):return {'workspace':{'view':scope},'inventory':{'fragments':[],'plasmids':[]},'builds':[],'comparisons':[]}
 
 
 @router.post('/{identifier}/open')
@@ -227,8 +292,9 @@ def new_worksheet(payload:New):
     with store.connection() as db:
         db.execute('BEGIN IMMEDIATE');record=current(db,payload.scope)
         if record:save_record(db,record['name'],record['notes'],payload.scope,capture(db,payload.scope),record['id'])
-        elif not payload.discard_unsaved:raise HTTPException(409,'Save this worksheet or choose Start without saving.')
-        replace_page(db,{'workspace':{'view':payload.scope},'inventory':{'fragments':[],'plasmids':[]},'builds':[],'comparisons':[]},payload.scope)
+        elif not payload.discard_unsaved and meaningful(capture(db,payload.scope),payload.scope):raise HTTPException(409,'Save this worksheet or choose Start without saving.')
+        replace_page(db,empty(payload.scope),payload.scope)
+        save_draft(db,payload.scope,capture(db,payload.scope))
     return {'view':payload.scope,'autosaved':record['id'] if record else None}
 
 
@@ -249,5 +315,8 @@ def restore_worksheet(identifier:str):
     with store.connection() as db:
         row=db.execute('SELECT * FROM saved_worksheets WHERE id=? AND user_id=?',(identifier,user_id())).fetchone()
         if not row:raise HTTPException(404,'Worksheet not found.')
-        db.execute('UPDATE saved_worksheets SET archived_at=NULL WHERE id=?',(identifier,))
+        metadata=json.loads(row['metadata'])
+        # An explicitly restored recovery is now a user-selected saved sheet.
+        metadata['automatic']=False
+        db.execute('UPDATE saved_worksheets SET archived_at=NULL,metadata=? WHERE id=?',(wb.encode(metadata),identifier))
     return {'restored':identifier}

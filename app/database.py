@@ -3,6 +3,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -59,7 +60,19 @@ def initialize():
           source_id INTEGER REFERENCES imports(id), created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(name,sequence));
         ''')
-        db.execute("INSERT OR IGNORE INTO plates(plate_id) SELECT DISTINCT plate_id FROM fragments WHERE plate_id!=''")
+        # Preserve legacy rows and IDs while allowing stocks without physical wells.
+        schema=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='fragments'").fetchone()['sql']
+        migrated=re.sub(r',\s*UNIQUE\s*\(\s*plate_id\s*,\s*well\s*\)', '', schema, flags=re.I)
+        if migrated!=schema:
+            indexes=[row['sql'] for row in db.execute("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='fragments' AND sql IS NOT NULL")]
+            db.execute(migrated.replace('CREATE TABLE fragments','CREATE TABLE fragments_migration',1))
+            db.execute('INSERT INTO fragments_migration SELECT * FROM fragments')
+            db.execute('DROP TABLE fragments')
+            db.execute('ALTER TABLE fragments_migration RENAME TO fragments')
+            for statement in indexes:db.execute(statement)
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS fragments_physical_well ON fragments(plate_id,well) WHERE plate_id!='' AND well!=''")
+        db.execute("INSERT OR IGNORE INTO plates(plate_id) SELECT DISTINCT plate_id FROM fragments WHERE plate_id!='' AND well!=''")
+        db.execute('CREATE TABLE IF NOT EXISTS custom_import_results(digest TEXT PRIMARY KEY,result TEXT NOT NULL)')
         columns={row['name'] for row in db.execute('PRAGMA table_info(fragments)')}
         if 'default_yield_ng' not in columns:
             db.execute('ALTER TABLE fragments ADD COLUMN default_yield_ng REAL')
@@ -71,6 +84,8 @@ def initialize():
             db.execute('ALTER TABLE fragments ADD COLUMN yield_locked INTEGER NOT NULL DEFAULT 1')
         if 'stock_rules' not in columns:
             db.execute('ALTER TABLE fragments ADD COLUMN stock_rules TEXT')
+        if 'custom_metadata' not in columns:db.execute("ALTER TABLE fragments ADD COLUMN custom_metadata TEXT NOT NULL DEFAULT '{}'")
+        if 'location' not in columns:db.execute("ALTER TABLE fragments ADD COLUMN location TEXT NOT NULL DEFAULT ''")
         for column,kind in [('default_stock_ng_ul','REAL'),('default_resuspension_ul','REAL'),('default_concentration_basis','TEXT')]:
             if column not in columns:db.execute(f'ALTER TABLE fragments ADD COLUMN {column} {kind}')
         db.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
@@ -86,6 +101,7 @@ def fragment_dict(row):
     result = dict(row)
     result['yield_locked'] = bool(result['yield_locked'])
     result['stock_rules'] = json.loads(result['stock_rules']) if result.get('stock_rules') else None
+    result['custom_metadata'] = json.loads(result.get('custom_metadata') or '{}')
     result['length'] = len(result['sequence'])
     result['physical_length'] = len(result['construct_sequence'] or result['sequence'])
     return result

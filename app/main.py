@@ -25,6 +25,7 @@ from .workspace import router as workspace_router, begin_comparison, finish_comp
 from .workbenches import router as workbench_router
 from .worksheets import router as worksheet_router
 from .design import router as design_router
+from .custom_uploads import router as custom_upload_router
 from .imports import import_plate, parse_plate, dna
 from .sequence_engine import assemble, digest_fragment, find_backbone_slots, restriction_sites, active_enzymes, fragment_orientations
 from .exports import genbank_bytes, parse_sequence_file, make_workbook, calculate_volumes, reaction_summary, resuspension_plan, build_list_workbook
@@ -141,6 +142,7 @@ app.include_router(workspace_router)
 app.include_router(workbench_router)
 app.include_router(worksheet_router)
 app.include_router(design_router)
+app.include_router(custom_upload_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 
 
@@ -776,6 +778,8 @@ def add_build_list(payload:AssemblyRequest):
             index+=1
         row_id=db.execute('INSERT INTO build_list(request,user_id) VALUES(?,?)',(json.dumps(request),user_id())).lastrowid
         row=db.execute('SELECT * FROM build_list WHERE id=?',(row_id,)).fetchone()
+        from .worksheets import preserve
+        preserve(db,'build')
     return build_list_item(row)
 
 
@@ -786,6 +790,8 @@ def update_build_list(build_id:int,payload:AssemblyRequest):
         changed=db.execute('UPDATE build_list SET request=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND removed_at IS NULL',(json.dumps(request),build_id,user_id()))
         if not changed.rowcount:raise HTTPException(404,'Build not found.')
         row=db.execute('SELECT * FROM build_list WHERE id=?',(build_id,)).fetchone()
+        from .worksheets import preserve
+        preserve(db,'build')
     return build_list_item(row)
 
 
@@ -805,6 +811,8 @@ def patch_build_rows(db,rows,changes):
         checked=checked_build_request(AssemblyRequest.model_validate(request))
         db.execute('UPDATE build_list SET request=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
             (json.dumps(checked),row['id']))
+    from .worksheets import preserve
+    preserve(db,'build')
     return [db.execute('SELECT * FROM build_list WHERE id=?',(row['id'],)).fetchone() for row in rows]
 
 
@@ -840,6 +848,8 @@ def remove_build_list(build_id:int):
     with store.connection() as db:
         changed=db.execute("UPDATE build_list SET removed_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=? AND user_id=? AND removed_at IS NULL",(build_id,user_id()))
         if not changed.rowcount:raise HTTPException(404,'Build not found.')
+        from .worksheets import preserve
+        preserve(db,'build')
     return {'removed':build_id}
 
 
@@ -851,6 +861,8 @@ def restore_build_list(build_id:int):
         changed=db.execute('UPDATE build_list SET removed_at=NULL WHERE id=? AND user_id=? AND removed_at IS NOT NULL',(build_id,user_id()))
         if not changed.rowcount:raise HTTPException(404,'Removed build not found.')
         row=db.execute('SELECT * FROM build_list WHERE id=?',(build_id,)).fetchone()
+        from .worksheets import preserve
+        preserve(db,'build')
     return build_list_item(row)
 
 

@@ -27,6 +27,8 @@ def save_workspace(payload:Workspace):
     except (ValueError,TypeError):raise HTTPException(422,'Workspace must contain valid JSON values.') from None
     with store.connection() as db:
         db.execute('INSERT INTO user_workspaces(user_id,data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=CURRENT_TIMESTAMP',(user_id(),encoded))
+        from .worksheets import autosave
+        autosave(db)
     return {'saved':True}
 
 
@@ -41,6 +43,8 @@ def comparisons():
 def clear_comparisons():
     with store.connection() as db:
         db.execute('UPDATE comparison_runs SET removed_at=CURRENT_TIMESTAMP WHERE user_id=? AND removed_at IS NULL',(user_id(),))
+        from .worksheets import preserve
+        preserve(db,'compare')
     return {'cleared':True}
 
 
@@ -49,6 +53,8 @@ def remove_comparison(run_id:int):
     with store.connection() as db:
         changed=db.execute('UPDATE comparison_runs SET removed_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND removed_at IS NULL',(run_id,user_id()))
         if not changed.rowcount:raise HTTPException(404,'Comparison not found.')
+        from .worksheets import preserve
+        preserve(db,'compare')
     return {'removed':run_id}
 
 
@@ -59,12 +65,19 @@ def begin_comparison(filename,content,enzyme,run_id=None):
             if not row:raise HTTPException(404,'Comparison not found.')
             db.execute('UPDATE comparison_runs SET filename=?,source=? WHERE id=? AND user_id=?',
                 (filename,content.decode('utf-8-sig',errors='replace'),run_id,user_id()))
+            from .worksheets import preserve
+            preserve(db,'compare')
             return run_id
-        return db.execute('INSERT INTO comparison_runs(user_id,filename,source,enzyme) VALUES(?,?,?,?)',
+        identifier=db.execute('INSERT INTO comparison_runs(user_id,filename,source,enzyme) VALUES(?,?,?,?)',
             (user_id(),filename,content.decode('utf-8-sig',errors='replace'),enzyme)).lastrowid
+        from .worksheets import preserve
+        preserve(db,'compare')
+        return identifier
 
 
 def finish_comparison(run_id,enzyme,result=None,error=None):
     with store.connection() as db:
         db.execute('UPDATE comparison_runs SET enzyme=?,result=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND removed_at IS NULL',
             (enzyme,json.dumps(result) if result is not None else None,error,run_id,user_id()))
+        from .worksheets import preserve
+        preserve(db,'compare')

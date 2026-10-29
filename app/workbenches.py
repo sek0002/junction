@@ -49,6 +49,8 @@ class Fragment(BaseModel):
     default_resuspension_ul:float | None=Field(default=None,ge=0,allow_inf_nan=False)
     default_concentration_basis:str | None=Field(default=None,max_length=200)
     stock_rules:dict | None=None
+    custom_metadata:dict=Field(default_factory=dict)
+    location:str=Field(default='',max_length=1200)
     notes:str=Field(default='',max_length=20000)
 
 
@@ -98,6 +100,7 @@ class Snapshot(BaseModel):
     comparisons:list[Comparison]=Field(default_factory=list,max_length=200)
     inventory:Inventory=Field(default_factory=Inventory)
     worksheets:list[Worksheet]=Field(default_factory=list,max_length=100)
+    worksheet_drafts:dict[str,dict]=Field(default_factory=dict,max_length=3)
     worksheet_active:dict[str,str]=Field(default_factory=dict,max_length=3)
 
 
@@ -112,10 +115,13 @@ def checked(value,nested=False):
     from .design import DesignRequest
     try:
         data=Snapshot.model_validate(value).model_dump()
-        if nested and (data['worksheets'] or data['worksheet_active']):raise ValueError('Worksheets cannot contain nested worksheets.')
+        if nested and (data['worksheets'] or data['worksheet_active'] or data['worksheet_drafts']):raise ValueError('Worksheets cannot contain nested worksheets.')
         if len({item['id'] for item in data['worksheets']})!=len(data['worksheets']):raise ValueError('Duplicate worksheet IDs.')
         for item in data['worksheets']:item['snapshot']=checked(item['snapshot'],nested=True)
         if any(scope not in ('build','design','compare') for scope in data['worksheet_active']):raise ValueError('Unknown worksheet type.')
+        for scope,snapshot in data['worksheet_drafts'].items():
+            if scope not in ('build','design','compare'):raise ValueError('Unknown worksheet draft type.')
+            data['worksheet_drafts'][scope]=checked(snapshot,nested=True)
         workspace=data['workspace']
         for key in ('design','backboneStocks','plannerStocks','compareView','preferences','plannerOverrides','worksheet_ids'):
             if key in workspace and not isinstance(workspace[key],dict):raise ValueError(key+' must be an object.')
@@ -185,8 +191,8 @@ def capture(db,include_worksheets=True,scope=None):
             if kind=='plasmids':record['backbone_template']=bool(record['recipe'].get('backbone_template'))
             data['inventory'][kind].append(record)
     if include_worksheets:
-        from .worksheets import registry
-        data['worksheets']=registry(db);data['worksheet_active']=active
+        from .worksheets import registry,draft_registry
+        data['worksheets']=registry(db);data['worksheet_active']=active;data['worksheet_drafts']=draft_registry(db)
     return checked(data)
 
 
@@ -313,24 +319,37 @@ def resolve_inventory(db,data,identifier):
         for item in data['inventory'][kind]:
             sequence=item['sequence'].upper();name=item['name'];plate=item.get('plate_id','');well=item.get('well','')
             condition=' AND '+store.ACTIVE_FRAGMENTS if kind=='fragments' else ' AND archived_at IS NULL'
-            row=db.execute(f'SELECT * FROM {kind} WHERE name=? AND upper(sequence)=? AND plate_id=? AND well=?'+condition,(name,sequence,plate,well)).fetchone()
-            if row and kind=='fragments' and (row['construct_sequence'] or '').upper()!=item['construct_sequence'].upper():row=None
+            candidates=db.execute(f'SELECT * FROM {kind} WHERE name=? AND upper(sequence)=? AND plate_id=? AND well=?'+condition,(name,sequence,plate,well)).fetchall()
+            row=None
+            for candidate in candidates:
+                if kind=='fragments':
+                    metadata=json.loads(candidate['custom_metadata'] or '{}');source_metadata=item.get('custom_metadata',{})
+                    if (candidate['construct_sequence'] or '').upper()!=item['construct_sequence'].upper():continue
+                    if source_metadata.get('stock_id') and metadata.get('stock_id')!=source_metadata['stock_id']:continue
+                    if candidate['location']!=item.get('location',''):continue
+                row=candidate;break
             if row and kind=='plasmids' and bool(row['circular'])!=item['circular']:row=None
             if row:mapping[item['id']]=row['id'];continue
             if not can_upload:raise HTTPException(403,'Upload permission is required to load missing fragments or plasmids from this workbench.')
             if kind=='fragments':
                 # Preserve occupied wells. A conflicting plate is visibly namespaced.
-                if db.execute('SELECT 1 FROM fragments WHERE plate_id=? AND well=?',(plate,well)).fetchone() or db.execute('SELECT 1 FROM plates WHERE plate_id=? AND archived_at IS NOT NULL',(plate,)).fetchone():
+                if (plate and well and db.execute('SELECT 1 FROM fragments WHERE plate_id=? AND well=?',(plate,well)).fetchone()) or db.execute('SELECT 1 FROM plates WHERE plate_id=? AND archived_at IS NOT NULL',(plate,)).fetchone():
                     plate='JUNC-'+identifier[:8]+'-'+(plate or str(item['id']))
-                existing=db.execute('SELECT * FROM fragments WHERE plate_id=? AND well=? AND name=? AND upper(sequence)=? AND '+store.ACTIVE_FRAGMENTS,(plate,well,name,sequence)).fetchone()
-                if existing and (existing['construct_sequence'] or '').upper()==item['construct_sequence'].upper():mapping[item['id']]=existing['id'];continue
-                if db.execute('SELECT 1 FROM fragments WHERE plate_id=? AND well=?',(plate,well)).fetchone():plate+='-'+uuid4().hex[:8]
+                if plate and well:
+                    existing=db.execute('SELECT * FROM fragments WHERE plate_id=? AND well=?',(plate,well)).fetchone()
+                    if existing:
+                        metadata=json.loads(existing['custom_metadata'] or '{}')
+                        same_stock=not item.get('custom_metadata',{}).get('stock_id') or metadata.get('stock_id')==item['custom_metadata']['stock_id']
+                        if same_stock and not existing['archived_at'] and existing['name']==name and existing['sequence'].upper()==sequence and (existing['construct_sequence'] or '').upper()==item['construct_sequence'].upper() and existing['location']==item.get('location',''):
+                            mapping[item['id']]=existing['id'];continue
+                        plate+='-'+uuid4().hex[:8]
                 values={key:value for key,value in item.items() if key not in ('id',)}
                 values.update(sequence=sequence,plate_id=plate)
                 if values.get('stock_rules') is not None:values['stock_rules']=encode(values['stock_rules'])
+                values['custom_metadata']=encode(values.get('custom_metadata',{}))
                 columns=list(values)
                 row_id=db.execute('INSERT INTO fragments('+','.join(columns)+') VALUES('+','.join('?' for _ in columns)+')',list(values.values())).lastrowid
-                if plate:db.execute('INSERT OR IGNORE INTO plates(plate_id) VALUES(?)',(plate,))
+                if plate and well:db.execute('INSERT OR IGNORE INTO plates(plate_id) VALUES(?)',(plate,))
             else:
                 # An existing plasmid with different location/archived status is not overwritten.
                 if db.execute('SELECT 1 FROM plasmids WHERE name=? AND upper(sequence)=?',(name,sequence)).fetchone():name+=' (JUNC '+uuid4().hex[:8]+')'
@@ -412,5 +431,6 @@ def new_workbench(payload:New):
             db.execute('UPDATE saved_worksheets SET archived_at=CURRENT_TIMESTAMP WHERE user_id=? AND workbench_id IS NULL AND archived_at IS NULL',(user_id(),))
         db.execute('UPDATE build_list SET removed_at=CURRENT_TIMESTAMP WHERE user_id=? AND removed_at IS NULL',(user_id(),))
         db.execute('UPDATE comparison_runs SET removed_at=CURRENT_TIMESTAMP WHERE user_id=? AND removed_at IS NULL',(user_id(),))
+        db.execute("DELETE FROM worksheet_drafts WHERE user_id=? AND workbench_key=''",(user_id(),))
         set_working(db,{})
     return {'created':True,'autosaved':current['id'] if current else None}

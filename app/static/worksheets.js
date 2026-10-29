@@ -6,7 +6,7 @@
   const icon=kind=>'<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[kind]+'</svg>';
   function setup(win,doc,{api,flush,pause,resume,reload,download,notify,nameFor,changed,setCurrent}){
     const $=id=>doc.getElementById(id);let scope=null,locked=false,afterSaveNew=false,exportSource=null,removeTarget=null;
-    const records={},active={},loads={};
+    const records={},active={},loads={},hasContent={};
     const post=(url,body={})=>api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     function render(kind){
       const select=doc.querySelector(`[data-worksheet-select="${kind}"]`),current=active[kind],items=records[kind]||[];
@@ -16,7 +16,7 @@
       if(kind===scope){$('worksheet-save').disabled=$('worksheet-share').disabled=$('worksheet-new').disabled=locked||!scope;}
     }
     async function load(kind){
-      const revision=(loads[kind]||0)+1;loads[kind]=revision;const result=await api('/api/worksheets?scope='+kind);if(loads[kind]!==revision)return;records[kind]=result.items;active[kind]=result.current;setCurrent?.(kind,result.current?.id||null);render(kind);changed?.();
+      const revision=(loads[kind]||0)+1;loads[kind]=revision;const result=await api('/api/worksheets?scope='+kind);if(loads[kind]!==revision)return;records[kind]=result.items;active[kind]=result.current;hasContent[kind]=result.has_content;setCurrent?.(kind,result.current?.id||null);render(kind);changed?.();
     }
     async function loadAll(){await Promise.all(Object.keys(scopes).map(load));}
     function setScope(view){scope=scopes[view]?view:null;
@@ -35,11 +35,11 @@
     }
     async function newPage(kind=scope){
       if(!kind||locked)return;scope=kind;menuClose();
-      try{await flush();await load(kind);if(active[kind])await startNew(kind);else{$('worksheet-new-title').textContent='Save this '+scopes[kind]+' worksheet?';$('worksheet-new-dialog').showModal();}}catch(error){notify(error.message);}
+      try{await flush();await load(kind);if(active[kind]||!hasContent[kind])await startNew(kind);else{$('worksheet-new-title').textContent='Save this '+scopes[kind]+' worksheet?';$('worksheet-new-dialog').showModal();}}catch(error){notify(error.message);}
     }
     async function open(kind,id){
-      if(!id||locked)return;lock(true);
-      try{root.JunctionHomeController.startWorksheet('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Loading '+(records[kind]?.find(item=>item.id===id)?.name||scopes[kind]+' worksheet')+'…');const result=await post('/api/worksheets/'+id+'/open');reload(result.view);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
+      if(locked)return;lock(true);
+      try{root.JunctionHomeController.startWorksheet('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Loading '+(records[kind]?.find(item=>item.id===id)?.name||scopes[kind]+' worksheet')+'…');const result=await post(id?'/api/worksheets/'+id+'/open':'/api/worksheets/draft/open',{scope:kind});reload(result.view);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
     }
     function share({kind=scope,workbench=null,worksheet=null}={}){
       if(locked)return;menuClose();exportSource={kind,workbench,worksheet};
@@ -70,7 +70,7 @@
     $('worksheet-new-discard').onclick=()=>{$('worksheet-new-dialog').close();startNew(scope,true);};
     $('instance-export-close').onclick=()=>$('instance-export-dialog').close();
     for(const kind of Object.keys(scopes)){
-      doc.querySelector(`[data-worksheet-select="${kind}"]`).onchange=event=>event.target.value?open(kind,event.target.value):newPage(kind);
+      doc.querySelector(`[data-worksheet-select="${kind}"]`).onchange=event=>open(kind,event.target.value);
       const add=doc.querySelector(`[data-worksheet-new="${kind}"]`),del=doc.querySelector(`[data-worksheet-delete="${kind}"]`),exportButton=doc.querySelector(`[data-worksheet-share="${kind}"]`);
       add.innerHTML=icon('new');add.onclick=()=>newPage(kind);del.innerHTML=icon('remove');
       del.onclick=()=>{removeTarget=active[kind];if(removeTarget){$('worksheet-remove-name').textContent=removeTarget.name;$('worksheet-remove-dialog').showModal();}};

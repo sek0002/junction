@@ -123,6 +123,10 @@ def initialize():
             payload TEXT NOT NULL,metadata TEXT NOT NULL,archived_at TEXT,
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+        CREATE TABLE IF NOT EXISTS worksheet_drafts(
+            user_id INTEGER NOT NULL REFERENCES auth_users(id),workbench_key TEXT NOT NULL DEFAULT '',
+            scope TEXT NOT NULL,payload TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(user_id,workbench_key,scope));
         CREATE INDEX IF NOT EXISTS worksheet_owner ON saved_worksheets(user_id,workbench_id,scope,archived_at);
         ''')
         columns={r['name'] for r in db.execute('PRAGMA table_info(auth_users)')}
@@ -158,8 +162,8 @@ def session_user(token):
 def write_permission(path,method,preview=False):
     if method in ('GET','HEAD','OPTIONS'):return None
     if path.startswith(('/api/auth/','/api/workspace','/api/build-list','/api/workbenches','/api/worksheets')):return None
-    if path=='/api/uploads/plate' and preview:return None
-    if path in ('/api/uploads/plate','/api/uploads/plasmid','/api/assemblies'):return 'can_upload'
+    if path=='/api/uploads/custom/parse' or path=='/api/uploads/plate' and preview:return None
+    if path in ('/api/uploads/plate','/api/uploads/plasmid','/api/uploads/custom','/api/assemblies'):return 'can_upload'
     if path in ('/api/inventory/rules','/api/inventory/rules/reset'):return 'can_manage_rules'
     if path in ('/api/bin/archive','/api/bin/restore'):return 'can_archive'
     if path in ('/api/inventory/reset','/api/inventory/apply-rules') or (method=='PATCH' and path.startswith(('/api/fragments/','/api/plasmids/'))):return 'can_edit'
