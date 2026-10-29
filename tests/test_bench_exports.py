@@ -194,9 +194,9 @@ class BenchExportTests(unittest.TestCase):
         book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
         metadata=book['Fragment metadata']
         self.assertEqual(metadata.max_row,5)
-        self.assertIn('Assembly 50 / Final assembly',metadata['J4'].value)
-        for column in ('I','J'):self.assertTrue(metadata.column_dimensions[column].hidden)
-        self.assertIn('$H$5',str(metadata.print_area))
+        self.assertIn('Assembly 50 / Final assembly',metadata['L4'].value)
+        for column in ('K','L'):self.assertTrue(metadata.column_dimensions[column].hidden)
+        self.assertIn('$J$5',str(metadata.print_area))
         self.assertLess(metadata.row_dimensions[4].height,35)
         self.assertLess(metadata.row_dimensions[5].height,35)
         self.assertEqual(metadata['G5'].value,50.01234567890123)
@@ -209,6 +209,40 @@ class BenchExportTests(unittest.TestCase):
         self.assertNotIn('Stock basis',pdf.pages[page].extract_text())
         self.assertIn('Backbone',pdf.pages[page].extract_text())
         self.assertIn('Plate key',pdf.pages[page].extract_text())
+
+    def test_required_backbone_amounts_total_all_builds_in_csv_excel_and_pdf(self):
+        from copy import deepcopy
+        first,settings=fixture();second=deepcopy(first);second['name']='Assembly B'
+        changed=settings|{'backbone_pmol':.1}
+        second['reaction']['rows']=calculate_volumes(second['parts'],changed)
+        summary=reaction_summary(second['reaction']['rows'],changed)
+        second['reaction']['water_ul']=summary['water_volume_ul']
+        sections=assembly_sections(first,settings)+assembly_sections(second,changed)
+        metadata=csv_table(guide_bytes('csv',sections),'Fragment metadata')
+        self.assertEqual(len(metadata),2)
+        self.assertEqual(float(metadata[0]['Required µL']),4.95)
+        self.assertEqual(float(metadata[0]['Required ng']),495)
+        self.assertEqual(float(metadata[1]['Required µL']),9.9)
+        self.assertEqual(float(metadata[1]['Required ng']),99)
+        book=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
+        sheet=book['Fragment metadata'];self.assertEqual(sheet['I3'].value,'Required µL');self.assertEqual(sheet['J3'].value,'Required ng')
+        self.assertAlmostEqual(sheet['I4'].value,4.95);self.assertAlmostEqual(sheet['J4'].value,495)
+        self.assertFalse(sheet.column_dimensions['I'].hidden);self.assertFalse(sheet.column_dimensions['J'].hidden)
+        text=' '.join(page.extract_text() for page in PdfReader(io.BytesIO(guide_bytes('pdf',sections))).pages)
+        for value in ('Required','495.00','4.95','99.00'):self.assertIn(value,text)
+
+    def test_required_amounts_stay_separate_by_stock_and_unknown_volume_is_not_a_partial_total(self):
+        from copy import deepcopy
+        first,settings=fixture();second=deepcopy(first);second['name']='Assembly B'
+        second['reaction']['rows'][0].update(concentration_ng_ul=50,volume_ul=3.3)
+        sections=assembly_sections(first,settings)+assembly_sections(second,settings)
+        metadata=csv_table(guide_bytes('csv',sections),'Fragment metadata')
+        backbones=[row for row in metadata if row['Type']=='backbone']
+        self.assertEqual([float(row['Required µL']) for row in backbones],[1.65,3.3])
+        self.assertEqual([float(row['Required ng']) for row in backbones],[165,165])
+        second['reaction']['rows'][0].update(concentration_ng_ul=100,volume_ul=None)
+        unknown=csv_table(guide_bytes('csv',assembly_sections(first,settings)+assembly_sections(second,settings)),'Fragment metadata')[0]
+        self.assertEqual(unknown['Required µL'],'');self.assertEqual(float(unknown['Required ng']),330)
 
     def test_missing_stocks_and_overfilled_reactions_are_visible(self):
         assembly, settings = fixture()
@@ -236,7 +270,7 @@ class BenchExportTests(unittest.TestCase):
         workbook=load_workbook(io.BytesIO(guide_bytes('xlsx',sections)))
         self.assertAlmostEqual(workbook['Assemblies']['F4'].value,11.7)
         self.assertIsNone(workbook['Fragment metadata']['F4'].value)
-        self.assertEqual(workbook['Fragment metadata']['I4'].value,'Default backbone volume: 1 µL')
+        self.assertEqual(workbook['Fragment metadata']['K4'].value,'Default backbone volume: 1 µL')
         text=' '.join(page.extract_text() for page in PdfReader(io.BytesIO(guide_bytes('pdf',sections))).pages)
         self.assertIn('(0405-A1-1.00)',text);self.assertIn('11.70',text)
 

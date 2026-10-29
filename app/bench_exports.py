@@ -66,7 +66,7 @@ def assembly_sections(assembly, settings, enzyme=''):
             resuspend = None
         rows.append(dict(order=index, id=row.get('id'), physical_length=row.get('physical_length') or row.get('length_bp'), kind=row.get('role', 'insert'), name=row['name'], plate=row.get('plate_id') or '', well=row.get('well') or '',
                          stock=row.get('concentration_ng_ul'), resuspend=resuspend, use=row.get('volume_ul'),
-                         yield_ng=source.get('yield_ng', row.get('available_ng')), fmol=row.get('target_fmol'), basis=row.get('concentration_basis', ''),
+                         yield_ng=source.get('yield_ng', row.get('available_ng')), fmol=row.get('target_fmol'), required_ng=row.get('target_ng'), basis=row.get('concentration_basis', ''),
                          checks=_checks(row.get('warnings', []))))
     for name, field in [('Master mix + reagents', 'master_mix_ul'), ('Water', 'water_ul'), ('Total', 'reaction_volume_ul')]:
         rows.append(dict(order='', kind='reagent' if name != 'Total' else 'total', name=name, plate='', well='', stock=None, resuspend=None, use=reaction.get(field), yield_ng=None, fmol=None, basis='', checks=[]))

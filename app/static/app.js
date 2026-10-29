@@ -4,7 +4,7 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const plateLabel=id=>state.plateLabels?.[id]??(/^pSHPs/i.test(String(id||''))?(String(id).slice(5).replace(/[^a-z0-9]/gi,'').slice(0,4)||id):String(id||''));
 const spanLabel=(a,b)=>a===b?'gap after '+a:`${a+1}–${b}`;
 const fmt=(x,n=2)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:n});
-const state={worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
+const state={worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plateWellSelection:new Set(),plateArchiveBusy:false,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
 let toastTimer,searchTimer,previewTimer,assemblyCheckTimer,searchCounter=0,checkCounter=0,resuspCounter=0;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),6000);}
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
@@ -597,8 +597,8 @@ function renderExportAssemblies(){
   const head=labels=>labels.length?'<tr>'+labels.map(label=>`<th>${esc(label)}</th>`).join('')+'</tr>':'';
   $('export-assemblies-head').innerHTML=head(snapshot?.headers||[]);
   $('export-assemblies-body').innerHTML=rows.map(row=>'<tr>'+row.map((value,i)=>`<td${i===inputColumn?' class="export-input-tuples"':''}>${i===row.length-1?value==='Pass'?'<span class="build-ready">Pass</span>':`<details class="export-checks"><summary>Check</summary>${esc(value)}</details>`:i===inputColumn?exportInputTuples(value,plates):typeof value==='number'?inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
-  $('export-fragments-head').innerHTML=head((snapshot?.metadata_headers||[]).slice(0,8));
-  $('export-fragments-body').innerHTML=metadata.map(row=>`<tr title="${esc(row.slice(8).filter(Boolean).join('\n'))}">`+row.slice(0,8).map((value,i)=>`<td>${i===2?exportPlateLabel(value??'',plates):typeof value==='number'?i===4?fmt(value,0):inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
+  $('export-fragments-head').innerHTML=head((snapshot?.metadata_headers||[]).slice(0,10));
+  $('export-fragments-body').innerHTML=metadata.map(row=>`<tr title="${esc(row.slice(10).filter(Boolean).join('\n'))}">`+row.slice(0,10).map((value,i)=>`<td>${i===2?exportPlateLabel(value??'',plates):typeof value==='number'?i===4?fmt(value,0):inventoryQuantity(value):esc(value??'—')}</td>`).join('')+'</tr>').join('');
   $('export-plates').innerHTML=plates.map(plate=>`<div>${exportPlateLabel(plate.short,plates)} <span class="export-plate-name" style="--plate-color:#${plate.text_color}">${esc(plate.name)}</span></div>`).join('');
 }
 function hideBuildPreview(){clearTimeout(buildPreviewTimer);$('build-preview').classList.add('hidden');}
@@ -1632,7 +1632,7 @@ async function archivePlateMaps(){
 }
 let plateViewToken=0;
 async function openPlateMap(id){
-  state.plateView=null;state.plateWell=null;$('plate-view-format').value='auto';$('plate-export-format').disabled=true;$('plate-export-format').value='';
+  state.plateView=null;state.plateWell=null;state.plateWellSelection.clear();$('plate-select-wells').checked=false;$('plate-archive-status').hidden=true;updatePlateArchiveControls();$('plate-view-format').value='auto';$('plate-export-format').disabled=true;$('plate-export-format').value='';
   $('plate-view-title').textContent=id;$('plate-view-summary').textContent='Loading…';$('plate-grid').innerHTML='';$('plate-well-details').innerHTML='';
   if(!$('plate-viewer').open)$('plate-viewer').showModal();await loadPlateView(id);
 }
@@ -1647,6 +1647,8 @@ async function loadPlateView(id=state.plateView?.plate_id){
 }
 function renderPlateView(){
   const p=state.plateView;if(!p)return;hidePlateTooltip();
+  const activeIds=new Set(p.archived_at?[]:p.fragments.filter(f=>!f.archived_at).map(f=>f.id));
+  for(const id of state.plateWellSelection)if(!activeIds.has(id))state.plateWellSelection.delete(id);
   const format=$('plate-view-format').value==='auto'?p.format:Number($('plate-view-format').value),rows=format===384?16:8,cols=format===384?24:12;
   const parts=new Map(p.fragments.map(f=>[f.well,f]));
   if(!state.plateWell||state.plateWell.charCodeAt(0)-65>=rows||Number(state.plateWell.slice(1))>cols)state.plateWell=p.fragments[0]?.well||'A1';
@@ -1654,16 +1656,16 @@ function renderPlateView(){
   const grid=$('plate-grid');grid.style.setProperty('--plate-cols',cols);grid.classList.toggle('labels-hidden',!$('plate-show-labels').checked);grid.classList.toggle('dense',format===384);grid.setAttribute('aria-label',`${format}-well plate ${p.plate_id}`);
   let html='<span class="plate-axis" aria-hidden="true"></span>'+Array.from({length:cols},(_,i)=>`<span class="plate-axis" aria-hidden="true">${i+1}</span>`).join('');
   for(let row=0;row<rows;row++){const letter=String.fromCharCode(65+row);html+=`<span class="plate-axis" aria-hidden="true">${letter}</span>`;for(let col=1;col<=cols;col++){
-    const well=letter+col,part=parts.get(well),archived=!!(p.archived_at||part?.archived_at),selected=state.plateWell===well,pal=Overhangs.labels(...plateOverhangValues(part));
-    html+=`<button type="button" class="plate-well ${part?'occupied':''} ${part&&archived?'archived':''} ${selected?'selected':''}" data-plate-well="${well}" data-plate-row="${row}" data-plate-col="${col}" tabindex="${selected?0:-1}" aria-pressed="${selected}" aria-describedby="plate-well-tooltip" aria-label="${well}${part?' '+esc(part.name)+(archived?', archived':''):', empty'}${pal.length?', palindromic overhang '+pal.join(' / '):''}">${pal.length?'<span class="palindromic-indicator" aria-hidden="true">!</span>':''}<span class="well-coordinate">${well}</span>${part?`<span class="well-label">${esc(part.name)}</span>`:''}</button>`;
+    const well=letter+col,part=parts.get(well),archived=!!(p.archived_at||part?.archived_at),selected=state.plateWell===well,checked=!!part&&state.plateWellSelection.has(part.id),pal=Overhangs.labels(...plateOverhangValues(part));
+    html+=`<button type="button" class="plate-well ${part?'occupied':''} ${part&&archived?'archived':''} ${selected?'selected':''} ${checked?'archive-selected':''}" data-plate-well="${well}" data-plate-row="${row}" data-plate-col="${col}" tabindex="${selected?0:-1}" aria-pressed="${$('plate-select-wells').checked?checked:selected}" aria-describedby="plate-well-tooltip" aria-label="${well}${part?' '+esc(part.name)+(archived?', archived':''):', empty'}${pal.length?', palindromic overhang '+pal.join(' / '):''}${checked?', selected for archive':''}">${checked?'<span class="well-selection-mark" aria-hidden="true">✓</span>':''}${pal.length?'<span class="palindromic-indicator" aria-hidden="true">!</span>':''}<span class="well-coordinate">${well}</span>${part?`<span class="well-label">${esc(part.name)}</span>`:''}</button>`;
   }}grid.innerHTML=html;
   grid.querySelectorAll('[data-plate-well]').forEach(button=>{
-    button.onclick=()=>selectPlateWell(button.dataset.plateWell);button.onmouseenter=()=>showPlateTooltip(button);button.onmouseleave=hidePlateTooltip;button.onfocus=()=>showPlateTooltip(button);button.onblur=hidePlateTooltip;
+    button.onclick=()=>{const part=state.plateView?.fragments.find(f=>f.well===button.dataset.plateWell);if($('plate-select-wells').checked&&!state.plateArchiveBusy&&part&&!part.archived_at&&!state.plateView.archived_at){state.plateWellSelection.has(part.id)?state.plateWellSelection.delete(part.id):state.plateWellSelection.add(part.id);state.plateWell=part.well;renderPlateView();$('plate-grid').querySelector(`[data-plate-well="${part.well}"]`)?.focus();}else selectPlateWell(button.dataset.plateWell);};button.onmouseenter=()=>showPlateTooltip(button);button.onmouseleave=hidePlateTooltip;button.onfocus=()=>showPlateTooltip(button);button.onblur=hidePlateTooltip;
     button.onkeydown=e=>{const delta={ArrowLeft:[0,-1],ArrowRight:[0,1],ArrowUp:[-1,0],ArrowDown:[1,0]}[e.key];if(!delta)return;e.preventDefault();const row=Math.min(rows-1,Math.max(0,Number(button.dataset.plateRow)+delta[0])),col=Math.min(cols,Math.max(1,Number(button.dataset.plateCol)+delta[1]));const next=String.fromCharCode(65+row)+col;selectPlateWell(next);grid.querySelector(`[data-plate-well="${next}"]`).focus();};
-  });renderPlateWellDetails();
+  });renderPlateWellDetails();updatePlateArchiveControls();
 }
 function selectPlateWell(well){
-  state.plateWell=well;hidePlateTooltip();$('plate-grid').querySelectorAll('[data-plate-well]').forEach(button=>{const selected=button.dataset.plateWell===well;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));button.tabIndex=selected?0:-1;});renderPlateWellDetails();
+  state.plateWell=well;hidePlateTooltip();$('plate-grid').querySelectorAll('[data-plate-well]').forEach(button=>{const selected=button.dataset.plateWell===well;button.classList.toggle('selected',selected);const part=state.plateView?.fragments.find(f=>f.well===button.dataset.plateWell);button.setAttribute('aria-pressed',String($('plate-select-wells').checked?!!part&&state.plateWellSelection.has(part.id):selected));button.tabIndex=selected?0:-1;});renderPlateWellDetails();updatePlateArchiveControls();
 }
 function platePosition(start,end){return start===null||start===undefined?'Outside fragment':`${start+1}–${end}`;}
 function plateOverhangValues(part){return [...(part?.fusion_ends||[]).map(end=>end.overhang),...(part?.sites||[]).map(site=>site.overhang)];}
@@ -1678,7 +1680,41 @@ function renderPlateWellDetails(){
   const plate=state.plateView,well=state.plateWell,part=plate?.fragments.find(f=>f.well===well),target=$('plate-well-details');
   if(!part){target.innerHTML=`<h3>${esc(well)}</h3><span class="small muted">Empty well</span>`;return;}
   const inv=part.inventory,archived=plate.archived_at||part.archived_at;
-  target.innerHTML=`<div class="panel-heading"><h3>${esc(well)}</h3><span class="badge ${archived?'neutral':''}">${archived?'Archived':'Active'}</span></div><b class="well-detail-name">${esc(part.name)}</b><div class="small muted">${esc(plateLabel(plate.plate_id))}</div>${part.detected_enzymes.length?`<div class="well-enzyme-flags">${part.detected_enzymes.map(enzyme=>`<span class="badge neutral">${esc(enzyme)}</span>`).join('')}</div>`:''}<dl class="well-detail-grid"><dt>Length</dt><dd>${fmt(part.length,0)} bp</dd><dt>Construct</dt><dd>${fmt(part.physical_length,0)} bp</dd>${part.fusion_ends.map(end=>`<dt>${end.label}</dt><dd class="well-overhang">${plateEndHtml(end,part)}</dd>`).join('')}</dl>${part.adapter_enzyme?`<div class="small muted">Adapters · ${esc(part.adapter_enzyme)}</div>`:''}${plateSitesHtml(part)}<details class="well-stock-details"><summary>Stock</summary><dl class="well-detail-grid"><dt>Yield</dt><dd>${inventoryQuantity(inv.yield_ng)} ng</dd><dt>Resuspend</dt><dd>${inventoryQuantity(inv.resuspension_ul)} µL</dd><dt>Stock</dt><dd>${inventoryQuantity(inv.stock_ng_ul)} ng/µL</dd><dt>Use</dt><dd>${inventoryQuantity(inv.input_volume_ul)} µL</dd><dt>Stock basis</dt><dd>${inv.saved?'Saved':'Planned'}</dd></dl>${inv.warnings?.length?messages([],inv.warnings):''}</details>${part.notes?`<details class="well-notes"><summary>Notes</summary><p>${esc(part.notes)}</p></details>`:''}`;
+  target.innerHTML=`<div class="panel-heading"><h3>${esc(well)}</h3><div class="well-detail-actions"><span class="badge ${archived?'neutral':''}">${archived?'Archived':'Active'}</span>${!archived?`<button class="icon-button archive-button" type="button" data-plate-archive-well="${part.id}" aria-label="Archive well ${esc(well)}" title="Archive well">${inventoryIcon('trash')}</button>`:''}</div></div><b class="well-detail-name">${esc(part.name)}</b><div class="small muted">${esc(plateLabel(plate.plate_id))}</div>${part.detected_enzymes.length?`<div class="well-enzyme-flags">${part.detected_enzymes.map(enzyme=>`<span class="badge neutral">${esc(enzyme)}</span>`).join('')}</div>`:''}<dl class="well-detail-grid"><dt>Length</dt><dd>${fmt(part.length,0)} bp</dd><dt>Construct</dt><dd>${fmt(part.physical_length,0)} bp</dd>${part.fusion_ends.map(end=>`<dt>${end.label}</dt><dd class="well-overhang">${plateEndHtml(end,part)}</dd>`).join('')}</dl>${part.adapter_enzyme?`<div class="small muted">Adapters · ${esc(part.adapter_enzyme)}</div>`:''}${plateSitesHtml(part)}<details class="well-stock-details"><summary>Stock</summary><dl class="well-detail-grid"><dt>Yield</dt><dd>${inventoryQuantity(inv.yield_ng)} ng</dd><dt>Resuspend</dt><dd>${inventoryQuantity(inv.resuspension_ul)} µL</dd><dt>Stock</dt><dd>${inventoryQuantity(inv.stock_ng_ul)} ng/µL</dd><dt>Use</dt><dd>${inventoryQuantity(inv.input_volume_ul)} µL</dd><dt>Stock basis</dt><dd>${inv.saved?'Saved':'Planned'}</dd></dl>${inv.warnings?.length?messages([],inv.warnings):''}</details>${part.notes?`<details class="well-notes"><summary>Notes</summary><p>${esc(part.notes)}</p></details>`:''}`;
+  const archive=target.querySelector('[data-plate-archive-well]');if(archive){archive.disabled=state.plateArchiveBusy||!canArchivePlate();archive.onclick=()=>archiveFromPlate([part.id]);}
+}
+function canArchivePlate(){return window.JunctionAccount?.allowed('can_archive')!==false;}
+function updatePlateArchiveControls(){
+  const p=state.plateView,active=p&&!p.archived_at?p.fragments.filter(f=>!f.archived_at):[],count=state.plateWellSelection.size,busy=state.plateArchiveBusy;
+  $('plate-well-selection-count').textContent=count+' selected';
+  archiveIconButton($('plate-archive-wells'),count,'wells');$('plate-archive-wells').disabled=busy||!count||!canArchivePlate();
+  $('plate-archive-map').innerHTML=inventoryIcon('trash');$('plate-archive-map').disabled=busy||!p||!!p.archived_at||!canArchivePlate();
+  $('plate-wells-all').innerHTML=inventoryIcon('selectAll');$('plate-wells-all').disabled=busy||!active.length;
+  $('plate-wells-clear').innerHTML=inventoryIcon('clear');$('plate-wells-clear').disabled=busy||!count;
+  $('plate-select-wells').disabled=busy||!active.length;
+  $('plate-well-details').querySelectorAll('[data-plate-archive-well]').forEach(button=>button.disabled=busy||!canArchivePlate());
+}
+async function archiveFromPlate(fragmentIds=[],wholePlate=false){
+  const plate=state.plateView;if(!plate||plate.archived_at||state.plateArchiveBusy||!canArchivePlate())return;
+  const parts=plate.fragments.filter(f=>!f.archived_at&&(wholePlate||fragmentIds.includes(f.id))),ids=parts.map(f=>f.id),plateId=plate.plate_id;
+  if(!wholePlate&&!ids.length)return;
+  const report=(message,error=false)=>{$('plate-archive-status').textContent=message;$('plate-archive-status').hidden=false;$('plate-archive-status').classList.toggle('reaction-warning',error);};
+  state.plateArchiveBusy=true;hidePlateTooltip();updatePlateArchiveControls();report('Archiving…');
+  try{
+    await Promise.all(ids.map(persistInventoryRow));
+    if(state.plateView?.plate_id!==plateId||!$('plate-viewer').open)return;
+    const result=await api('/api/bin/archive',jsonBody(wholePlate?{plate_ids:[plateId]}:{fragment_ids:ids}));
+    for(const id of ids){state.inventoryDrafts.delete(id);state.fragmentSelection.delete(id);state.plateWellSelection.delete(id);}
+    state.parts=state.parts.filter(p=>!ids.includes(p.id));if(wholePlate)state.plateSelection.delete(plateId);
+    const message=wholePlate?'Plate archived':`${result.count} well${result.count===1?'':'s'} archived`;
+    if(state.plateView?.plate_id===plateId&&$('plate-viewer').open){
+      const stamp=new Date().toISOString();if(!wholePlate)for(const part of state.plateView.fragments)if(ids.includes(part.id))part.archived_at=stamp;
+      if(wholePlate)state.plateView.archived_at=stamp;renderPlateView();report(message);
+      await loadPlateView(plateId);
+    }
+    await refresh();backboneChanged();await Promise.all([loadInventory(),loadUploads()]);if($('bin').classList.contains('active'))await loadBin();toast(message);
+  }catch(error){if(state.plateView?.plate_id===plateId&&$('plate-viewer').open)report(error.message,true);else toast(error.message);}
+  finally{state.plateArchiveBusy=false;updatePlateArchiveControls();}
 }
 function hidePlateTooltip(){$('plate-well-tooltip').classList.add('hidden');}
 function showPlateTooltip(button){
@@ -2322,8 +2358,13 @@ $('plate-export-format').onchange=async event=>{
   try{await fileDownload('/api/plates/well-list?'+new URLSearchParams({plate_id:plate.plate_id,format,layout:$('plate-view-format').value}),null,'plate-well-list.'+(format==='csv'?'csv.zip':format));}
   finally{event.target.disabled=!state.plateView;}
 };
+$('plate-archive-map').onclick=()=>archiveFromPlate([],true);
+$('plate-archive-wells').onclick=()=>archiveFromPlate([...state.plateWellSelection]);
+$('plate-select-wells').onchange=renderPlateView;
+$('plate-wells-all').onclick=()=>{const p=state.plateView;if(!p||p.archived_at||state.plateArchiveBusy)return;$('plate-select-wells').checked=true;state.plateWellSelection=new Set(p.fragments.filter(f=>!f.archived_at).map(f=>f.id));renderPlateView();};
+$('plate-wells-clear').onclick=()=>{state.plateWellSelection.clear();renderPlateView();};
 $('plate-view-close').onclick=()=>$('plate-viewer').close();
-$('plate-viewer').onclose=()=>{plateViewToken++;hidePlateTooltip();state.plateView=null;};
+$('plate-viewer').onclose=()=>{plateViewToken++;hidePlateTooltip();state.plateView=null;state.plateWellSelection.clear();updatePlateArchiveControls();};
 $('plate-view-format').onchange=renderPlateView;$('plate-show-labels').onchange=renderPlateView;$('plate-grid').parentElement.onscroll=hidePlateTooltip;
 
 initializeCompare();
