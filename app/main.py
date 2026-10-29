@@ -153,9 +153,9 @@ async def validation_error(request,exc):
 
 
 @app.get('/',include_in_schema=False)
-def home():
+def home(worksheet: str | None = None):
     html = (ROOT/'app'/'static'/'index.html').read_text(encoding='utf8')
-    return HTMLResponse(html.replace('__JUNCTION_VERSION__', VERSION),headers={'Cache-Control':'no-cache'})
+    return HTMLResponse(html.replace('__JUNCTION_VERSION__', VERSION).replace('__JUNCTION_LOADING_MODE__', 'worksheet' if worksheet else 'splash'),headers={'Cache-Control':'no-cache'})
 
 
 @app.get('/manifest.webmanifest',include_in_schema=False)

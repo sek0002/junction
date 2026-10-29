@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {resolveView,consumeWelcome,setup}=require('../app/static/home.js');
 
-function page({reduced=false,href='https://junction.test/?welcome=1#home',active=true}={}){
+function page({reduced=false,href='https://junction.test/?welcome=1#home',active=true,loadingMode='splash'}={}){
   function node(){
     const classes=new Set(),attributes=new Map();
     return {hidden:true,inert:false,focused:0,isConnected:true,style:{setProperty(){}},handlers:{},dataset:{},attributes,
@@ -10,7 +10,7 @@ function page({reduced=false,href='https://junction.test/?welcome=1#home',active
       setAttribute:(key,value)=>attributes.set(key,value),removeAttribute:key=>attributes.delete(key),
       querySelectorAll:()=>[],getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})};
   }
-  const nodes=Object.fromEntries(['home','home-intro','home-intro-skip','home-heading','home-intro-status','home-intro-retry','workbench-floating'].map(id=>[id,node()]));
+  const nodes=Object.fromEntries(['home','home-intro','home-intro-skip','home-heading','home-intro-status','home-intro-retry','workbench-floating','worksheet-load-toast','worksheet-load-status','worksheet-load-retry'].map(id=>[id,node()]));
   if(active)nodes.home.classList.add('active');
   const backgrounds=[node(),node(),node(),nodes['workbench-floating']],cards=['build','design','library','uploads','compare','workbenches'].map(view=>Object.assign(node(),{dataset:{homeView:view}}));
   nodes.home.querySelectorAll=()=>cards;
@@ -18,7 +18,7 @@ function page({reduced=false,href='https://junction.test/?welcome=1#home',active
   const win={location:{href,reload(){reloads++;}},history:{replaceState(a,b,url){win.location.href=new URL(url,win.location.href).href;}},performance:{now:()=>now},
     setTimeout(fn,ms){timers.set(++next,{fn,ms});return next;},clearTimeout:id=>timers.delete(id),scrollTo(){},
     matchMedia:()=>({matches:reduced,addEventListener(){}})};
-  const doc={activeElement:previous,getElementById:id=>nodes[id],querySelector:selector=>selector==='.topbar'?backgrounds[0]:selector==='main'?backgrounds[1]:selector==='body > footer'?backgrounds[2]:target};
+  const doc={documentElement:{dataset:{loading:loadingMode}},activeElement:previous,getElementById:id=>nodes[id],querySelector:selector=>selector==='.topbar'?backgrounds[0]:selector==='main'?backgrounds[1]:selector==='body > footer'?backgrounds[2]:target};
   const controller=setup(win,doc,{navigate:view=>routes.push(view)});
   return {win,nodes,backgrounds,cards,routes,controller,timers,target,previous,
     elapsed(ms){now+=ms;},get reloads(){return reloads;},
@@ -111,4 +111,40 @@ test('cards route to tools and Workbench while modified clicks retain native beh
     p.cards[0].handlers.click({...options,preventDefault(){throw Error('must preserve native navigation');}});
   }
   assert.equal(p.routes.length,6);
+});
+
+test('worksheet reloads show progress as a toast with no splash or minimum animation delay',()=>{
+  const p=page({loadingMode:'worksheet',active:false,href:'https://junction.test/?worksheet=123#design'});
+  const toast=p.nodes['worksheet-load-toast'];
+  assert.equal(p.nodes['home-intro'].hidden,true);assert.equal(p.nodes['home-intro'].inert,true);
+  assert.equal(toast.classList.contains('visible'),true);assert.equal(toast.classList.contains('loading'),true);
+  assert.equal(p.nodes['worksheet-load-status'].textContent,'Loading worksheet…');
+  p.controller.status('Restoring worksheets…');assert.equal(p.nodes['worksheet-load-status'].textContent,'Restoring worksheets…');
+  p.controller.ready();assert.ok(p.backgrounds.every(n=>!n.inert));assert.equal(p.target.focused,1);
+  assert.equal(p.nodes['worksheet-load-status'].textContent,'Worksheet loaded');
+  assert.equal(p.win.location.href,'https://junction.test/#design');
+  assert.deepEqual([...p.timers.values()].map(t=>t.ms),[2000]);
+  p.run(2000);assert.equal(toast.classList.contains('visible'),false);
+});
+test('worksheet switch operations keep the splash hidden and can safely return after failure',()=>{
+  const p=page();p.elapsed(1500);p.controller.ready();
+  p.controller.startWorksheet('Saving the current worksheet…');
+  assert.equal(p.nodes['home-intro'].hidden,true);assert.equal(p.nodes['worksheet-load-status'].textContent,'Saving the current worksheet…');
+  assert.ok(p.backgrounds.every(n=>n.inert));assert.equal(p.timers.size,0);
+  p.controller.cancel();assert.ok(p.backgrounds.every(n=>!n.inert));assert.equal(p.previous.focused,1);
+  assert.equal(p.nodes['worksheet-load-toast'].classList.contains('visible'),false);
+});
+test('worksheet hydration failures keep their error and Retry action in the toast',()=>{
+  const p=page({loadingMode:'worksheet'});p.controller.fail('Connection lost');
+  assert.equal(p.nodes['home-intro'].hidden,true);assert.ok(p.backgrounds.every(n=>n.inert));
+  assert.equal(p.nodes['worksheet-load-status'].textContent,'Could not load worksheet. Connection lost');
+  assert.equal(p.nodes['worksheet-load-retry'].hidden,false);assert.equal(p.nodes['worksheet-load-retry'].focused,1);
+  assert.equal(p.nodes['worksheet-load-toast'].classList.contains('loading'),false);
+  p.nodes['worksheet-load-retry'].handlers.click();assert.equal(p.reloads,1);
+});
+test('opening a Workbench after a worksheet brings back the full splash',()=>{
+  const p=page({loadingMode:'worksheet'});p.controller.ready();p.controller.start('Loading Workbench…');
+  assert.equal(p.nodes['home-intro'].hidden,false);assert.equal(p.nodes['home-intro'].inert,false);
+  assert.equal(p.nodes['worksheet-load-toast'].classList.contains('visible'),false);
+  assert.equal(p.nodes['home-intro-status'].textContent,'Loading Workbench…');assert.ok(p.backgrounds.every(n=>n.inert));
 });

@@ -31,7 +31,7 @@
     }
     async function startNew(kind,discard=false){
       if(locked)return;lock(true);menuClose();
-      try{root.JunctionHomeController.start('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Creating a new '+scopes[kind]+' worksheet…');await post('/api/worksheets/new',{scope:kind,discard_unsaved:discard});reload(kind);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
+      try{root.JunctionHomeController.startWorksheet('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Creating a new '+scopes[kind]+' worksheet…');await post('/api/worksheets/new',{scope:kind,discard_unsaved:discard});reload(kind);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
     }
     async function newPage(kind=scope){
       if(!kind||locked)return;scope=kind;menuClose();
@@ -39,7 +39,7 @@
     }
     async function open(kind,id){
       if(!id||locked)return;lock(true);
-      try{root.JunctionHomeController.start('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Loading '+(records[kind]?.find(item=>item.id===id)?.name||scopes[kind]+' worksheet')+'…');const result=await post('/api/worksheets/'+id+'/open');reload(result.view);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
+      try{root.JunctionHomeController.startWorksheet('Saving the current worksheet…');await flush();pause();root.JunctionHomeController.status('Loading '+(records[kind]?.find(item=>item.id===id)?.name||scopes[kind]+' worksheet')+'…');const result=await post('/api/worksheets/'+id+'/open');reload(result.view);}catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
     }
     function share({kind=scope,workbench=null,worksheet=null}={}){
       if(locked)return;menuClose();exportSource={kind,workbench,worksheet};

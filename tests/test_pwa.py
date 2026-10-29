@@ -24,6 +24,15 @@ class PwaTests(unittest.TestCase):
         else:os.environ['GOLDEN_GATE_DB']=self.previous
         self.folder.cleanup()
 
+    def test_loading_markup_uses_toast_only_for_worksheet_navigation(self):
+        for url,mode in [('/', 'splash'),('/?instance=123', 'splash'),('/?worksheet=123', 'worksheet')]:
+            response=self.client.get(url)
+            self.assertEqual(response.status_code,200)
+            self.assertIn('data-loading="'+mode+'"',response.text)
+            self.assertNotIn('__JUNCTION_LOADING_MODE__',response.text)
+            self.assertIn('id="worksheet-load-status"',response.text)
+            self.assertEqual(response.headers['Cache-Control'],'no-store')
+
     def test_manifest_can_install_from_root_and_has_real_icon_sizes(self):
         response=self.client.get('/manifest.webmanifest')
         self.assertEqual(response.status_code,200)

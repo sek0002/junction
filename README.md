@@ -2,7 +2,7 @@
 
 ## Home
 
-Junction shows its animated splash while opening or switching instances, with live status text for account checks, library loading and worksheet restoration. It opens the requested page once loading completes; Skip and Escape can dismiss any remaining entrance animation. Reduced-motion preferences keep the loading screen static. Loading errors provide a Retry button. The six Home cards open Assembly, Design, Fragments, Uploads, Compare and Workbench. Clicking the Junction logo returns Home without resetting drafts or queued builds. Home supports light/dark themes, keyboard navigation and responsive layouts.
+Junction shows its animated splash on initial app load and when loading a Workbench, with live status text for account checks, library loading and worksheet restoration. Switching or creating individual worksheets uses a compact loading toast instead, with no entrance animation. It opens the requested page once loading completes; Skip and Escape can dismiss any remaining entrance animation. Reduced-motion preferences keep the loading screen static. Loading errors provide a Retry button. The six Home cards open Assembly, Design, Fragments, Uploads, Compare and Workbench. Clicking the Junction logo returns Home without resetting drafts or queued builds. Home supports light/dark themes, keyboard navigation and responsive layouts.
 
 
 A local FastAPI app for selecting plate fragments, assembling circular plasmids, inspecting sequence checks, calculating reaction inputs, and comparing uploaded plasmids with saved and inferred designs.

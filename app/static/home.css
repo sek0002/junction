@@ -70,3 +70,15 @@ body.home-active>footer{display:none}
 .home-intro .splash-progress{display:flex;gap:4px;width:96px;height:3px;margin-top:27px}.splash-progress i{flex:1;background:var(--green);border-radius:3px;animation:jhome-loading 1.3s ease-in-out infinite}.splash-progress i:nth-child(2){background:#8eb99a;animation-delay:.15s}.splash-progress i:nth-child(3){background:#d9b95d;animation-delay:.3s}.home-intro[aria-busy=false] .splash-progress i{animation:none}
 .home-intro-error .splash-status{color:var(--red)}#home-intro-retry{margin-top:16px}
 @keyframes jhome-loading{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* Worksheet switches keep the page visible and report progress in a toast. */
+[data-loading="worksheet"] .home-intro{display:none}
+.worksheet-load-toast{display:none;align-items:center;gap:10px;font-size:12px;z-index:111}
+.worksheet-load-toast.visible,[data-loading="worksheet"] .worksheet-load-toast{display:flex;opacity:1}
+.worksheet-load-toast .spinner{flex-shrink:0;border-color:currentColor;border-top-color:transparent}
+.worksheet-load-toast:not(.loading) .spinner{display:none}
+[data-loading="worksheet"] .worksheet-load-toast .spinner{display:inline-block}
+.worksheet-load-toast.load-error{pointer-events:auto}
+.worksheet-load-toast button{border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font-size:11px;padding:3px 8px}
+.worksheet-load-toast button[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.worksheet-load-toast .spinner{animation:none}}
