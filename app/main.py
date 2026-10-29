@@ -246,6 +246,13 @@ def fragment(fragment_id:int,enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI
     return result | {'digest':parsed,'forward_digest':parsed,'reverse_complement':False,'orientation':1,'sites':restriction_sites(result['sequence'])}
 
 
+@app.get('/api/fragments/{fragment_id}/details')
+def fragment_details(fragment_id:int):
+    part=store.get_fragment(fragment_id)
+    if part is None:raise HTTPException(404,'Fragment not found.')
+    return part | {'inventory':inventory_records([part])[0]} | fragment_site_info(part['sequence'],part['construct_sequence'])
+
+
 class StockUpdate(BaseModel):
     yield_locked:bool | None=None
     yield_ng: float | None = Field(None,gt=0,lt=1e12)

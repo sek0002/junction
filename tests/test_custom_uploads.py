@@ -44,6 +44,15 @@ class CustomUploadTests(unittest.TestCase):
         self.assertEqual(self.upload([{'link':str(self.source)}]).json()['names'],['Donor'])
         self.assertEqual(self.upload([{}]).status_code,422)
 
+    def test_fragment_details_include_sequences_stocks_and_auto_detected_sites(self):
+        result=self.upload([{'link':str(self.source),'location':'Freezer 2','concentration':25}]);identifier=result.json()['ids'][0]
+        response=self.client.get('/api/fragments/'+str(identifier)+'/details');self.assertEqual(response.status_code,200,response.text);details=response.json()
+        self.assertEqual(details['sequence'],store.get_fragment(self.source)['sequence']);self.assertEqual(details['construct_sequence'],store.get_fragment(self.source)['construct_sequence']);self.assertEqual(details['location'],'Freezer 2');self.assertEqual(details['inventory']['stock_ng_ul'],25);self.assertIn('BsaI',details['detected_enzymes']);self.assertEqual(details['custom_metadata']['linked_fragment_name'],'Donor')
+        anonymous=TestClient(app);self.assertEqual(anonymous.get('/api/fragments/'+str(identifier)+'/details').status_code,401);anonymous.close()
+        self.assertEqual(self.client.get('/api/fragments/999999/details').status_code,404)
+        with store.connection() as db:db.execute('UPDATE fragments SET archived_at=CURRENT_TIMESTAMP WHERE id=?',(identifier,))
+        self.assertEqual(self.client.get('/api/fragments/'+str(identifier)+'/details').status_code,404)
+
     def test_optional_plate_and_well_normalization_and_atomic_conflicts(self):
         result=self.upload([{'name':'A','sequence':'ACGT','plate':'New','well':'b02'}]);self.assertEqual(result.status_code,200,result.text);self.assertEqual(store.get_fragment(result.json()['ids'][0])['well'],'B2')
         before=len(store.fragments());bad=self.upload([{'name':'First','sequence':'ACGT'},{'name':'Conflict','sequence':'AAAA','plate':'New','well':'B2'}]);self.assertEqual(bad.status_code,422);self.assertEqual(len(store.fragments()),before)

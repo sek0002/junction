@@ -1593,10 +1593,10 @@ async function loadInventory(){
       const input=(key,label)=>`<input type="number" min="0.000001" step="any" data-quantity="${key}" data-raw-value="${values[key]??''}" ${key==='yield_ng'&&locked?'readonly':''} value="${inventoryValue(values[key])}" aria-label="${label} of ${esc(f.name)}">`;
       const yieldField=`<div class="yield-field">${input('yield_ng','Yield ng')}<button class="yield-lock" data-yield-lock type="button" aria-pressed="${locked}" aria-label="${locked?'Unlock':'Lock'} yield for ${esc(f.name)}" title="${locked?'Yield locked · stock and volume update each other':'Yield unlocked · stock and volume recalculate yield'}">${inventoryIcon(locked?'locked':'unlocked')}</button></div>`;
       const aliquot=stored.target_ng&&values.stock_ng_ul?stored.target_ng/values.stock_ng_ul:null;
-      return `<tr data-yield-locked="${locked}" data-name="${esc(f.name)}" data-plate="${esc(f.plate_id)}" data-well="${esc(f.well)}" data-length="${f.physical_length}" data-ends="${esc((f.digest.left_overhang||'')+(f.digest.right_overhang||''))}" data-target="${stored.target_ng??''}" data-aliquot="${aliquot??''}" data-inventory-id="${f.id}" data-derive="${draft?.derive||'stock_ng_ul'}"><td><input type="checkbox" data-fragment-select aria-label="Select fragment ${esc(f.name)}" ${state.fragmentSelection.has(f.id)?'checked':''}></td><td><b>${esc(f.name)}</b>${FragmentSearch.stockBadge(f)}${f.location?`<small class="stock-location">${esc(f.location)}</small>`:""}${inventoryEnzymeFlags(f.sites)}</td><td title="${esc(f.plate_id)}">${esc(plateLabel(f.plate_id))}</td><td>${esc(f.well)}</td><td>${fmt(f.physical_length,0)}</td><td>${fusionEnds(f.digest.left_overhang,f.digest.right_overhang)}</td><td>${yieldField}</td><td>${input('resuspension_ul','Resuspend µL')}</td><td>${input('stock_ng_ul','Stock ng/µL')}</td><td><span data-aliquot-value>${inventoryQuantity(aliquot)}</span><small data-record-warnings class="reaction-warning inventory-note" title="${esc(stored.warnings.join(' '))}">${esc(inventoryWarningNote(stored.warnings))}</small></td><td><button class="icon-button row-reset" data-record-reset aria-label="Reset ${esc(f.name)} to defaults" title="Reset ${esc(f.name)} to defaults">${inventoryIcon('reset')}</button><small data-record-status title="${esc(stored.concentration_basis||'')}">${draft?draft.invalid?'Not saved':'Unsaved':stored.concentration_basis==='Custom rule plan (unmeasured)'?'Rules applied':stored.saved?'Saved':'Planned'}</small></td></tr>`;
+      return `<tr data-yield-locked="${locked}" data-name="${esc(f.name)}" data-plate="${esc(f.plate_id)}" data-well="${esc(f.well)}" data-length="${f.physical_length}" data-ends="${esc((f.digest.left_overhang||'')+(f.digest.right_overhang||''))}" data-target="${stored.target_ng??''}" data-aliquot="${aliquot??''}" data-inventory-id="${f.id}" data-derive="${draft?.derive||'stock_ng_ul'}"><td><input type="checkbox" data-fragment-select aria-label="Select fragment ${esc(f.name)}" ${state.fragmentSelection.has(f.id)?'checked':''}></td><td><button class="fragment-name-open" type="button" data-fragment-open="${f.id}" aria-label="View fragment ${esc(f.name)}" aria-haspopup="dialog" title="${f.plate_id&&f.well?'View plate location':'View fragment information'}">${esc(f.name)}</button>${FragmentSearch.stockBadge(f)}${f.location?`<small class="stock-location">${esc(f.location)}</small>`:""}${inventoryEnzymeFlags(f.sites)}</td><td title="${esc(f.plate_id)}">${esc(plateLabel(f.plate_id))}</td><td>${esc(f.well)}</td><td>${fmt(f.physical_length,0)}</td><td>${fusionEnds(f.digest.left_overhang,f.digest.right_overhang)}</td><td>${yieldField}</td><td>${input('resuspension_ul','Resuspend µL')}</td><td>${input('stock_ng_ul','Stock ng/µL')}</td><td><span data-aliquot-value>${inventoryQuantity(aliquot)}</span><small data-record-warnings class="reaction-warning inventory-note" title="${esc(stored.warnings.join(' '))}">${esc(inventoryWarningNote(stored.warnings))}</small></td><td><button class="icon-button row-reset" data-record-reset aria-label="Reset ${esc(f.name)} to defaults" title="Reset ${esc(f.name)} to defaults">${inventoryIcon('reset')}</button><small data-record-status title="${esc(stored.concentration_basis||'')}">${draft?draft.invalid?'Not saved':'Unsaved':stored.concentration_basis==='Custom rule plan (unmeasured)'?'Rules applied':stored.saved?'Saved':'Planned'}</small></td></tr>`;
     }).join('');
     $('inventory-body').querySelectorAll('[data-inventory-id]').forEach(row=>{
-      const id=Number(row.dataset.inventoryId);row.querySelector('[data-fragment-select]').onchange=event=>{event.target.checked?state.fragmentSelection.add(id):state.fragmentSelection.delete(id);updateFragmentSelection();};
+      const id=Number(row.dataset.inventoryId);row.querySelector('[data-fragment-open]').onclick=()=>openInventoryFragment(records.find(f=>f.id===id));row.querySelector('[data-fragment-select]').onchange=event=>{event.target.checked?state.fragmentSelection.add(id):state.fragmentSelection.delete(id);updateFragmentSelection();};
       const field=key=>row.querySelector(`[data-quantity="${key}"]`);
       const values=()=>({...Object.fromEntries(['yield_ng','resuspension_ul','stock_ng_ul'].map(key=>[key,field(key).dataset.rawValue!==''?Number(field(key).dataset.rawValue):null])),yield_locked:row.dataset.yieldLocked==='true',derive:row.dataset.derive});
       row.querySelector('[data-yield-lock]').onclick=()=>{setYieldLock(row,row.dataset.yieldLocked!=='true');queueInventoryRow(id,values(),{invalid:!!state.inventoryDrafts.get(id)?.invalid});};
@@ -1630,9 +1630,52 @@ async function archivePlateMaps(){
     state.parts=state.parts.filter(p=>!ids.includes(p.plate_id));state.plateSelection.clear();await refresh();backboneChanged();await loadUploads();toast(`${result.count} plate map${result.count===1?'':'s'} archived`);
   }catch(error){toast(error.message);}
 }
+let fragmentInfoToken=0,fragmentSequenceToken=0,fragmentInfoRecord=null,fragmentSequenceRecord=null;
+async function openInventoryFragment(part){
+  if(!part)return;
+  if(part.plate_id&&/^[A-P](?:[1-9]|1[0-9]|2[0-4])$/.test(part.well||'')){
+    try{await persistInventoryRow(part.id);}catch(error){toast(error.message);}
+    await openPlateMap(part.plate_id,part.well);return;
+  }
+  const token=++fragmentInfoToken,dialog=$('fragment-info-dialog'),host=$('fragment-info-body');
+  fragmentInfoRecord=null;$('fragment-info-title').textContent=part.name;host.textContent='Loading…';if(!dialog.open)dialog.showModal();
+  let warning='';try{await persistInventoryRow(part.id);}catch(error){warning='Showing saved values. '+error.message;}
+  try{
+    const record=await api('/api/fragments/'+part.id+'/details');if(token!==fragmentInfoToken||!dialog.open)return;
+    fragmentInfoRecord=record;const inv=record.inventory;
+    host.innerHTML=`${warning?messages([],[warning]):''}${FragmentSearch.stockBadge(record)}${record.custom_metadata?.linked_fragment_name?`<div class="small muted">Sequence linked to ${esc(record.custom_metadata.linked_fragment_name)}</div>`:''}<dl class="well-detail-grid"><dt>Location</dt><dd>${esc(record.location||'—')}</dd><dt>Plate</dt><dd>${esc(record.plate_id||'—')}</dd><dt>Well</dt><dd>${esc(record.well||'—')}</dd><dt>Length</dt><dd>${fmt(record.length,0)} bp</dd><dt>Construct</dt><dd>${fmt(record.physical_length,0)} bp</dd>${record.fusion_ends.map(end=>`<dt>${end.label}</dt><dd class="well-overhang">${plateEndHtml(end,record)}</dd>`).join('')}<dt>Yield</dt><dd>${inventoryQuantity(inv.yield_ng)} ng</dd><dt>Resuspend</dt><dd>${inventoryQuantity(inv.resuspension_ul)} µL</dd><dt>Stock</dt><dd>${inventoryQuantity(inv.stock_ng_ul)} ng/µL</dd><dt>Use</dt><dd>${inventoryQuantity(inv.input_volume_ul)} µL</dd></dl><button id="fragment-info-sequence" class="secondary compact" type="button" aria-haspopup="dialog">${inventoryIcon('view')} Sequence</button>${plateSitesHtml(record)}${record.notes?`<details><summary>Notes</summary><p>${esc(record.notes)}</p></details>`:''}`;
+    $('fragment-info-sequence').onclick=()=>openFragmentSequence(record.id,record);
+  }catch(error){if(token===fragmentInfoToken&&dialog.open)host.textContent=error.message;}
+}
+async function openFragmentSequence(id,record=null){
+  const token=++fragmentSequenceToken,dialog=$('fragment-sequence-dialog');fragmentSequenceRecord=null;
+  $('fragment-sequence-title').textContent='Sequence';$('fragment-sequence-text').value='';$('fragment-sequence-status').textContent='Loading…';$('fragment-sequence-kind').hidden=true;$('fragment-sequence-copy').disabled=true;
+  if(!dialog.open)dialog.showModal();
+  try{
+    const part=record||await api('/api/fragments/'+id+'/details');if(token!==fragmentSequenceToken||!dialog.open)return;
+    fragmentSequenceRecord=part;$('fragment-sequence-title').textContent=part.name;$('fragment-sequence-kind').value='sequence';$('fragment-sequence-kind').hidden=!part.construct_sequence||part.construct_sequence===part.sequence;
+    renderFragmentSequence();
+  }catch(error){if(token===fragmentSequenceToken&&dialog.open)$('fragment-sequence-status').textContent=error.message;}
+}
+function renderFragmentSequence(){
+  const part=fragmentSequenceRecord;if(!part)return;
+  const kind=$('fragment-sequence-kind').value,sequence=part[kind]||'';$('fragment-sequence-text').value=sequence;
+  $('fragment-sequence-text').setAttribute('aria-label',kind==='construct_sequence'?'Construct sequence':'Fragment sequence');
+  $('fragment-sequence-status').textContent=fmt(sequence.length,0)+' nt · 5′ → 3′';$('fragment-sequence-copy').disabled=!sequence;
+}
+async function copyFragmentSequence(){
+  const sequence=$('fragment-sequence-text').value,token=fragmentSequenceToken;if(!sequence)return;
+  const copied=()=>{if(token===fragmentSequenceToken&&$('fragment-sequence-text').value===sequence)$('fragment-sequence-status').textContent='Copied · '+fmt(sequence.length,0)+' nt';};
+  $('fragment-sequence-text').focus();$('fragment-sequence-text').select();
+  $('fragment-sequence-status').textContent='Sequence selected. Press Ctrl+C or ⌘C to copy.';
+  // A direct user-gesture copy also works in embedded browsers where the
+  // asynchronous clipboard API can wait indefinitely for focus or permission.
+  try{if(typeof document==='object'&&document.execCommand?.('copy')){copied();return;}}catch{}
+  try{await navigator.clipboard.writeText(sequence);copied();}catch{}
+}
 let plateViewToken=0;
-async function openPlateMap(id){
-  state.plateView=null;state.plateWell=null;state.plateWellSelection.clear();$('plate-select-wells').checked=false;$('plate-archive-status').hidden=true;updatePlateArchiveControls();$('plate-view-format').value='auto';$('plate-export-format').disabled=true;$('plate-export-format').value='';
+async function openPlateMap(id,well=null){
+  state.plateView=null;state.plateWell=well;state.plateWellSelection.clear();$('plate-select-wells').checked=false;$('plate-archive-status').hidden=true;updatePlateArchiveControls();$('plate-view-format').value='auto';$('plate-export-format').disabled=true;$('plate-export-format').value='';
   $('plate-view-title').textContent=id;$('plate-view-summary').textContent='Loading…';$('plate-grid').innerHTML='';$('plate-well-details').innerHTML='';
   if(!$('plate-viewer').open)$('plate-viewer').showModal();await loadPlateView(id);
 }
@@ -1680,7 +1723,8 @@ function renderPlateWellDetails(){
   const plate=state.plateView,well=state.plateWell,part=plate?.fragments.find(f=>f.well===well),target=$('plate-well-details');
   if(!part){target.innerHTML=`<h3>${esc(well)}</h3><span class="small muted">Empty well</span>`;return;}
   const inv=part.inventory,archived=plate.archived_at||part.archived_at;
-  target.innerHTML=`<div class="panel-heading"><h3>${esc(well)}</h3><div class="well-detail-actions"><span class="badge ${archived?'neutral':''}">${archived?'Archived':'Active'}</span>${!archived?`<button class="icon-button archive-button" type="button" data-plate-archive-well="${part.id}" aria-label="Archive well ${esc(well)}" title="Archive well">${inventoryIcon('trash')}</button>`:''}</div></div><b class="well-detail-name">${esc(part.name)}</b><div class="small muted">${esc(plateLabel(plate.plate_id))}</div>${part.detected_enzymes.length?`<div class="well-enzyme-flags">${part.detected_enzymes.map(enzyme=>`<span class="badge neutral">${esc(enzyme)}</span>`).join('')}</div>`:''}<dl class="well-detail-grid"><dt>Length</dt><dd>${fmt(part.length,0)} bp</dd><dt>Construct</dt><dd>${fmt(part.physical_length,0)} bp</dd>${part.fusion_ends.map(end=>`<dt>${end.label}</dt><dd class="well-overhang">${plateEndHtml(end,part)}</dd>`).join('')}</dl>${part.adapter_enzyme?`<div class="small muted">Adapters · ${esc(part.adapter_enzyme)}</div>`:''}${plateSitesHtml(part)}<details class="well-stock-details"><summary>Stock</summary><dl class="well-detail-grid"><dt>Yield</dt><dd>${inventoryQuantity(inv.yield_ng)} ng</dd><dt>Resuspend</dt><dd>${inventoryQuantity(inv.resuspension_ul)} µL</dd><dt>Stock</dt><dd>${inventoryQuantity(inv.stock_ng_ul)} ng/µL</dd><dt>Use</dt><dd>${inventoryQuantity(inv.input_volume_ul)} µL</dd><dt>Stock basis</dt><dd>${inv.saved?'Saved':'Planned'}</dd></dl>${inv.warnings?.length?messages([],inv.warnings):''}</details>${part.notes?`<details class="well-notes"><summary>Notes</summary><p>${esc(part.notes)}</p></details>`:''}`;
+  target.innerHTML=`<div class="panel-heading"><h3>${esc(well)}</h3><div class="well-detail-actions"><span class="badge ${archived?'neutral':''}">${archived?'Archived':'Active'}</span>${!archived?`<button class="icon-button archive-button" type="button" data-plate-archive-well="${part.id}" aria-label="Archive well ${esc(well)}" title="Archive well">${inventoryIcon('trash')}</button>`:''}</div></div><b class="well-detail-name">${esc(part.name)}</b><div class="small muted">${esc(plateLabel(plate.plate_id))}</div>${part.detected_enzymes.length?`<div class="well-enzyme-flags">${part.detected_enzymes.map(enzyme=>`<span class="badge neutral">${esc(enzyme)}</span>`).join('')}</div>`:''}<dl class="well-detail-grid"><dt>Length</dt><dd>${fmt(part.length,0)} bp</dd><dt>Construct</dt><dd>${fmt(part.physical_length,0)} bp</dd>${part.fusion_ends.map(end=>`<dt>${end.label}</dt><dd class="well-overhang">${plateEndHtml(end,part)}</dd>`).join('')}</dl>${part.adapter_enzyme?`<div class="small muted">Adapters · ${esc(part.adapter_enzyme)}</div>`:''}${plateSitesHtml(part)}<button class="secondary compact" type="button" data-well-sequence="${part.id}" aria-haspopup="dialog">${inventoryIcon('view')} Sequence</button><details class="well-stock-details"><summary>Stock</summary><dl class="well-detail-grid"><dt>Yield</dt><dd>${inventoryQuantity(inv.yield_ng)} ng</dd><dt>Resuspend</dt><dd>${inventoryQuantity(inv.resuspension_ul)} µL</dd><dt>Stock</dt><dd>${inventoryQuantity(inv.stock_ng_ul)} ng/µL</dd><dt>Use</dt><dd>${inventoryQuantity(inv.input_volume_ul)} µL</dd><dt>Stock basis</dt><dd>${inv.saved?'Saved':'Planned'}</dd></dl>${inv.warnings?.length?messages([],inv.warnings):''}</details>${part.notes?`<details class="well-notes"><summary>Notes</summary><p>${esc(part.notes)}</p></details>`:''}`;
+  target.querySelector('[data-well-sequence]').onclick=()=>openFragmentSequence(part.id);
   const archive=target.querySelector('[data-plate-archive-well]');if(archive){archive.disabled=state.plateArchiveBusy||!canArchivePlate();archive.onclick=()=>archiveFromPlate([part.id]);}
 }
 function canArchivePlate(){return window.JunctionAccount?.allowed('can_archive')!==false;}
@@ -2364,6 +2408,12 @@ $('plate-archive-wells').onclick=()=>archiveFromPlate([...state.plateWellSelecti
 $('plate-select-wells').onchange=renderPlateView;
 $('plate-wells-all').onclick=()=>{const p=state.plateView;if(!p||p.archived_at||state.plateArchiveBusy)return;$('plate-select-wells').checked=true;state.plateWellSelection=new Set(p.fragments.filter(f=>!f.archived_at).map(f=>f.id));renderPlateView();};
 $('plate-wells-clear').onclick=()=>{state.plateWellSelection.clear();renderPlateView();};
+$('fragment-info-close').onclick=()=>$('fragment-info-dialog').close();
+$('fragment-info-dialog').onclose=()=>{fragmentInfoToken++;fragmentInfoRecord=null;};
+$('fragment-sequence-close').onclick=()=>$('fragment-sequence-dialog').close();
+$('fragment-sequence-dialog').onclose=()=>{fragmentSequenceToken++;fragmentSequenceRecord=null;$('fragment-sequence-text').value='';};
+$('fragment-sequence-kind').onchange=renderFragmentSequence;
+$('fragment-sequence-copy').onclick=copyFragmentSequence;
 $('plate-view-close').onclick=()=>$('plate-viewer').close();
 $('plate-viewer').onclose=()=>{plateViewToken++;hidePlateTooltip();state.plateView=null;state.plateWellSelection.clear();updatePlateArchiveControls();};
 $('plate-view-format').onchange=renderPlateView;$('plate-show-labels').onchange=renderPlateView;$('plate-grid').parentElement.onscroll=hidePlateTooltip;
