@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import database as store
 from .design_engine import TYPE_II, design
+from .design_overhangs import overhang_report
 from .design_example import example_features
 from .design_output import output_view
 from .design_table import check_rows, table_design, sequence_metadata
@@ -134,6 +135,7 @@ def preview_design(payload, generate=True):
                     payload.left_overhang, payload.right_overhang, payload.window,
                     payload.avoid_sites, payload.excluded_overhangs, generate, payload.adapter_enzyme,
                     payload.left_adapter_enzyme, payload.right_adapter_enzyme)
+    reference_result=result
     if payload.use_table:
         rows = [row.model_dump() for row in payload.table_rows]
         if generate:
@@ -150,6 +152,8 @@ def preview_design(payload, generate=True):
             result['errors'].append(str(exc))
             result['valid'] = False
     result['name'] = payload.name
+    if generate:
+        result['overhang_report']=overhang_report(reference_result,payload.enzyme,backbone,payload.slot_id,payload.excluded_overhangs,store.fragments(),store.plasmids())
     return result
 
 

@@ -1,0 +1,14 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {render}=require('../app/static/design-overhangs.js');
+function fixture(){return{scope:'Current Design; database reuse is informational.',summary:{new:1,existing:0,pending:0,assembly_validated:true,assembly_conflicts:0,assembly_warnings:0,database_reused:1,fragments_scanned:12,plasmids_scanned:3},rows:[{overhang:'AAGC',reverse_complement:'GCTT',kind:'new',uses:[{name:'Cargo_1',side:'3′',kind:'generated'},{name:'Cargo_2',side:'5′',kind:'generated'}],boundaries:[{name:'Insert',requested:100,actual:98}],assembly_status:'clear',assembly_messages:[],assembly_warnings:[],database_reuse_count:1,database_matches:[{id:8,kind:'fragment',name:'External <stock>',location:'Freezer 1',plate_id:'Plate A',well:'B2',in_assembly:false,linked_stock:true,sites:[{overhang:'GCTT',reverse_complement:true,enzyme:'BsmBI',site_start:0,site_end:6,wraps_origin:false,active_enzyme:false}]}]}]};}
+test('readout separates generated junctions, assembly compatibility and database reuse',()=>{
+ const html=render(fixture());assert.match(html,/1 new/);assert.match(html,/No junction conflicts/);assert.match(html,/Reuse · 1 record/);assert.match(html,/requested 100/);assert.match(html,/nt 98/);assert.match(html,/Cargo_1/);assert.match(html,/Freezer 1/);assert.match(html,/Plate A \/ B2/);assert.match(html,/Linked stock/);assert.match(html,/Fragment #8/);assert.match(html,/>RC</);assert.match(html,/other enzyme/);assert.match(html,/Database reuse is informational/);assert.doesNotMatch(html,/<stock>/);
+});
+test('assembly conflicts and ungenerated boundaries never claim a validated assembly',()=>{
+ const data=fixture();data.summary.assembly_validated=false;data.summary.assembly_conflicts=1;data.rows[0].assembly_status='conflict';data.rows[0].assembly_messages=['A → B: mismatch <unsafe>'];let html=render(data);assert.match(html,/! Conflict/);assert.match(html,/assembly conflicts?/);assert.match(html,/&lt;unsafe&gt;/);assert.doesNotMatch(html,/No junction conflicts detected/);
+ data.summary.assembly_conflicts=0;data.summary.pending=1;data.rows[0].kind='candidate';data.rows[0].assembly_status='pending';data.rows[0].boundaries[0].actual=null;html=render(data);assert.match(html,/boundary not generated/);assert.match(html,/Candidate/);assert.match(html,/requested nt 100/);assert.doesNotMatch(html,/No junction conflicts detected/);
+});
+test('selected backbone matches stay distinct from unrelated database stocks',()=>{
+ const data=fixture();data.summary.database_reused=0;data.rows[0].database_reuse_count=0;data.rows[0].database_matches[0].kind='backbone';data.rows[0].database_matches[0].in_assembly=true;
+ const html=render(data);assert.match(html,/Assembly inputs · 1/);assert.match(html,/In Design/);assert.match(html,/design-junction-backbone/);assert.doesNotMatch(html,/Reuse · 1/);assert.equal(render(null),'');
+});
