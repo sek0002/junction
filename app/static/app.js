@@ -268,8 +268,10 @@ async function refreshLibraryMetrics(){
   }catch(error){toast(error.message);}
 }
 function renderJunctionList(){
-  const junctions=state.libraryMetrics?.junctions||[],enzyme=state.libraryMetrics?.qc_enzyme||$('enzyme').value;
-  $('junction-list-summary').textContent=`${junctions.length} unique fusion sequences · Reverse-complement pairs grouped`;
+  const all=state.libraryMetrics?.junctions||[],enzyme=state.libraryMetrics?.qc_enzyme||$('enzyme').value;
+  const query=$('junction-list-search').value.replace(/\s/g,'').toUpperCase();
+  const junctions=query?all.filter(item=>[item.overhang,item.reverse_complement].some(sequence=>sequence.toUpperCase().includes(query))):all;
+  $('junction-list-summary').textContent=`${query?junctions.length+' of ':''}${all.length} unique fusion sequences · Reverse-complement pairs grouped`;
   $('junction-list').innerHTML=junctions.map(item=>{
     const problems=item.problems||[],backbone=item.backbones.length>0;
     // Backbone identity stays purple; palindromes use the shared yellow override.
@@ -277,7 +279,7 @@ function renderJunctionList(){
     const problemText=problems.map(problem=>problem.source+': '+problem.message).join('\n');
     const sources=(kind,names)=>names.length?`<div class="junction-source-group ${kind}"><b>${kind==='backbones'?'Backbones':'Fragments'}</b><p>${names.map(name=>`<span>${esc(name)}</span>`).join(' · ')}</p></div>`:'';
     return `<details class="junction-item"><summary><span class="junction-pair">${overhangHtml(item.overhang,classes)}${overhangHtml(item.reverse_complement,classes+' junction-complement')}</span><span class="junction-source-badges">${item.fragments.length?`<span class="junction-source-label fragment">Fragment · ${item.fragments.length}</span>`:''}${backbone?`<span class="junction-source-label backbone">Backbone · ${item.backbones.length}</span>`:''}</span>${problems.length?`<span class="badge error junction-problem" tabindex="0" title="${esc(enzyme+' source digest errors\n'+problemText)}" aria-label="${esc(enzyme+' source digest errors: '+problemText)}">! Problem</span>`:''}<small>${esc(item.enzymes.join(' · '))}</small></summary><div>${sources('fragments',item.fragments)}${sources('backbones',item.backbones)}${problems.length?`<div class="junction-problem-details"><b>${esc(enzyme)} source digest errors</b>${problems.map(problem=>`<p><strong>${esc(problem.source)}</strong> · ${esc(problem.message)}</p>`).join('')}</div>`:''}</div></details>`;
-  }).join('')||'<span class="muted">No junctions</span>';
+  }).join('')||`<span class="muted">${query?'No matching junctions':'No junctions'}</span>`;
 }
 
 async function refresh(){
@@ -2500,7 +2502,8 @@ window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
   nameFor:scope=>scope==='design'?$('design-name').value:scope==='build'?$('assembly-name').value:'Compare worksheet',
   setCurrent:(scope,id)=>{state.worksheetIds[scope]=id;},changed:scheduleLibraryMetrics
 });
-$('junction-count-button').onclick=async()=>{await refreshLibraryMetrics();renderJunctionList();$('junction-list-dialog').showModal();};
+$('junction-count-button').onclick=async()=>{await refreshLibraryMetrics();$('junction-list-search').value='';renderJunctionList();if(!$('junction-list-dialog').open)$('junction-list-dialog').showModal();$('junction-list-search').focus();};
+$('junction-list-search').oninput=renderJunctionList;
 $('junction-list-close').onclick=()=>$('junction-list-dialog').close();
 window.JunctionHomeController=JunctionHome.setup(window,document,{navigate:showView});
 window.addEventListener('hashchange',()=>showView(JunctionHome.resolveView(location.hash.slice(1))));

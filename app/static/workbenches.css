@@ -15,3 +15,5 @@
 
 .junction-pair{display:flex;align-items:center;gap:5px;flex-shrink:0}.junction-source-badges{display:flex;gap:5px;flex-wrap:wrap}.junction-source-label{font-size:10px;line-height:1.4;padding:2px 5px;border-radius:4px;border:1px solid var(--line);white-space:nowrap}.junction-source-label.fragment{color:var(--green);background:var(--green-light)}.junction-source-label.backbone{color:var(--backbone-linker-ink);background:var(--backbone-linker-surface);border-color:var(--backbone-linker-border)}.junction-source-group.fragments>b{color:var(--green)}.junction-source-group.backbones>b{color:var(--backbone-linker-surface)}.junction-problem-details{color:var(--red)}.junction-problem{white-space:nowrap;cursor:help}.junction-item>summary{flex-wrap:wrap;gap:7px}.junction-item small{font-size:9px}.junction-item .end.backbone-end{color:var(--backbone-linker-ink);background:var(--backbone-linker-surface);border-color:var(--backbone-linker-border)}
 @media screen{[data-theme=dark] .junction-source-group.backbones>b{color:var(--backbone-linker-border)}}
+
+.junction-list-search{display:block;width:100%;margin-bottom:10px}
