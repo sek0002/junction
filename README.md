@@ -318,7 +318,7 @@ Cut offsets follow [NEB recognition specificities](https://www.neb.com/en-us/too
 
 ## Bench exports
 
-Use **Export ▾** in Build list, Reaction planner, Resuspension, Fragments or a
+Use **Export ▾** in **Export assemblies**, Fragments or a
 completed plate import to select **PDF**, **Excel** or **CSV**. Build-list exports
 include every queued assembly; assembly exports include the current draft and
 any physically separate nested reactions. Fragment exports use saved library
@@ -341,6 +341,27 @@ The existing detailed calculation sheets remain available and editable; the
 new transfer and metadata tables are export snapshots.
 The worksheet APIs accept `?format=xlsx`, `?format=pdf` or `?format=csv`.
 PDF generation uses ReportLab, installed with the app requirements.
+
+Assembly exports also assign one physical reaction to each destination well,
+in row order A1–A12, B1–B12 through H12. Separate nested reactions have their
+own wells; more than 96 reactions continue on another plate. Each plate has
+a dated `JUNC-YYYYMMDD-<export ID>-P01` identifier. Excel includes plate-map
+images, **Plate assignments** and **Well transfers** sheets. PDF appends the
+maps, assignments and transfer tables; CSV includes the same assignments and
+transfers, with a download link for the images. Transfers are grouped by source
+plate and well and retain the calculated stock volumes, water and reagents.
+Unlocated stocks are marked Unassigned; prepared inputs are marked Prepared.
+
+Every assembly export is saved as an immutable bundle in the persistent database
+and associated with the current Assembly worksheet. Open **Saved exports** in
+Export assemblies to retrieve it. Its QR code opens a download page for the
+exact worksheet, plate maps, well assignments, source-grouped transfers and a
+ZIP containing all files. Editing or removing builds does not change earlier
+exports. The saved-export list is private to its owner; anyone with the QR link
+can download that export without signing in. Links require the same Junction
+server and database to remain available. QR URLs use the address used to open
+Junction, including the configured reverse proxy. No external QR service or
+new dependency is used.
 
 ## Plate well lists
 

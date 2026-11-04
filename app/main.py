@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Query
+from fastapi import FastAPI, File, HTTPException, UploadFile, Query, Request
 from fastapi.responses import FileResponse, Response, JSONResponse, HTMLResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -41,6 +41,7 @@ from .assembly_matrix import matrix_data, META_HEADERS
 from .plate_labels import plate_aliases
 from .build_genbank import build_genbank_zip
 from .fragment_search import match_fragment
+from .assembly_export import router as assembly_export_router, saved_export
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_UPLOAD = 10 * 1024 * 1024
@@ -143,6 +144,7 @@ app.include_router(workbench_router)
 app.include_router(worksheet_router)
 app.include_router(design_router)
 app.include_router(custom_upload_router)
+app.include_router(assembly_export_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 
 
@@ -874,13 +876,13 @@ def restore_build_list(build_id:int):
 
 
 @app.get('/api/build-list/worksheet')
-def export_build_list(format:Literal['xlsx','pdf','csv']='xlsx',export_date:date | None=None):
+def export_build_list(request:Request,format:Literal['xlsx','pdf','csv']='xlsx',export_date:date | None=None):
     items=active_build_list()
     if not items:raise HTTPException(422,'Add an assembly to the build list first.')
     export_day = export_date or datetime.now(ZoneInfo('Australia/Melbourne')).date()
     identifier = 'BL-' + uuid4().hex
     filename = f'Build_list_{export_day.isoformat()}_{identifier}.{format}'
-    return download(guide_bytes(format,build_sections(items),lambda:build_list_workbook(items)), filename, FORMATS[format])
+    return saved_export(format,build_sections(items),lambda:build_list_workbook(items),request,export_day.isoformat(),identifier,filename)
 
 
 @app.get('/api/build-list/genbank')
@@ -941,13 +943,14 @@ def export_assembly(payload:AssemblyRequest):
 
 
 @app.post('/api/assemblies/worksheet')
-def export_worksheet(payload:AssemblyRequest,format:Literal['xlsx','pdf','csv']='xlsx'):
+def export_worksheet(payload:AssemblyRequest,request:Request,format:Literal['xlsx','pdf','csv']='xlsx'):
     result,physical=build(payload)
     # Invalid designs remain reviewable on the worksheet, explicitly marked.
     result['parts']=physical
     effective=result['effective_settings']
-    return download(guide_bytes(format,assembly_sections(result,effective,payload.enzyme),
-        lambda:make_workbook(physical,result,effective)),payload.name+'_worksheet.'+format,FORMATS[format])
+    day=datetime.now(ZoneInfo('Australia/Melbourne')).date().isoformat();identifier='BL-'+uuid4().hex
+    return saved_export(format,assembly_sections(result,effective,payload.enzyme),lambda:make_workbook(physical,result,effective),request,day,identifier,
+        payload.name+'_'+day+'_'+identifier+'_worksheet.'+format)
 
 
 @app.post('/api/inventory/worksheet')

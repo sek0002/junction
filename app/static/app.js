@@ -10,7 +10,7 @@ function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
 async function api(url,options={}){const r=await fetch(url,options);if(!r.ok){let d;try{d=await r.json();}catch{d={detail:r.statusText};}let detail=d.detail||d;const error=Error(typeof detail==='string'?detail:detail.message?detail.message+(detail.errors?' '+detail.errors.join(' '):''):JSON.stringify(detail));error.sandboxId=Number(r.headers.get('X-Junction-Comparison-Id'))||null;throw error;}return r.json();}
 const jsonBody=data=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-async function fileDownload(url,body,fallback){if(url.includes('worksheet')){const invalid=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalid){invalid.reportValidity();toast('Enter positive stock values before exporting');return;}}busy('Preparing download…');try{const r=await fetch(url,body?jsonBody(body):{});if(!r.ok){const d=await r.json();throw Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));}const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);return true;}catch(e){toast(e.message);return false;}finally{busy('');}}
+async function fileDownload(url,body,fallback){if(url.includes('worksheet')){const invalid=$('resuspension-body').querySelector('input[aria-invalid="true"]');if(invalid){invalid.reportValidity();toast('Enter positive stock values before exporting');return;}}busy('Preparing download…');try{const r=await fetch(url,body?jsonBody(body):{});if(!r.ok){const d=await r.json();throw Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));}const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||fallback;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);if(r.headers.get('X-Junction-Export-URL'))window.dispatchEvent(new CustomEvent('junction-export-saved'));return true;}catch(e){toast(e.message);return false;}finally{busy('');}}
 function showView(name){
   name=JunctionHome.resolveView(name);const profile=name==='profile';if(profile)name='home';
   hideNestedCardTooltip();hideMapTooltip();closeFragmentSwap();
@@ -574,6 +574,15 @@ function renderBuildList(){
   $('build-list-items').querySelectorAll('[data-plan-build]').forEach(button=>{button.onclick=()=>loadQueuedBuild(Number(button.dataset.planBuild));button.onmouseenter=()=>showBuildPreview(button);button.onmouseleave=scheduleHideBuildPreview;button.onfocus=()=>showBuildPreview(button);button.onblur=scheduleHideBuildPreview;button.onkeydown=event=>{if(event.key==='Escape')hideBuildPreview();};});
   $('build-list-items').querySelectorAll('[data-remove-build]').forEach(button=>button.onclick=()=>removeQueuedBuild(Number(button.dataset.removeBuild)));
 }
+async function loadAssemblyExports(){
+  const target=$('saved-assembly-exports-list');if(!target)return;
+  try{
+    const data=await api('/api/build-list/exports');
+    target.innerHTML=data.items.length?'<table><thead><tr><th>Date</th><th>Worksheet</th><th>Plates</th><th>Downloads</th></tr></thead><tbody>'+data.items.map(item=>`<tr><td>${esc(item.date)}</td><td>${esc(item.worksheet_name)}</td><td>${item.plates.map(esc).join('<br>')}</td><td><a href="${esc(item.download_url)}" target="_blank" rel="noopener noreferrer">Files</a> · <a href="${esc(item.download_url)}/bundle.zip">ZIP</a></td></tr>`).join('')+'</tbody></table>':'<p class="small muted">No saved exports</p>';
+  }catch(error){target.textContent=error.message;}
+}
+$('saved-assembly-exports').addEventListener('toggle',()=>{if($('saved-assembly-exports').open)loadAssemblyExports();});
+window.addEventListener('junction-export-saved',()=>{$('saved-assembly-exports').open=true;loadAssemblyExports();});
 async function refreshExportAssemblies(){
   $('export-assemblies-summary').textContent='Updating…';$('export-assemblies-download').disabled=true;
   try{flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await loadBuildList();}

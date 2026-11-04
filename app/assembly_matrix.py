@@ -149,7 +149,7 @@ def _excel(sections,legacy_factory):
     wb.active=0;out=io.BytesIO();wb.save(out);return out.getvalue()
 
 
-def _pdf(sections):
+def _pdf(sections,plate_data=None):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -185,14 +185,21 @@ def _pdf(sections):
     flow.extend([meta,Spacer(1,16),p('Plate key','title'),Spacer(1,10)])
     plates=table(['Plate','Full plate identifier'],[[e['short'],e['name']] for e in key.values()],[70,available-70])
     flow.append(plates)
+    if plate_data:
+        from .assembly_plates import pdf_bytes
+        flow.extend([PageBreak(),*pdf_bytes(plate_data,story_only=True)])
     def footer(canvas,doc):
         canvas.saveState();canvas.setFont('Helvetica',8);canvas.drawString(20,14,'Junction');canvas.drawRightString(page_width-20,14,f'Page {doc.page}');canvas.restoreState()
     SimpleDocTemplate(out,pagesize=A4,leftMargin=20,rightMargin=20,topMargin=20,bottomMargin=26,title='Junction assemblies').build(flow,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
 
 
-def matrix_bytes(format,sections,legacy_factory=None):
-    if format=='xlsx':return _excel(sections,legacy_factory)
-    if format=='csv':return _csv(sections)
-    if format=='pdf':return _pdf(sections)
+def matrix_bytes(format,sections,legacy_factory=None,plate_data=None):
+    if format=='pdf':return _pdf(sections,plate_data)
+    if format in ('xlsx','csv'):
+        content=_excel(sections,legacy_factory) if format=='xlsx' else _csv(sections)
+        if plate_data:
+            from .assembly_plates import attach
+            content=attach(content,format,plate_data)
+        return content
     raise ValueError('Unsupported export format')

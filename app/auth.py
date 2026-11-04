@@ -185,7 +185,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             origin=request.headers.get('origin')
             if (origin and origin!=str(request.base_url).rstrip('/')) or request.headers.get('sec-fetch-site')=='cross-site':
                 return JSONResponse({'detail':'Cross-origin requests are not allowed.'},status_code=403)
-        public=(path.startswith('/static/') and path!='/static/index.html') or path in ('/login','/manifest.webmanifest','/service-worker.js','/api/auth/login')
+        public=(path.startswith('/static/') and path!='/static/index.html') or path in ('/login','/manifest.webmanifest','/service-worker.js','/api/auth/login') or (request.method in ('GET','HEAD') and path.startswith('/exports/'))
         user=None if public and path!='/login' else await run_in_threadpool(session_user,request.cookies.get(COOKIE))
         request.state.user=user
         if not public and not user:

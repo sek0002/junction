@@ -296,10 +296,10 @@ def pdf_guide(sections):
     return output.getvalue()
 
 
-def guide_bytes(format, sections, legacy_factory=None):
+def guide_bytes(format, sections, legacy_factory=None,plate_data=None):
     if any(section['stage']!='Stock preparation' for section in sections):
         from .assembly_matrix import matrix_bytes
-        return matrix_bytes(format,sections,legacy_factory)
+        return matrix_bytes(format,sections,legacy_factory,plate_data)
     if format == 'xlsx':
         return excel_guide(sections, legacy_factory() if legacy_factory else None)
     if format == 'pdf':
