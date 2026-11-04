@@ -947,7 +947,7 @@ def export_worksheet(payload:AssemblyRequest,format:Literal['xlsx','pdf','csv']=
     result['parts']=physical
     effective=result['effective_settings']
     return download(guide_bytes(format,assembly_sections(result,effective,payload.enzyme),
-        lambda:make_workbook(planner_parts(store.fragments(),effective),result,effective)),payload.name+'_worksheet.'+format,FORMATS[format])
+        lambda:make_workbook(physical,result,effective)),payload.name+'_worksheet.'+format,FORMATS[format])
 
 
 @app.post('/api/inventory/worksheet')

@@ -24,6 +24,22 @@ def cassette(left='CACC',right='CTCG',reverse='GAGACG',forward='CGTCTC'):
 
 
 class NestedAssemblyTests(unittest.TestCase):
+    def test_export_metadata_retains_nested_inputs_without_unrelated_library_stocks(self):
+        self.upload([('Unrelated stock',self.child),('Child',self.child)],plate='UNUSED-PLATE')
+        for mode in ('together','separate'):
+            request=self.request(mode)
+            response=self.client.post('/api/assemblies/worksheet?format=xlsx',json=request)
+            self.assertEqual(response.status_code,200,response.text[:100]);book=load_workbook(io.BytesIO(response.content))
+            text=' '.join(str(cell.value) for sheet in book for row in sheet for cell in row if cell.value is not None)
+            self.assertNotIn('UNUSED-PLATE',text);self.assertNotIn('Unrelated stock',text)
+            metadata=book['Fragment metadata'];names={metadata.cell(row,1).value for row in range(4,metadata.max_row+1)}
+            expected={'Parent','Child','Tail'}|({'Parent (prepared)'} if mode=='separate' else set())
+            self.assertEqual(names,expected)
+            self.assertEqual(self.client.post('/api/build-list',json=request|{'name':'Scope '+mode}).status_code,200)
+        response=self.client.get('/api/build-list/worksheet?format=xlsx');self.assertEqual(response.status_code,200)
+        book=load_workbook(io.BytesIO(response.content));text=' '.join(str(cell.value) for sheet in book for row in sheet for cell in row if cell.value is not None)
+        self.assertNotIn('UNUSED-PLATE',text);self.assertIn('Parent (prepared)',text);self.assertIn('Child',text)
+
     def test_genbank_build_list_preserves_nested_products_and_annotations(self):
         expected=[]
         for mode in ('together','separate'):

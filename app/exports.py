@@ -507,6 +507,31 @@ def reaction_summary(rows: list[dict[str, Any]], settings: dict[str, Any] | None
     return {"dna_volume_ul": dna, "master_mix_volume_ul": master, "water_volume_ul": water, "reaction_volume_ul": target, "warnings": warnings}
 
 
+def _stock_identity(part):
+    # Plasmids and prepared intermediates have namespaced IDs; a matching
+    # fragment name or numeric suffix does not identify the same physical stock.
+    identifier=part.get('id')
+    if identifier is not None:return ('id',str(identifier))
+    return ('location',part.get('name',''),part.get('plate_id') or '',part.get('well') or '')
+
+
+def _assembly_inventory(fragments,parts):
+    sources={}
+    for fragment in fragments:sources.setdefault(_stock_identity(fragment),[]).append(fragment)
+    selected=[]
+    for part in parts:
+        matches=sources.get(_stock_identity(part),[])
+        source=matches[0] if len(matches)==1 else {}
+        # Instance-specific concentrations and prepared stocks take precedence.
+        selected.append(source | part)
+    return selected
+
+
+def _reaction_resuspension_rows(plan):
+    used={_stock_identity(part) for part in plan.get('reaction',{}).get('rows',[])}
+    return [part for part in plan.get('resuspension',{}).get('rows',[]) if _stock_identity(part) in used]
+
+
 def make_workbook(
     fragments: list[dict[str, Any]],
     assembly: dict[str, Any] | None = None,
@@ -537,6 +562,7 @@ def make_workbook(
     if settings.get("master_mix_volume_ul") == 0:
         master_mix = 0.0
     parts = list((assembly or {}).get("parts") or [])
+    if assembly is not None:fragments=_assembly_inventory(fragments,parts)
     calculated_rows = calculate_volumes(parts, settings)
     backbone_part = {} if no_backbone else next((p for p in parts if p.get("role") == "backbone" or p.get("is_backbone")), parts[0] if parts else {})
     backbone_len = None if no_backbone else _number(settings.get("backbone_length_bp")) or _construct_length(backbone_part) or None
@@ -790,7 +816,7 @@ def make_workbook(
         for index, part in enumerate(parts, 1):
             row = pipetting.max_row + 1
             backbone = part is backbone_part
-            inventory_row = inventory_index.get(str(part.get("id"))) or inventory_index.get(str(part.get("name")))
+            inventory_row = None if part.get('_prepared_nested') else inventory_index.get(str(part.get("id"))) or inventory_index.get(str(part.get("name")))
             bp = _construct_length(part)
             calculated = calculated_rows[index - 1]
             stock = calculated["concentration_ng_ul"]
@@ -958,7 +984,7 @@ def nested_workbook_sheets(wb, assemblies):
                     part['length_bp'],part['concentration_ng_ul'],part['target_ng'],part['target_fmol'],part['volume_ul'],_safe_cell(part['concentration_basis']),_safe_cell('; '.join(stage['errors']+part['warnings']))])
             for label,volume in [('Other reagents',reaction['master_mix_ul']),('Water',reaction['water_ul']),('Total',reaction['reaction_volume_ul'])]:
                 pipetting.append([_safe_cell(name),_safe_cell(stage['name']),stage['enzyme'],label,None,None,None,None,None,None,volume,None,_safe_cell('; '.join(reaction['warnings']))])
-            for part in stage['resuspension']['rows']:
+            for part in _reaction_resuspension_rows(stage):
                 resuspend.append([_safe_cell(name),_safe_cell(stage['name']),_safe_cell(part['name']),_safe_cell(part.get('plate_id','')),_safe_cell(part.get('well','')),part['physical_length'],part['yield_ng'],part['resuspension_ul'],part['target_ng_ul'],part['input_volume_ul'],_safe_cell('; '.join(part['warnings']))])
     for sheet,widths in [(summary,[24,26,17,17,11,11,8,27,24,9,21,65]),(pipetting,[24,30,17,27,24,9,12,15,14,15,12,40,65]),(resuspend,[24,30,27,24,9,12,14,15,15,12,65])]:
         _format_sheet(sheet,widths,paper='A3')
@@ -998,7 +1024,7 @@ def build_list_workbook(items):
                 part['concentration_ng_ul'],part['target_ng'],part['target_fmol'],part['volume_ul'],_safe_cell(part['concentration_basis']),_safe_cell('; '.join(plan['errors']+part['warnings']))])
         for label,volume in [('Other reagents',reaction['master_mix_ul']),('Water',reaction['water_ul'])]:
             pipetting.append([_safe_cell(name),request['enzyme'],None,'Reagent',label,None,None,None,None,None,None,volume,None,_safe_cell('; '.join(reaction['warnings']))])
-        for part in plan['resuspension']['rows']:
+        for part in _reaction_resuspension_rows(plan):
             if part.get('manual_stock'):continue
             resuspension.append([_safe_cell(name),_safe_cell(part['name']),_safe_cell(part.get('plate_id') or ''),_safe_cell(part.get('well') or ''),part['physical_length'],part['yield_ng'],part['target_ng_ul'],part['resuspension_ul'],part['input_volume_ul'],_safe_cell('; '.join(part['warnings']))])
     for sheet,widths in [(overview,[25,10,17,10,22,10,13,17,13,13,65]),(pipetting,[25,10,8,12,28,25,8,12,14,14,14,12,42,65]),(resuspension,[25,28,25,8,13,13,15,15,12,65]),(settings_ws,[25,12,12,15,15,17,17,20,12,18])]:
