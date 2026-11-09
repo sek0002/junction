@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
 from . import database as store
-from .design_engine import TYPE_II, design
+from .design_engine import MAX_VARIANT_COMBINATIONS, TYPE_II, design
 from .design_overhangs import overhang_report
 from .design_example import example_features
 from .design_output import output_view
@@ -31,7 +31,8 @@ class Variant(BaseModel):
 
 class Section(BaseModel):
     mode: Literal['constant', 'dynamic'] = 'constant'
-    variants: list[Variant] = Field(default_factory=list, max_length=8)
+    # The reference sequence also occupies one place in the combination limit.
+    variants: list[Variant] = Field(default_factory=list, max_length=MAX_VARIANT_COMBINATIONS - 1)
     name: str = Field(min_length=1, max_length=100)
     start: int = Field(ge=0)
     end: int = Field(gt=0)

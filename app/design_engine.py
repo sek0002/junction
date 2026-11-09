@@ -13,6 +13,8 @@ from .sequence_engine import (ENZYMES, active_enzymes, assemble, digest_fragment
 
 from .design_orientation import orient_fragments, annotate_orientations
 
+MAX_VARIANT_COMBINATIONS = 64
+
 TYPE_II = {name: motifs[0] for name, motifs in ENZYMES.items()} | {
     'EcoRI': 'GAATTC', 'BamHI': 'GGATCC', 'XbaI': 'TCTAGA',
     'NotI': 'GCGGCCGC', 'XhoI': 'CTCGAG', 'PstI': 'CTGCAG',
@@ -317,8 +319,8 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     result['assembly_sites'] = scan_type_ii(assembly['sequence'], assembly['circular'])
     families = [[donor] + [row for row in generated if row.get('variant_of') == donor.get('id')] for donor in donors]
     count = prod(len(family) for family in families)
-    if count > 64 or count * max(1, assembly['length']) > 2000000:
-        result['errors'].append('Use at most 64 variant combinations and 2 million assembled bases per design.')
+    if count > MAX_VARIANT_COMBINATIONS or count * max(1, assembly['length']) > 2000000:
+        result['errors'].append(f'Use at most {MAX_VARIANT_COMBINATIONS} variant combinations and 2 million assembled bases per design.')
         result['valid'] = False
         result['assemblies'] = []
         return result

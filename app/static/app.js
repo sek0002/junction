@@ -2525,8 +2525,13 @@ showView(JunctionHome.resolveView(location.hash.slice(1)));
     splash.status('Loading fragments, backbones and rules…');await refresh();
     splash.status('Restoring build plans…');await loadBuildList();
     splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());
-    splash.status('Loading saved worksheets and Workbenches…');await api('/api/worksheets/bootstrap',jsonBody({}));
-    await Promise.all([window.JunctionWorksheetController.loadAll(),window.JunctionWorkbenchController.load(),refreshLibraryMetrics()]);
+    splash.status('Loading saved worksheets and Workbenches…');
+    await api('/api/worksheets/bootstrap',jsonBody({})).catch(error=>toast('Worksheet migration: '+error.message));
+    await Promise.all([
+      window.JunctionWorksheetController.loadAll().catch(error=>toast('Saved worksheets: '+error.message)),
+      window.JunctionWorkbenchController.load(),
+      refreshLibraryMetrics()
+    ]);
     splash.ready();runCompareQueue();
   }catch(error){splash.fail(error.message);}
 })();

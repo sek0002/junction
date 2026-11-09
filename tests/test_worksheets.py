@@ -78,6 +78,34 @@ class WorksheetTests(unittest.TestCase):
         with store.connection() as db:db.execute('DELETE FROM fragments WHERE id=?',(self.fid,))
         r=self.client.post('/api/worksheets',json={'scope':'design','name':'Still available'});self.assertEqual(r.status_code,200,r.text)
 
+    def test_signed_in_user_can_list_and_save_a_design_with_21_variants(self):
+        self.assertEqual(self.client.post('/api/auth/users',json={'username':'test','pin':'123456'}).status_code,201)
+        with TestClient(app) as user:
+            self.assertEqual(user.post('/api/auth/login',json={'username':'test','pin':'123456'}).status_code,200)
+            variants=[{'name':f'Variant {index}','sequence':'ACGT'} for index in range(1,22)]
+            design=self.design|{'entries':[{'id':'insert','kind':'placeholder','sequence':'ACGT'*8,'sections':[
+                {'name':'Variable region','mode':'dynamic','start':8,'end':12,'variants':variants}
+            ]}]}
+            workspace={'design':{'designs':[design],'activeId':design['id']}}
+            self.assertEqual(user.put('/api/workspace',json={'data':workspace}).status_code,200)
+            listing=user.get('/api/worksheets?scope=design')
+            self.assertEqual(listing.status_code,200,listing.text)
+            self.assertTrue(listing.json()['has_content'])
+            migrated=user.post('/api/worksheets/bootstrap')
+            self.assertEqual(migrated.status_code,200,migrated.text)
+            saved=user.get('/api/worksheets?scope=design').json()['current']
+            exported=user.get('/api/worksheets/'+saved['id']+'/export').json()
+            saved_design=exported['snapshot']['workspace']['design']['designs'][0]
+            self.assertEqual(saved_design['entries'][0]['sections'][0]['variants'],variants)
+
+    def test_worksheet_list_stays_available_while_draft_is_incomplete(self):
+        workspace=self.workspace|{'design':{'designs':[self.design|{'left_overhang':'AT'}],'activeId':self.design['id']}}
+        self.assertEqual(self.client.put('/api/workspace',json={'data':workspace}).status_code,200)
+        listing=self.client.get('/api/worksheets?scope=design')
+        self.assertEqual(listing.status_code,200,listing.text)
+        self.assertTrue(listing.json()['has_content'])
+        self.assertEqual(self.client.get('/api/workspace').json()['data']['design'],workspace['design'])
+
     def test_worksheet_file_can_remap_fragment_ids_on_another_installation(self):
         content=self.client.post('/api/worksheets/export-current?scope=build').content
         os.environ['GOLDEN_GATE_DB']=str(Path(self.folder.name)/'other.sqlite3');store.initialize()

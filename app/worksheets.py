@@ -112,7 +112,10 @@ def list_worksheets(scope:Scope,archived:bool=False):
     with store.connection() as db:
         migrate_recovered(db)
         rows=db.execute('SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope=? AND (archived_at IS NOT NULL)=? ORDER BY updated_at DESC,id',(user_id(),parent(db),scope,archived)).fetchall()
-        active=current(db,scope);has_content=meaningful(capture(db,scope),scope)
+        active=current(db,scope)
+        # A draft can be incomplete while the user is editing. Listing worksheets
+        # only needs to know if it exists, without validating it for export.
+        has_content=has_working_content(db,scope)
     return {'items':[summary(row) for row in rows],'current':summary(active) if active else None,'has_content':has_content}
 
 
@@ -219,6 +222,14 @@ def meaningful(data,scope):
         return bool(data['builds'] or draft.get('fragment_ids') or draft.get('backbone_id') or draft.get('starter_fragment_id') or draft.get('nested_assemblies') or draft.get('name') not in (None,'','New assembly','Golden Gate assembly'))
     if scope=='compare':return bool(data['comparisons'])
     return any(item.get('entries') or item.get('backbone_id') or item.get('table_rows') or item.get('name') not in (None,'','New design') for item in (workspace.get('design') or {}).get('designs',[]))
+
+
+def has_working_content(db,scope):
+    if scope=='compare':
+        return db.execute('SELECT 1 FROM comparison_runs WHERE user_id=? AND removed_at IS NULL LIMIT 1',(user_id(),)).fetchone() is not None
+    if scope=='build' and db.execute('SELECT 1 FROM build_list WHERE user_id=? AND removed_at IS NULL LIMIT 1',(user_id(),)).fetchone():
+        return True
+    return meaningful({'workspace':wb.working(db),'builds':[]},scope)
 
 
 def save_draft(db,scope,data):
