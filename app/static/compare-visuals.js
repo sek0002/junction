@@ -14,7 +14,7 @@
     const output=[];
     for(const job of jobs){if(job.status!=='Done'||scope==='selected'&&!selection.has(job.id))continue;
       for(const record of recordsOf(job)){
-        if(scope==='exact'&&(record.error||!record.matches?.some(perfect)))continue;
+        if(scope==='exact'&&(record.error||!record.matches?.some(matchType)))continue;
         output.push({filename:job.path,...fields(record,['query_name','query_length','query_circular','error','enzyme_detection']),
           matches:(record.matches||[]).map(match=>fields(match,['name','source','reference_length','identity','reference_coverage','query_coverage','aligned_bp','exact','orientation','rotation','changes','aliases',...adjustmentFields])),
           fragment_matches:(record.fragment_matches||[]).map(hit=>fields(hit,['name','plate_id','well','representation','query_spans','strand','identity','coverage','exact','status',...adjustmentFields]))});

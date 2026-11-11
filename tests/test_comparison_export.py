@@ -37,7 +37,7 @@ class ComparisonExportTests(unittest.TestCase):
         self.assertEqual(wb['Results']['T3'].value,'No assembly match')
         with self.assertRaises(ValueError):comparison_workbook([record('near',False,.99)],'exact')
 
-    def test_adjusted_and_true_percentages_are_adjacent_and_exact_export_uses_true_match(self):
+    def test_adjusted_and_true_percentages_are_adjacent_and_100_percent_export_includes_adjusted(self):
         data=record('polyA.gb',False,.8)
         match=data['matches'][0]
         match.update(adjusted_identity=1,reference_coverage=.8,adjusted_reference_coverage=1,query_coverage=1,adjusted_query_coverage=1,excluded_at_deletion_bp=20)
@@ -45,8 +45,16 @@ class ComparisonExportTests(unittest.TestCase):
         wb=load_workbook(io.BytesIO(comparison_workbook([data],'selected')))
         self.assertEqual(wb['Results']['H2'].value,80)
         self.assertEqual(wb['Results']['I2'].value,100)
-        self.assertEqual(wb['Results']['J2'].value,'No')
+        self.assertEqual(wb['Results']['J2'].value,'Yes')
         self.assertEqual(wb['Results']['U2'].value,80)
         self.assertEqual(wb['Results']['V2'].value,100)
         self.assertEqual(wb['Differences']['I2'].value,'Yes')
-        with self.assertRaises(ValueError):comparison_workbook([data],'exact')
+        exported=load_workbook(io.BytesIO(comparison_workbook([data],'exact')))
+        self.assertEqual(exported['Results']['A2'].value,'polyA.gb')
+        self.assertEqual(exported['Results']['AB2'].value,'Adjusted 100%')
+        self.assertEqual(exported['Results']['T2'].value,'Adjusted 100% match')
+        self.assertEqual(exported['Results']['H2'].value,80)
+        self.assertEqual(exported['Results']['I2'].value,100)
+        rounded=record('rounded.gb',False,.9)
+        rounded['matches'][0]['adjusted_identity']=.9999999
+        with self.assertRaises(ValueError):comparison_workbook([rounded],'exact')

@@ -14,6 +14,14 @@ def exact_match(match):
             and match.get('reference_coverage',1)==1 and match.get('query_coverage',1)==1)
 
 
+def match_type(match):
+    if exact_match(match):
+        return 'True 100%'
+    if match.get('adjusted_identity')==1:
+        return 'Adjusted 100%'
+    return ''
+
+
 def span_text(spans):
     return '; '.join(f'{int(a)+1}–{int(b)}' if a!=b else f'gap after {int(a)}' for a,b in spans)
 
@@ -22,7 +30,7 @@ def comparison_workbook(records,scope):
     chosen=[]
     for record in records:
         matches=record.get('matches') or []
-        perfect=next((m for m in matches if exact_match(m)),None)
+        perfect=next((m for m in matches if match_type(m)),None)
         if scope=='exact' and (record.get('error') or perfect is None):continue
         chosen.append((record,perfect or (matches[0] if matches else {})))
     if not chosen:raise ValueError('No results match the export selection.')
@@ -31,8 +39,8 @@ def comparison_workbook(records,scope):
     wb=Workbook();results=wb.active;results.title='Results'
     results.append(['File','Record','Query bp','Topology','Closest match','Source','Reference bp','True identity %','Adjusted identity %','100% match',
                     'Strand','Query rotation','Substituted bp','Inserted bp','Deleted bp','Fragments','Exact fragments','Enzymes','Aliases','Status',
-                    'True reference coverage %','Adjusted reference coverage %','True query coverage %','Adjusted query coverage %','Aligned bp','Excluded A/T deletion bp','Adjustment rule'])
-    fragments=wb.create_sheet('Fragments');fragments.append(['File','Record','Reference','Fragment','Plate','Well','Representation','Query positions (1-based)','Strand','True identity %','Adjusted identity %','True coverage %','Adjusted coverage %','100% match','Status','Excluded A/T deletion bp','Adjustment rule'])
+                    'True reference coverage %','Adjusted reference coverage %','True query coverage %','Adjusted query coverage %','Aligned bp','Excluded A/T deletion bp','Adjustment rule','Match type'])
+    fragments=wb.create_sheet('Fragments');fragments.append(['File','Record','Reference','Fragment','Plate','Well','Representation','Query positions (1-based)','Strand','True identity %','Adjusted identity %','True coverage %','Adjusted coverage %','100% match','Status','Excluded A/T deletion bp','Adjustment rule','Match type'])
     changes=wb.create_sheet('Differences');changes.append(['File','Record','Reference','Type','Reference positions (1-based)','Original query positions (1-based)','Reference bases','Query bases','Excluded from adjusted percentages'])
     def append(sheet,row):sheet.append([_safe_cell(v) for v in row])
     def percentage(match,adjusted,original):
@@ -44,30 +52,31 @@ def comparison_workbook(records,scope):
         counts={kind:sum(len(c.get('query_bases' if kind=='insertion' else 'reference_bases','')) for c in diffs if c.get('type')==kind) for kind in ('substitution','insertion','deletion')}
         detection=record.get('enzyme_detection') or {}
         append(results,[filename,name,record.get('query_length'), 'Circular' if record.get('query_circular') else 'Linear',match.get('name',''),match.get('source',''),match.get('reference_length'),
-                        identity*100 if identity is not None else None,percentage(match,'adjusted_identity','identity'),'Yes' if exact_match(match) else 'No',match.get('orientation',''),match.get('rotation'),
+                        identity*100 if identity is not None else None,percentage(match,'adjusted_identity','identity'),'Yes' if match_type(match) else 'No',match.get('orientation',''),match.get('rotation'),
                         counts['substitution'],counts['insertion'],counts['deletion'],len(hits),sum(exact_match(h) for h in hits),
                         '; '.join(detection.get('compatible_assembly_modes') or detection.get('tested') or []),
-                        '; '.join(a.get('name','') for a in match.get('aliases',[])),record.get('error') or ('Exact' if exact_match(match) else 'Near match' if match else 'No assembly match'),
+                        '; '.join(a.get('name','') for a in match.get('aliases',[])),record.get('error') or ('Exact' if exact_match(match) else 'Adjusted 100% match' if match_type(match) else 'Near match' if match else 'No assembly match'),
                         match['reference_coverage']*100 if match.get('reference_coverage') is not None else None,
                         percentage(match,'adjusted_reference_coverage','reference_coverage'),
                         match['query_coverage']*100 if match.get('query_coverage') is not None else None,
-                        percentage(match,'adjusted_query_coverage','query_coverage'),match.get('aligned_bp'),match.get('excluded_at_deletion_bp',0),match.get('at_deletion_policy',AT_DELETION_POLICY)])
+                        percentage(match,'adjusted_query_coverage','query_coverage'),match.get('aligned_bp'),match.get('excluded_at_deletion_bp',0),match.get('at_deletion_policy',AT_DELETION_POLICY),match_type(match)])
         for hit in hits:
             append(fragments,[filename,name,match.get('name',''),hit.get('name',''),hit.get('plate_id',''),hit.get('well',''),hit.get('representation',''),span_text(hit.get('query_spans',[])),
                              hit.get('strand',''),hit.get('identity',0)*100,percentage(hit,'adjusted_identity','identity'),hit.get('coverage',0)*100,
-                             percentage(hit,'adjusted_reference_coverage','coverage'),'Yes' if exact_match(hit) else 'No',hit.get('status',''),hit.get('excluded_at_deletion_bp',0),hit.get('at_deletion_policy',AT_DELETION_POLICY)])
+                             percentage(hit,'adjusted_reference_coverage','coverage'),'Yes' if match_type(hit) else 'No',hit.get('status',''),hit.get('excluded_at_deletion_bp',0),hit.get('at_deletion_policy',AT_DELETION_POLICY),match_type(hit)])
         for change in diffs:
             append(changes,[filename,name,match.get('name',''),change.get('type',''),span_text([[change.get('reference_start',0),change.get('reference_end',0)]]),span_text(change.get('original_query_spans',[])),change.get('reference_bases',''),change.get('query_bases',''),'Yes' if change.get('excluded_from_adjusted_percentages') else 'No'])
     metadata=wb.create_sheet('Export');metadata.append(['Setting','Value'])
-    metadata.append(['Selection','100% matches' if scope=='exact' else 'Selected files'])
+    metadata.append(['Selection','100% true or adjusted matches' if scope=='exact' else 'Selected files'])
     metadata.append(['Records',len(chosen)])
     metadata.append(['Exported (UTC)',datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')])
     metadata.append(['Coordinates','1-based, inclusive; gap positions are between bases. Query coordinates refer to the original uploaded sequence.'])
     metadata.append(['Identity','Identical alignment columns / all alignment columns, including gaps. Exact requires the exact-match flag and identity 1.'])
+    metadata.append(['100% matches','Includes true exact matches and adjusted identity equal to 100%. Match type identifies which criterion qualified each result.'])
     metadata.append(['Adjusted percentages',AT_DELETION_POLICY+' are removed from identity and reference-coverage denominators. True percentages and all differences are retained. An adjusted 100% does not mark a true exact match.'])
     metadata.append(['Coverage','Paired reference/query bases, including substitutions but excluding gaps, divided by reference/query length respectively. Full coverage alone is not an exact match.'])
     metadata.append(['Scope','One closest reference per record; fragments can overlap. Not detected is not proof of absence.'])
-    for sheet,widths in [(results,[28,28,12,14,35,24,14,14,18,14,10,14,16,14,14,12,15,25,45,35,19,22,19,22,14,20,55]),(fragments,[28,28,32,30,25,9,25,30,10,14,18,14,18,14,20,20,55]),(changes,[28,28,32,16,26,30,45,45,24]),(metadata,[24,95])]:
+    for sheet,widths in [(results,[28,28,12,14,35,24,14,14,18,14,10,14,16,14,14,12,15,25,45,35,19,22,19,22,14,20,55,20]),(fragments,[28,28,32,30,25,9,25,30,10,14,18,14,18,14,20,20,55,20]),(changes,[28,28,32,16,26,30,45,45,24]),(metadata,[24,95])]:
         _format_sheet(sheet,widths,paper='A3' if sheet==results else 'A4');sheet.oddFooter.right.text='Junction comparison'
     for sheet,column in ((results,10),(fragments,14)):
         for row in range(2,sheet.max_row+1):

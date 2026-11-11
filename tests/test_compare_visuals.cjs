@@ -78,3 +78,14 @@ test('adjusted 100% gets its own tick and all completed records must qualify for
  job.result.records[1].matches=[exact];assert.equal(V.fileMatchType(job),'exact');
  job.status='Comparing';assert.equal(V.fileMatchType(job),null);
 });
+
+test('100% result exports include true and adjusted records while retaining both percentages',()=>{
+ const V=require('../app/static/compare-visuals.js');
+ const records=[{query_name:'True',matches:[{exact:true,identity:1}]},
+  {query_name:'Adjusted',matches:[{exact:false,identity:.9,adjusted_identity:1,excluded_at_deletion_bp:20}]},
+  {query_name:'Rounded',matches:[{exact:false,identity:.9,adjusted_identity:.999999}]},
+  {query_name:'Error',error:'Invalid record',matches:[{identity:.9,adjusted_identity:1}]}];
+ const exported=V.exportRecords([{id:1,path:'multi.gb',status:'Done',result:{records}}],new Set(),'exact');
+ assert.deepEqual(exported.map(r=>r.query_name),['True','Adjusted']);
+ assert.equal(exported[1].matches[0].identity,.9);assert.equal(exported[1].matches[0].adjusted_identity,1);
+});

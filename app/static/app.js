@@ -1912,7 +1912,7 @@ function updateCompareSelection(){
   for(const id of compareSelection)if(!valid.has(id))compareSelection.delete(id);
   const visible=visibleCompareJobs().filter(job=>job.status==='Done'),visibleSelected=visible.filter(job=>compareSelection.has(job.id)).length;
   const all=$('compare-select-all');all.disabled=!visible.length;all.checked=!!visible.length&&visibleSelected===visible.length;all.indeterminate=visibleSelected>0&&!all.checked;
-  const exactCount=done.reduce((n,job)=>n+compareRecords(job).filter(record=>!record.error&&record.matches?.some(CompareVisuals.perfect)).length,0);
+  const exactCount=done.reduce((n,job)=>n+compareRecords(job).filter(record=>!record.error&&record.matches?.some(CompareVisuals.matchType)).length,0);
   $('compare-export-exact').disabled=!exactCount;$('compare-export-exact').textContent=`100% matches (${exactCount})`;
   $('compare-export-selected').disabled=!compareSelection.size;$('compare-export-selected').textContent=`Selected (${compareSelection.size})`;
   $('compare-export-toggle').disabled=!done.length;$('compare-selected-count').textContent=compareSelection.size?`${compareSelection.size} selected${compareSelection.size>visibleSelected?' · '+(compareSelection.size-visibleSelected)+' hidden':''}`:'';

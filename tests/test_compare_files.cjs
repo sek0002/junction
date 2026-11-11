@@ -43,3 +43,11 @@ test('identity sorting uses the adjusted value while retaining the true percenta
  assert.deepEqual(F.select(jobs,{sort:'identity',direction:-1}).map(j=>j.id),[1,2]);
  assert.equal(jobs[0].result.records[0].matches[0].identity,.8);
 });
+
+test('100% filter includes adjusted matches and requires every record in a file to qualify',()=>{
+ const exact=job(1,'exact'),adjusted=job(2,'polyA',.9),near=job(3,'near',.999999),mixed=job(4,'mixed',.9);
+ adjusted.result.records[0].matches[0].adjusted_identity=1;
+ mixed.result.records[0].matches[0].adjusted_identity=1;
+ mixed.result.records.push({matches:[match('Below 100%',.99)]});
+ assert.deepEqual(F.select([exact,adjusted,near,mixed],{filter:'exact'}).map(j=>j.id),[1,2]);
+});
