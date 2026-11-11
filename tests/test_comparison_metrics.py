@@ -4,7 +4,7 @@ import unittest
 
 from app.alignment import _rc, _summarize, compare_sequences, rank_candidates
 from app.comparison import fragment_matches
-from app.comparison_metrics import adjusted_percentages, annotate_percentages, refresh_comparison_percentages
+from app.comparison_metrics import adjusted_percentages, annotate_percentages, match_rank, refresh_comparison_percentages
 from test_comparison import sequence
 
 
@@ -62,6 +62,13 @@ class ComparisonPercentageTests(unittest.TestCase):
         self.assertEqual(ranked[0]['name'],'A deletion')
         candidates.append({'name':'Exact','sequence':query,'circular':False})
         self.assertEqual(rank_candidates(query,candidates)[0]['name'],'Exact')
+
+    def test_adjusted_identity_is_the_primary_rank_even_for_legacy_exact_flags(self):
+        matches=[{'name':'Legacy flag','exact':True,'identity':.99,'adjusted_identity':.99},
+                 {'name':'Adjusted match','exact':False,'identity':.9,'adjusted_identity':1}]
+        self.assertEqual(sorted(matches,key=match_rank,reverse=True)[0]['name'],'Adjusted match')
+        tied=[{'identity':.9,'adjusted_identity':1},{'identity':.95,'adjusted_identity':1}]
+        self.assertEqual(sorted(tied,key=match_rank,reverse=True)[0]['identity'],.95)
 
     def test_fragment_matches_use_the_same_adjustment(self):
         reference=sequence(150)+'T'*24+sequence(160)

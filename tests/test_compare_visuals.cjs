@@ -64,3 +64,17 @@ test('A/T-adjusted percentages show true percentages beside them and retain exac
   const exported=V.exportRecords([{id:1,path:'polyA.gb',status:'Done',result:record}],new Set([1]),'selected');
   assert.equal(exported[0].matches[0].identity,.9);assert.equal(exported[0].matches[0].adjusted_identity,1);assert.equal(exported[0].matches[0].excluded_at_deletion_bp,20);
 });
+
+test('adjusted 100% gets its own tick and all completed records must qualify for a file tick',()=>{
+ const V=require('../app/static/compare-visuals.js');
+ const adjusted={exact:false,identity:.9,adjusted_identity:1,excluded_at_deletion_bp:25};
+ const exact={exact:true,identity:1,adjusted_identity:1};
+ assert.equal(V.matchType(adjusted),'adjusted');assert.equal(V.matchType(exact),'exact');
+ assert.equal(V.matchType({...adjusted,adjusted_identity:.999999}),null);
+ assert.ok(V.identityHtml(adjusted).includes('aria-label="100% adjusted identity"'));
+ const job={status:'Done',result:{records:[{matches:[exact]},{matches:[adjusted]}]}};
+ assert.equal(V.fileMatchType(job),'adjusted');
+ job.result.records[1].matches=[{...adjusted,adjusted_identity:.999999}];assert.equal(V.fileMatchType(job),null);
+ job.result.records[1].matches=[exact];assert.equal(V.fileMatchType(job),'exact');
+ job.status='Comparing';assert.equal(V.fileMatchType(job),null);
+});

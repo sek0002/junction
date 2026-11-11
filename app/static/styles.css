@@ -353,3 +353,7 @@ dialog::backdrop{background:rgb(12 26 23 / .48);backdrop-filter:blur(3px)}
 .compare-file-table td:nth-child(4) .compare-adjusted-readout {
   align-items: flex-start;
 }
+.compare-identity .adjusted-match-tick {
+  margin-left: 5px;
+  margin-right: 0;
+}

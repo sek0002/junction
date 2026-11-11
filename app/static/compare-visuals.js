@@ -2,6 +2,12 @@
   const perfect=m=>!!m&&m.exact===true&&m.identity===1&&(m.coverage===undefined||m.coverage===1)&&(m.reference_coverage===undefined||m.reference_coverage===1)&&(m.query_coverage===undefined||m.query_coverage===1);
   const recordsOf=job=>job?.result?.records||(job?.result?[job.result]:[]);
   const filePerfect=job=>job.status==='Done'&&recordsOf(job).length>0&&recordsOf(job).every(record=>!record.error&&record.matches?.some(perfect));
+  const matchType=match=>perfect(match)?'exact':match?.adjusted_identity===1?'adjusted':null;
+  function fileMatchType(job){
+    if(filePerfect(job))return 'exact';
+    const records=recordsOf(job);
+    return job.status==='Done'&&records.length>0&&records.every(record=>!record.error&&record.matches?.some(matchType))?'adjusted':null;
+  }
   const adjustmentFields=['adjusted_identity','adjusted_reference_coverage','adjusted_query_coverage','excluded_at_deletion_bp','excluded_at_deletion_events','excluded_at_deletion_spans','at_deletion_policy'];
   function exportRecords(jobs,selection,scope){
     const fields=(object,keys)=>Object.fromEntries(keys.filter(key=>object[key]!==undefined).map(key=>[key,object[key]]));
@@ -35,7 +41,8 @@
   function identityHtml(match){
     const number=(adjusted,label)=>{
       const hue=identityHue(match,adjusted),value=percent(match,adjusted);
-      return `<span class="compare-identity${hue===null?' is-unknown':''}" ${hue===null?'':`style="--identity-hue:${hue}"`} aria-label="${label} ${value}"><strong>${value}</strong><small>${label}</small></span>`;
+      const tick=adjusted&&match?.adjusted_identity===1&&!perfect(match)?'<span class="exact-match-tick adjusted-match-tick" role="img" aria-label="100% adjusted identity" title="100% adjusted identity · A/T deletions excluded"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span>':'';
+      return `<span class="compare-identity${hue===null?' is-unknown':''}" ${hue===null?'':`style="--identity-hue:${hue}"`} aria-label="${label} ${value}"><strong>${value}${tick}</strong><small>${label}</small></span>`;
     };
     const excluded=match?.excluded_at_deletion_bp||0;
     if(!excluded)return number(true,'identity');
@@ -45,5 +52,5 @@
     if(!match?.excluded_at_deletion_bp)return coveragePercent(match);
     return `<span class="compare-percentage-pair"><span>${coveragePercent(match)}<small>Adjusted coverage</small></span><span>${coveragePercent(match,false)}<small>True coverage</small></span></span>`;
   }
-  const api={perfect,filePerfect,exportRecords,identity,percent,coverage,coveragePercent,coverageHue,identityHue,identityHtml,coverageHtml};if(typeof module==='object'&&module.exports)module.exports=api;else root.CompareVisuals=api;
+  const api={perfect,filePerfect,matchType,fileMatchType,exportRecords,identity,percent,coverage,coveragePercent,coverageHue,identityHue,identityHtml,coverageHtml};if(typeof module==='object'&&module.exports)module.exports=api;else root.CompareVisuals=api;
 })(typeof window==='object'?window:globalThis);

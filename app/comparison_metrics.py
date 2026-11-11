@@ -56,8 +56,8 @@ def annotate_percentages(match, aligned_reference, aligned_query, circular=False
 
 
 def match_rank(match):
-    return (match.get('exact', False), match.get('adjusted_identity', match.get('identity', 0)),
-            match.get('identity', 0), match.get('score', 0))
+    return (match.get('adjusted_identity', match.get('identity', 0)),
+            match.get('identity', 0), match.get('exact', False), match.get('score', 0))
 
 
 def _fragment_alignment(record, hit):
