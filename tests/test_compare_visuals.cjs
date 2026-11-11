@@ -49,3 +49,18 @@ test('identity heatmap uses identity rather than coverage',()=>{
   assert.equal(identityHue({identity:.75}),60);assert.equal(identityHue({identity:1}),120);
   assert.equal(identityHue({reference_coverage:1}),null);
 });
+
+test('A/T-adjusted percentages show true percentages beside them and retain exact-match rules',()=>{
+  const V=require('../app/static/compare-visuals.js');
+  const match={identity:.9,adjusted_identity:1,reference_coverage:.9,adjusted_reference_coverage:1,exact:false,excluded_at_deletion_bp:20};
+  assert.equal(V.percent(match),'100%');assert.equal(V.percent(match,false),'90%');
+  assert.equal(V.coveragePercent(match),'100%');assert.equal(V.coveragePercent(match,false),'90%');
+  const html=V.identityHtml(match);
+  for(const label of ['Adjusted identity','True identity','20 A/T deletion bp excluded','at least 20 bases'])assert.ok(html.includes(label),label);
+  assert.equal(V.perfect(match),false);
+  const coverage=V.coverageHtml(match);assert.ok(coverage.includes('Adjusted coverage'));assert.ok(coverage.includes('True coverage'));
+  const record={matches:[match]};
+  assert.equal(V.filePerfect({status:'Done',result:record}),false);
+  const exported=V.exportRecords([{id:1,path:'polyA.gb',status:'Done',result:record}],new Set([1]),'selected');
+  assert.equal(exported[0].matches[0].identity,.9);assert.equal(exported[0].matches[0].adjusted_identity,1);assert.equal(exported[0].matches[0].excluded_at_deletion_bp,20);
+});

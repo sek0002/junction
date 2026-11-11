@@ -15,6 +15,8 @@ from difflib import SequenceMatcher
 from hashlib import sha256
 from typing import Any, Iterable
 
+from .comparison_metrics import annotate_percentages, adjusted_percentages, match_rank
+
 _COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
 _MOTIFS = {"bsai": ("GGTCTC", "GAGACC"), "bsmbi": ("CGTCTC", "GAGACG"),
            "bbsi": ("GAAGAC", "GTCTTC")}
@@ -252,11 +254,11 @@ def compare_sequences(reference: str, query: str, circular: bool = True) -> dict
             if 0 <= at < len(oriented):
                 ar, aq = reference, reference
                 changes, blocks = _summarize(ar, aq, at, orientation, len(query))
-                return {**_alignment_coverage(ar, aq), "score": len(reference), "identity": 1.0, "orientation": orientation,
+                return annotate_percentages({**_alignment_coverage(ar, aq), "score": len(reference), "identity": 1.0, "orientation": orientation,
                         "rotation": at, "reference_length": len(reference), "query_length": len(query),
                         "changes": changes, "blocks": blocks, "aligned_reference": ar, "aligned_query": aq,
                         "exact": True, "coordinate_system": "zero-based, end-exclusive; query coordinates after orientation and rotation",
-                        "method": "exact circular sequence match"}
+                        "method": "exact circular sequence match"}, ar, aq, circular)
         offsets = _rotations(reference, oriented) if circular else [0]
         # Rank rotation hypotheses cheaply before expensive SequenceMatcher alignment.
         for rotation in offsets:
@@ -278,7 +280,8 @@ def compare_sequences(reference: str, query: str, circular: bool = True) -> dict
             ar, aq = _align(reference, rotated)
             matches = sum(a == b for a, b in zip(ar, aq))
             edits = len(ar) - matches
-            key = (matches - edits, matches / max(1, len(ar)))
+            adjusted = adjusted_percentages(ar, aq, circular)
+            key = (matches - edits + adjusted['excluded_at_deletion_bp'], adjusted['adjusted_identity'])
             if best is None or key > best[0]:
                 best = (key, orientation, rotation, ar, aq)
             # Indels shift the strongest rotation vote. A reference prefix can
@@ -292,15 +295,19 @@ def compare_sequences(reference: str, query: str, circular: bool = True) -> dict
                 if inserted and aq[-inserted:] == '-' * inserted and aq[:inserted] == ar[-inserted:]:
                     pending.append(((rotation+inserted) % len(query), rotated[inserted:]+rotated[:inserted]))
     assert best is not None
-    (score, identity), orientation, rotation, ar, aq = best
+    _, orientation, rotation, ar, aq = best
+    matches = sum(a == b for a, b in zip(ar, aq))
+    identity = matches / max(1, len(ar))
+    score = matches - (len(ar) - matches)
     changes, blocks = _summarize(ar, aq, rotation, orientation, len(query))
-    return {**_alignment_coverage(ar, aq), "score": score, "identity": identity, "orientation": orientation, "rotation": rotation,
+    result = annotate_percentages({**_alignment_coverage(ar, aq), "score": score, "identity": identity, "orientation": orientation, "rotation": rotation,
             "reference_length": len(reference), "query_length": len(query), "changes": changes,
             "blocks": blocks, "aligned_reference": ar, "aligned_query": aq, "exact": not changes,
-            "low_identity": identity < 0.8,
             "coordinate_system": "zero-based, end-exclusive; query coordinates after orientation and rotation",
             "method": "circular k-mer anchors; monotonic unique-seed chain and local optimal edit alignment",
-            "limitations": "Heuristic alignment; repeat-associated indel placement may be ambiguous. No sequencing quality scores are used."}
+            "limitations": "Heuristic alignment; repeat-associated indel placement may be ambiguous. No sequencing quality scores are used."}, ar, aq, circular)
+    result['low_identity'] = result['adjusted_identity'] < .8
+    return result
 
 
 def rank_candidates(query: str, candidates: Iterable[dict], limit: int = 5) -> list[dict]:
@@ -335,7 +342,7 @@ def rank_candidates(query: str, candidates: Iterable[dict], limit: int = 5) -> l
                        "assembly_enzymes":candidate.get("assembly_enzymes",[]), "aliases":candidate.get("aliases",[])})
         result['assembly_paths'] = candidate.get('assembly_paths', [])
         results.append(result)
-    results.sort(key=lambda x: (x["exact"], x["identity"], x["score"]), reverse=True)
+    results.sort(key=match_rank, reverse=True)
     return results[:limit]
 
 

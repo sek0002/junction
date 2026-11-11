@@ -44,6 +44,27 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.bob.get('/api/workspace').json()['data'],bob)
         self.assertEqual(self.admin.get('/api/workspace').json()['data'],{})
 
+    def test_saved_comparisons_gain_adjusted_percentages_without_overwriting_true_results(self):
+        reference='GCCG'+'A'*20+'CGGC'
+        aligned_query='GCCG'+'-'*20+'CGGC'
+        result={'query_sequence':'GCCGCGGC','matches':[{
+            'identity':8/28,'reference_coverage':8/28,'query_coverage':1,'exact':False,
+            'aligned_reference':reference,'aligned_query':aligned_query,'changes':[]
+        }]}
+        encoded=json.dumps(result)
+        with store.connection() as db:
+            identifier=db.execute('INSERT INTO comparison_runs(user_id,filename,source,enzyme,result) VALUES(?,?,?,?,?)',
+                (self.alice_info['id'],'polyA.fa','>polyA\nGCCGCGGC','BsaI',encoded)).lastrowid
+        response=self.alice.get('/api/workspace/comparisons')
+        self.assertEqual(response.status_code,200,response.text)
+        match=response.json()['items'][0]['result']['matches'][0]
+        self.assertEqual(match['adjusted_identity'],1)
+        self.assertEqual(match['excluded_at_deletion_bp'],20)
+        self.assertEqual(match['identity'],8/28)
+        self.assertEqual(self.bob.get('/api/workspace/comparisons').json()['items'],[])
+        with store.connection() as db:
+            self.assertEqual(db.execute('SELECT result FROM comparison_runs WHERE id=?',(identifier,)).fetchone()['result'],encoded)
+
     def test_name_mode_persists_with_builds_settings_and_private_drafts(self):
         request=self.build|{'name_mode':'auto'}
         created=self.alice.post('/api/build-list',json=request)

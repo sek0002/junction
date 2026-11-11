@@ -53,7 +53,11 @@
     referenceColumns.push(reference.length);
     queryColumns.push(reference.length);
     const n=queryBefore[query.length],rotation=n?((Number(match.rotation)||0)%n+n)%n:0,orientation=match.orientation==='-'?'-':'+';
-    for(const change of changes)change.original_query_spans=originalSpans(change.query_start,change.query_end,n,rotation,orientation,match.circular!==false);
+    const excludedSpans=new Set((match.excluded_at_deletion_spans||[]).map(span=>span.join(':')));
+    for(const change of changes){
+      change.original_query_spans=originalSpans(change.query_start,change.query_end,n,rotation,orientation,match.circular!==false);
+      change.excluded_from_adjusted_percentages=change.type==='deletion'&&excludedSpans.has(change.reference_start+':'+change.reference_end);
+    }
     const circular=match.circular!==false,refSites=restrictionSites(reference.replace(/-/g,''),circular),querySites=restrictionSites(query.replace(/-/g,''),circular);
     const features=(match.features||[]).filter(f=>f.type!=='source'&&Number.isFinite(f.start)&&Number.isFinite(f.end)&&f.end>f.start);
     for(const site of refSites)if(!features.some(f=>enzymeFor(f)===site.enzyme&&f.start===site.start))features.push({...site,type:'restriction_site',label:site.enzyme,autoRestriction:true,_siteSide:'reference',_siteIndex:site.index});
@@ -114,7 +118,7 @@
     }
     if(type==='change'){
       const c=model.changes[index];if(!c)return '';
-      return `<strong class="diff-kind-${c.type}">${names[c.type]} · ${Math.max(c.reference_bases.length,c.query_bases.length)} bp</strong><dl><dt>Reference</dt><dd>${span(c.reference_start,c.reference_end)}</dd><dt>Original query</dt><dd>${originalQueryLabel(model,c.query_start,c.query_end)}</dd></dl><div class="diff-hover-change"><code>${escape(c.reference_bases.slice(0,60)||'—')}${c.reference_bases.length>60?'…':''}</code><span>→</span><code>${escape(c.query_bases.slice(0,60)||'—')}${c.query_bases.length>60?'…':''}</code></div><small>Affected features</small>${featureList(affected(model,c))}<small class="diff-hover-hint">Click to focus this difference</small>`;
+      return `<strong class="diff-kind-${c.type}">${names[c.type]} · ${Math.max(c.reference_bases.length,c.query_bases.length)} bp</strong>${c.excluded_from_adjusted_percentages?'<small>Pure A/T deletion ≥20 bp · Excluded from adjusted percentages · Included in true percentages</small>':''}<dl><dt>Reference</dt><dd>${span(c.reference_start,c.reference_end)}</dd><dt>Original query</dt><dd>${originalQueryLabel(model,c.query_start,c.query_end)}</dd></dl><div class="diff-hover-change"><code>${escape(c.reference_bases.slice(0,60)||'—')}${c.reference_bases.length>60?'…':''}</code><span>→</span><code>${escape(c.query_bases.slice(0,60)||'—')}${c.query_bases.length>60?'…':''}</code></div><small>Affected features</small>${featureList(affected(model,c))}<small class="diff-hover-hint">Click to focus this difference</small>`;
     }
     if(type==='site'){
       const site=(side==='query'?model.querySites:model.refSites)[index];if(!site)return '';const length=side==='query'?model.queryLength:model.referenceLength;

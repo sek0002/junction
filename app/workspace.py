@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from . import database as store
 from .auth import user_id
+from .comparison_metrics import refresh_comparison_percentages
 
 router=APIRouter()
 
@@ -36,7 +37,7 @@ def save_workspace(payload:Workspace):
 def comparisons():
     with store.connection() as db:
         rows=db.execute('SELECT * FROM comparison_runs WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),)).fetchall()
-    return {'items':[dict(row,result=json.loads(row['result']) if row['result'] else None) for row in rows]}
+    return {'items':[dict(row,result=refresh_comparison_percentages(json.loads(row['result'])) if row['result'] else None) for row in rows]}
 
 
 @router.delete('/api/workspace/comparisons')

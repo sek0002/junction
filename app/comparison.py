@@ -8,6 +8,7 @@ from .exports import parse_sequence_file
 
 from .alignment import _align, _anchors, _rc, _summarize, infer_database_candidates, rank_candidates
 from .sequence_engine import digest_fragment, restriction_sites
+from .comparison_metrics import annotate_percentages, adjusted_percentages
 
 MODES=('BsaI','BsmBI','BsmBI + BsaI')
 
@@ -117,7 +118,8 @@ def fragment_matches(query,fragments,enzymes,circular=True,max_approximate=60):
             ar,aq=_align(reference,observed)
             same=sum(a==b and a!='-' for a,b in zip(ar,aq));covered=sum(a!='-' and b!='-' for a,b in zip(ar,aq))
             identity=same/max(1,len(ar));coverage=covered/len(reference)
-            if identity<.65 or coverage<.6 or same<30:continue
+            adjusted=adjusted_percentages(ar,aq)
+            if adjusted['adjusted_identity']<.65 or adjusted['adjusted_reference_coverage']<.6 or same<30:continue
             changes,_=_summarize(ar,aq,0,'+',len(observed))
             for change in changes:
                 n=change['query_end']-change['query_start']
@@ -127,9 +129,10 @@ def fragment_matches(query,fragments,enzymes,circular=True,max_approximate=60):
             hit={'id':part['id'],'name':part['name'],'plate_id':part.get('plate_id',''),'well':part.get('well',''),
                 **meta,'strand':strand,'reference_length':len(reference),'identity':identity,'coverage':coverage,'exact':not changes,
                 'query_spans':_spans(start+left,len(observed),total),'occurrences':[], 'short_match':False,
-                'changes':changes,'status':'Partial' if coverage<.95 else 'Near match'}
+                'changes':changes,'status':'Partial' if adjusted['adjusted_reference_coverage']<.95 else 'Near match'}
+            annotate_percentages(hit,ar,aq)
             current=near.get(part['id'])
-            if current is None or (identity,coverage,len(reference))>(current['identity'],current['coverage'],current['reference_length']):near[part['id']]=hit
+            if current is None or (hit['adjusted_identity'],hit['adjusted_reference_coverage'],len(reference))>(current['adjusted_identity'],current['adjusted_reference_coverage'],current['reference_length']):near[part['id']]=hit
     hits=exact+list(near.values());hits.sort(key=lambda hit:(hit['query_spans'][0][0],-hit['reference_length'],hit['name']))
     return {'matches':hits,'metadata':{'fragments_checked':len(fragments),'matched_fragments':len(hits),
         'approximate_variants_checked':min(len(approximate),max_approximate),'approximate_search_capped':truncated,
@@ -183,10 +186,10 @@ def compare_record(record,fragments,references,enzyme='auto',infer=True):
             if not match.get('parts') and candidate.get('parts'):match['parts']=candidate['parts']
     ranked=rank_candidates(query,combined.values(),limit=5) if combined else []
     # A high-identity circular reference can establish circular context for FASTA.
-    circular=bool(record.get('circular') or ranked and ranked[0].get('circular') and ranked[0]['identity']>=.95)
+    circular=bool(record.get('circular') or ranked and ranked[0].get('circular') and ranked[0]['adjusted_identity']>=.95)
     fragments_result=fragment_matches(query,fragments,modes,circular=circular)
     counts=Counter(site['enzyme'] for site in restriction_sites(query,circular=circular) if site['enzyme'] in ('BsaI','BsmBI'))
-    compatible=ranked[0].get('assembly_enzymes',[]) if ranked and ranked[0]['identity']>=.95 else []
+    compatible=ranked[0].get('assembly_enzymes',[]) if ranked and ranked[0]['adjusted_identity']>=.95 else []
     return {'query_name':record['name'],'query_length':len(query),'query_sequence':query,'query_circular':circular,'matches':ranked,
         'candidate_count':len(combined),'inferred_count':len(inferred),'search':{'modes':metadata,'routes_explored':sum(v.get('routes_explored',0) for v in metadata.values()),'complete_search':all(v['complete_search'] for v in metadata.values()) if metadata else None},
         'enzyme_detection':{'mode':enzyme,'tested':list(modes),'site_counts':dict(counts),'compatible_assembly_modes':compatible,

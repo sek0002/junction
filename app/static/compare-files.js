@@ -22,7 +22,7 @@
     if(key==='file')return job.path;
     if(key==='status')return ['Queued','Comparing','Done','Error','Skipped'].indexOf(job.status);
     if(key==='match')return best?.name??null;
-    if(key==='identity')return best?.identity??null;
+    if(key==='identity')return visuals.identity(best)??null;
     if(key==='fragments')return job.status==='Done'&&r&&!r.error?(r.fragment_matches?.length||0):null;
     return null;
   }

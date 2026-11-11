@@ -168,3 +168,12 @@ test('query hovers retain original reverse coordinates while sharing reference p
   assert.equal(D.originalQueryLabel({queryLength:100,rotation:50,orientation:'-',circular:true},35,80),'15→1 / 100→71');
   const html=D.windowHtml(m,0,60,null);assert.ok(html.includes('Reference base 6 · Query gap'));
 });
+
+test('excluded A/T deletions stay visible with an explicit percentage annotation',()=>{
+ const match={aligned_reference:'GCCG'+'A'.repeat(20)+'CGGC',aligned_query:'GCCG'+'-'.repeat(20)+'CGGC',excluded_at_deletion_spans:[[4,24]],circular:false};
+ const model=D.build(match);
+ assert.equal(model.changes.length,1);assert.equal(model.changes[0].type,'deletion');
+ assert.equal(model.changes[0].excluded_from_adjusted_percentages,true);
+ assert.ok(D.hoverHtml(model,'change',0).includes('Excluded from adjusted percentages'));
+ assert.ok(D.hoverHtml(model,'change',0).includes('Included in true percentages'));
+});

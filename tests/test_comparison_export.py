@@ -15,16 +15,16 @@ class ComparisonExportTests(unittest.TestCase):
     def test_exact_export_excludes_rounded_near_matches_and_error_records(self):
         rows=[record('exact.gb'),record('near.gb',False,.9999999),record('flag-but-not-exact.gb',True,.9999999),{'filename':'error.gb','error':'Bad record'}]
         wb=load_workbook(io.BytesIO(comparison_workbook(rows,'exact')))
-        sheet=wb['Results'];self.assertEqual(sheet.max_row,2);self.assertEqual(sheet['A2'].value,'exact.gb');self.assertEqual(sheet['I2'].value,'Yes')
+        sheet=wb['Results'];self.assertEqual(sheet.max_row,2);self.assertEqual(sheet['A2'].value,'exact.gb');self.assertEqual(sheet['J2'].value,'Yes')
         self.assertEqual(wb['Fragments'].max_row,2)
-        self.assertEqual(sheet['I2'].fill.fgColor.rgb,'00E9F3EE')
+        self.assertEqual(sheet['J2'].fill.fgColor.rgb,'00E9F3EE')
 
     def test_selected_export_preserves_nonexact_results_and_difference_coordinates(self):
         rows=[record('exact.gb'),record('mutated.gb',False,.99)]
         wb=load_workbook(io.BytesIO(comparison_workbook(rows,'selected')))
-        self.assertEqual(wb['Results'].max_row,3);self.assertEqual(wb['Results']['I3'].value,'No')
+        self.assertEqual(wb['Results'].max_row,3);self.assertEqual(wb['Results']['J3'].value,'No')
         self.assertEqual(wb['Results']['H3'].value,99)
-        self.assertEqual(wb['Results']['L3'].value,1)
+        self.assertEqual(wb['Results']['M3'].value,1)
         self.assertEqual(wb['Differences']['E2'].value,'10–10')
         self.assertEqual(wb['Differences']['F2'].value,'10–10')
         self.assertEqual(wb['Fragments']['E2'].value,'Plate')
@@ -34,5 +34,19 @@ class ComparisonExportTests(unittest.TestCase):
         data=record('=danger.gb');data['query_name']='@query'
         wb=load_workbook(io.BytesIO(comparison_workbook([data,{'filename':'no-hit.fa','query_name':'No hit','matches':[]}],'selected')))
         self.assertEqual(wb['Results']['A2'].data_type,'s');self.assertEqual(wb['Results']['A2'].value,"'=danger.gb")
-        self.assertEqual(wb['Results']['S3'].value,'No assembly match')
+        self.assertEqual(wb['Results']['T3'].value,'No assembly match')
         with self.assertRaises(ValueError):comparison_workbook([record('near',False,.99)],'exact')
+
+    def test_adjusted_and_true_percentages_are_adjacent_and_exact_export_uses_true_match(self):
+        data=record('polyA.gb',False,.8)
+        match=data['matches'][0]
+        match.update(adjusted_identity=1,reference_coverage=.8,adjusted_reference_coverage=1,query_coverage=1,adjusted_query_coverage=1,excluded_at_deletion_bp=20)
+        match['changes']=[{'type':'deletion','reference_start':10,'reference_end':30,'reference_bases':'A'*20,'query_bases':'','excluded_from_adjusted_percentages':True}]
+        wb=load_workbook(io.BytesIO(comparison_workbook([data],'selected')))
+        self.assertEqual(wb['Results']['H2'].value,80)
+        self.assertEqual(wb['Results']['I2'].value,100)
+        self.assertEqual(wb['Results']['J2'].value,'No')
+        self.assertEqual(wb['Results']['U2'].value,80)
+        self.assertEqual(wb['Results']['V2'].value,100)
+        self.assertEqual(wb['Differences']['I2'].value,'Yes')
+        with self.assertRaises(ValueError):comparison_workbook([data],'exact')
