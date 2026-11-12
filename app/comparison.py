@@ -9,6 +9,7 @@ from .exports import parse_sequence_file
 from .alignment import _align, _anchors, _rc, _summarize, infer_database_candidates, rank_candidates
 from .sequence_engine import digest_fragment, restriction_sites
 from .comparison_metrics import annotate_percentages, adjusted_percentages
+from .coding_analysis import annotate_coding, query_translation_report
 
 MODES=('BsaI','BsmBI','BsmBI + BsaI')
 
@@ -185,12 +186,15 @@ def compare_record(record,fragments,references,enzyme='auto',infer=True):
             match['assembly_paths'].extend(paths)
             if not match.get('parts') and candidate.get('parts'):match['parts']=candidate['parts']
     ranked=rank_candidates(query,combined.values(),limit=5) if combined else []
+    for match in ranked:
+        annotate_coding(match,record.get('features'))
     # A high-identity circular reference can establish circular context for FASTA.
     circular=bool(record.get('circular') or ranked and ranked[0].get('circular') and ranked[0]['adjusted_identity']>=.95)
     fragments_result=fragment_matches(query,fragments,modes,circular=circular)
     counts=Counter(site['enzyme'] for site in restriction_sites(query,circular=circular) if site['enzyme'] in ('BsaI','BsmBI'))
     compatible=ranked[0].get('assembly_enzymes',[]) if ranked and ranked[0]['adjusted_identity']>=.95 else []
-    return {'query_name':record['name'],'query_length':len(query),'query_sequence':query,'query_circular':circular,'matches':ranked,
+    return {'query_name':record['name'],'query_length':len(query),'query_sequence':query,'query_features':record.get('features',[]),
+        'query_coding_analysis':query_translation_report(query,record.get('features'),circular) if not ranked else None,'query_circular':circular,'matches':ranked,
         'candidate_count':len(combined),'inferred_count':len(inferred),'search':{'modes':metadata,'routes_explored':sum(v.get('routes_explored',0) for v in metadata.values()),'complete_search':all(v['complete_search'] for v in metadata.values()) if metadata else None},
         'enzyme_detection':{'mode':enzyme,'tested':list(modes),'site_counts':dict(counts),'compatible_assembly_modes':compatible,
             'resolved_enzyme':compatible[0] if len(compatible)==1 else None,

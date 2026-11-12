@@ -1,6 +1,7 @@
 /* Both sequence rows share reference coordinates. Original upload coordinates
    remain available in hover details after query orientation and rotation. */
 (function(root){
+  const codingViewer=typeof module==='object'&&module.exports?require('./coding-viewer.js'):root.CodingViewer;
   const escape=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
   const kind=(a,b)=>a===b?null:a==='-'?'insertion':b==='-'?'deletion':'substitution';
@@ -54,9 +55,12 @@
     queryColumns.push(reference.length);
     const n=queryBefore[query.length],rotation=n?((Number(match.rotation)||0)%n+n)%n:0,orientation=match.orientation==='-'?'-':'+';
     const excludedSpans=new Set((match.excluded_at_deletion_spans||[]).map(span=>span.join(':')));
+    const codingKey=change=>[change.type,change.reference_start,change.reference_end,change.query_start,change.query_end].join(':');
+    const codingByChange=new Map((match.changes||[]).map(change=>[codingKey(change),change.coding_effects||[]]));
     for(const change of changes){
       change.original_query_spans=originalSpans(change.query_start,change.query_end,n,rotation,orientation,match.circular!==false);
       change.excluded_from_adjusted_percentages=change.type==='deletion'&&excludedSpans.has(change.reference_start+':'+change.reference_end);
+      change.coding_effects=codingByChange.get(codingKey(change))||[];
     }
     const circular=match.circular!==false,refSites=restrictionSites(reference.replace(/-/g,''),circular),querySites=restrictionSites(query.replace(/-/g,''),circular);
     const features=(match.features||[]).filter(f=>f.type!=='source'&&Number.isFinite(f.start)&&Number.isFinite(f.end)&&f.end>f.start);
@@ -118,7 +122,7 @@
     }
     if(type==='change'){
       const c=model.changes[index];if(!c)return '';
-      return `<strong class="diff-kind-${c.type}">${names[c.type]} · ${Math.max(c.reference_bases.length,c.query_bases.length)} bp</strong>${c.excluded_from_adjusted_percentages?'<small>Pure A/T deletion ≥20 bp · Excluded from adjusted percentages · Included in true percentages</small>':''}<dl><dt>Reference</dt><dd>${span(c.reference_start,c.reference_end)}</dd><dt>Original query</dt><dd>${originalQueryLabel(model,c.query_start,c.query_end)}</dd></dl><div class="diff-hover-change"><code>${escape(c.reference_bases.slice(0,60)||'—')}${c.reference_bases.length>60?'…':''}</code><span>→</span><code>${escape(c.query_bases.slice(0,60)||'—')}${c.query_bases.length>60?'…':''}</code></div><small>Affected features</small>${featureList(affected(model,c))}<small class="diff-hover-hint">Click to focus this difference</small>`;
+      return `<strong class="diff-kind-${c.type}">${names[c.type]} · ${Math.max(c.reference_bases.length,c.query_bases.length)} bp</strong>${c.excluded_from_adjusted_percentages?'<small>Pure A/T deletion ≥20 bp · Excluded from adjusted percentages · Included in true percentages</small>':''}<dl><dt>Reference</dt><dd>${span(c.reference_start,c.reference_end)}</dd><dt>Original query</dt><dd>${originalQueryLabel(model,c.query_start,c.query_end)}</dd></dl><div class="diff-hover-change"><code>${escape(c.reference_bases.slice(0,60)||'—')}${c.reference_bases.length>60?'…':''}</code><span>→</span><code>${escape(c.query_bases.slice(0,60)||'—')}${c.query_bases.length>60?'…':''}</code></div>${codingViewer.effectsHtml(c.coding_effects)}<small>Affected features</small>${featureList(affected(model,c))}<small class="diff-hover-hint">Click to focus this difference</small>`;
     }
     if(type==='site'){
       const site=(side==='query'?model.querySites:model.refSites)[index];if(!site)return '';const length=side==='query'?model.queryLength:model.referenceLength;

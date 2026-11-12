@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 from . import database as store
 from .auth import user_id
 from .comparison_metrics import refresh_comparison_percentages
+from .coding_analysis import refresh_coding_results
+from .exports import parse_sequence_file
 
 router=APIRouter()
 
@@ -37,7 +39,23 @@ def save_workspace(payload:Workspace):
 def comparisons():
     with store.connection() as db:
         rows=db.execute('SELECT * FROM comparison_runs WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),)).fetchall()
-    return {'items':[dict(row,result=refresh_comparison_percentages(json.loads(row['result'])) if row['result'] else None) for row in rows]}
+    return {'items':[dict(row,result=restored_comparison(row)) for row in rows]}
+
+
+def restored_comparison(row):
+    if not row['result']:
+        return None
+    result=refresh_comparison_percentages(json.loads(row['result']))
+    records=result.get('records') or [result]
+    if any('query_features' not in record for record in records):
+        try:
+            source_records=parse_sequence_file(row['source'],row['filename'])
+        except (ValueError,IndexError):
+            source_records=[]
+        by_name={record['name']:record.get('features',[]) for record in source_records}
+        for record in records:
+            record.setdefault('query_features',by_name.get(record.get('query_name'),[]))
+    return refresh_coding_results(result)
 
 
 @router.delete('/api/workspace/comparisons')
