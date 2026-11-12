@@ -2,9 +2,16 @@
 from collections import Counter
 from itertools import groupby
 
-from Bio.Data import CodonTable
-from Bio.Seq import Seq
-from Bio.SeqFeature import CompoundLocation, ExactPosition, Location, SimpleLocation
+try:
+    from Bio.Data import CodonTable
+    from Bio.Seq import Seq
+    from Bio.SeqFeature import CompoundLocation, ExactPosition, Location, SimpleLocation
+except ImportError:
+    # Translation is optional at runtime. Older service environments may not
+    # have installed the new requirement yet; the workbench must still load.
+    BIO_AVAILABLE = False
+else:
+    BIO_AVAILABLE = True
 
 REPORT_VERSION = 1
 MIN_ORF_AA = 30
@@ -261,6 +268,13 @@ def _analyse_region(match, feature, source, index, original_query, alignment_ind
 
 
 def annotate_coding(match, query_features=None):
+    if not BIO_AVAILABLE:
+        match['coding_analysis'] = {
+            'version': REPORT_VERSION, 'available': False, 'regions': [],
+            'frames': {}, 'predicted': False, 'summary': {},
+            'warnings': ['Translation analysis unavailable: Biopython is missing or could not be imported. Install requirements.txt in the service virtual environment, then restart Junction.'],
+        }
+        return match
     ar, aq = match.get('aligned_reference'), match.get('aligned_query')
     if not isinstance(ar,str) or not isinstance(aq,str) or not ar or len(ar) != len(aq):
         return match
@@ -335,10 +349,10 @@ def refresh_coding_results(result):
     if not result:
         return result
     for record in result.get('records') or [result]:
-        if not record.get('matches') and record.get('query_sequence') and not record.get('query_coding_analysis'):
+        if not record.get('matches') and record.get('query_sequence') and (not record.get('query_coding_analysis') or (BIO_AVAILABLE and record['query_coding_analysis'].get('available') is False)):
             record['query_coding_analysis']=query_translation_report(record['query_sequence'],record.get('query_features'),record.get('query_circular',False))
         for match in record.get('matches') or []:
-            if match.get('coding_analysis',{}).get('version') != REPORT_VERSION:
+            if match.get('coding_analysis',{}).get('version') != REPORT_VERSION or (BIO_AVAILABLE and match.get('coding_analysis',{}).get('available') is False):
                 annotate_coding(match,record.get('query_features'))
     return result
 

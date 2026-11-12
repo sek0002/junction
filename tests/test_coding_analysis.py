@@ -3,7 +3,7 @@ import unittest
 from Bio.Seq import Seq
 
 from app.alignment import compare_sequences, _summarize
-from app.coding_analysis import annotate_coding
+from app.coding_analysis import annotate_coding, refresh_coding_results
 from app.comparison import compare_record
 
 
@@ -21,6 +21,16 @@ def cds(length, **qualifiers):
 
 
 class CodingAnalysisTests(unittest.TestCase):
+    def test_unavailable_saved_reports_recover_after_dependency_install(self):
+        unavailable = {'version':1, 'available':False}
+        result = {'query_sequence':'ATGAAATAA','query_coding_analysis':unavailable}
+        refresh_coding_results(result)
+        self.assertNotEqual(result['query_coding_analysis'].get('available'), False)
+        match = {'aligned_reference':'ATGAAATAA','aligned_query':'ATGGAATAA',
+                 'features':[cds(9)],'coding_analysis':unavailable,'changes':[]}
+        refresh_coding_results({'matches':[match]})
+        self.assertEqual(match['coding_analysis']['regions'][0]['effects'][0]['type'], 'missense')
+
     def test_synonymous_missense_stop_gain_stop_loss_and_start_loss(self):
         reference='ATGAAAGGGTAA'
         cases=[('ATGAAGGGGTAA','synonymous','K2K'),('ATGGAAGGGTAA','missense','K2E'),
