@@ -12,6 +12,7 @@
       const select=doc.querySelector(`[data-worksheet-select="${kind}"]`),current=active[kind],items=records[kind]||[];
       if(select){select.replaceChildren();const empty=doc.createElement('option');empty.value='';empty.textContent='Unsaved worksheet';select.append(empty);
         for(const item of items){const option=doc.createElement('option');option.value=item.id;option.textContent=item.name;select.append(option);}select.value=current?.id||'';select.disabled=locked;}
+      doc.querySelectorAll(`[data-worksheet-save="${kind}"]`).forEach(button=>button.disabled=locked);
       doc.querySelectorAll(`[data-worksheet-delete="${kind}"]`).forEach(button=>button.disabled=locked||!current);
       if(kind===scope){$('worksheet-save').disabled=$('worksheet-share').disabled=$('worksheet-new').disabled=locked||!scope;}
     }
@@ -24,7 +25,7 @@
       if(scope)load(scope).catch(error=>notify(error.message));
     }
     function menuClose(){if($('workbench-menu-toggle').getAttribute('aria-expanded')==='true')$('workbench-menu-toggle').click();}
-    function lock(value){locked=value;Object.keys(scopes).forEach(render);doc.querySelectorAll('[data-worksheet-new],[data-worksheet-share]').forEach(button=>button.disabled=value);$('worksheet-save-submit').disabled=value;}
+    function lock(value){locked=value;Object.keys(scopes).forEach(render);doc.querySelectorAll('[data-worksheet-save],[data-worksheet-new],[data-worksheet-share]').forEach(button=>button.disabled=value);$('worksheet-save-submit').disabled=value;}
     async function saveDialog(kind=scope,{thenNew=false}={}){
       if(!kind||locked)return;scope=kind;menuClose();afterSaveNew=thenNew;
       try{await flush();await load(kind);$('worksheet-save-title').textContent='Save '+scopes[kind]+' worksheet';$('worksheet-save-name').value=active[kind]?.name||nameFor(kind);$('worksheet-save-notes').value=active[kind]?.notes||'';$('worksheet-save-error').textContent='';$('worksheet-save-dialog').showModal();$('worksheet-save-name').focus();}catch(error){notify(error.message);}
@@ -72,6 +73,7 @@
     for(const kind of Object.keys(scopes)){
       doc.querySelector(`[data-worksheet-select="${kind}"]`).onchange=event=>open(kind,event.target.value);
       const add=doc.querySelector(`[data-worksheet-new="${kind}"]`),del=doc.querySelector(`[data-worksheet-delete="${kind}"]`),exportButton=doc.querySelector(`[data-worksheet-share="${kind}"]`);
+      const save=doc.querySelector(`[data-worksheet-save="${kind}"]`);save.innerHTML=icon('save');save.onclick=()=>saveDialog(kind);
       add.innerHTML=icon('new');add.onclick=()=>newPage(kind);del.innerHTML=icon('remove');
       del.onclick=()=>{removeTarget=active[kind];if(removeTarget){$('worksheet-remove-name').textContent=removeTarget.name;$('worksheet-remove-dialog').showModal();}};
       exportButton.innerHTML=icon('share');exportButton.onclick=()=>share({kind});
