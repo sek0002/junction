@@ -2,7 +2,7 @@
 from .sequence_engine import _oriented_chain, fragment_orientations
 
 
-def orient_fragments(entries, enzyme, backbone=None, left='', right=''):
+def orient_fragments(entries, enzyme, backbone=None, left='', right='', allow_internal_bsmbi=False):
     chosen, index = {}, 0
     while index < len(entries):
         if entries[index]['kind'] != 'fragment':
@@ -13,7 +13,7 @@ def orient_fragments(entries, enzyme, backbone=None, left='', right=''):
             index += 1
         options = []
         for entry in entries[start:index]:
-            variants = fragment_orientations(entry['sequence'], enzyme)
+            variants = fragment_orientations(entry['sequence'], enzyme, allow_internal_bsmbi=allow_internal_bsmbi)
             options.append([variant for variant in variants if variant['valid']] or variants)
         required_left = (backbone['right_overhang'] if backbone else left) if start == 0 else None
         required_right = (backbone['left_overhang'] if backbone else right) if index == len(entries) else None

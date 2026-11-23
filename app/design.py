@@ -62,6 +62,7 @@ class DesignRequest(BaseModel):
     include_re_sites: bool = True
     reverse_output: bool = False
     make_twist_compatible: bool = False
+    allow_internal_bsmbi: bool = False
     use_table: bool = False
     table_rows: list[TableRow] = Field(default_factory=list,max_length=384)
     backbone_id: int | None = Field(default=None, gt=0)
@@ -135,16 +136,18 @@ def preview_design(payload, generate=True):
     result = design(entries, payload.enzyme, backbone, payload.slot_id,
                     payload.left_overhang, payload.right_overhang, payload.window,
                     payload.avoid_sites, payload.excluded_overhangs, generate, payload.adapter_enzyme,
-                    payload.left_adapter_enzyme, payload.right_adapter_enzyme)
+                    payload.left_adapter_enzyme, payload.right_adapter_enzyme, payload.allow_internal_bsmbi)
     reference_result=result
     if payload.use_table:
         rows = [row.model_dump() for row in payload.table_rows]
         if generate:
-            result = table_design(result, rows, payload.enzyme, backbone, payload.slot_id, payload.avoid_sites)
+            result = table_design(result, rows, payload.enzyme, backbone, payload.slot_id, payload.avoid_sites, payload.allow_internal_bsmbi)
         else:
-            errors, statuses = check_rows(entries, rows, payload.enzyme, payload.avoid_sites)
+            errors, statuses = check_rows(entries, rows, payload.enzyme, payload.avoid_sites, payload.allow_internal_bsmbi)
             result['errors'].extend(errors)
             result.update(table_mode=True, table_rows=statuses)
+            result['requires_bsmbi_override'] = result['requires_bsmbi_override'] or any(row['bsmbi_sites'] for row in statuses)
+            result['bsmbi_sites'].extend(row['name']+': '+site for row in statuses for site in row['bsmbi_sites'])
     sequence_metadata(result, payload.include_re_sites)
     if payload.make_twist_compatible and result['valid']:
         try:
@@ -185,14 +188,14 @@ def export(payload: DesignRequest, format: Literal['csv', 'xlsx', 'fasta', 'targ
     if example:
         item = result['assembly']
         content = genbank_bytes(payload.name + '_example' + strand_suffix, item['sequence'], item['features'],
-            circular=item['circular'], notes=['Reference design example. Dynamic regions use the reference insert sequence; table rows and pasted alternatives are not generated.',strand_note])
+            circular=item['circular'], notes=['Reference design example. Dynamic regions use the reference insert sequence; table rows and pasted alternatives are not generated.',strand_note,*result['warnings']])
         mime,extension,suffix = 'text/plain','gb','_example'
     elif format == 'gb':
         def record_name(index,item):
             if result.get('table_mode'):
                 return f'{index:03d}_' + item['name']
             return (f'{index:02d}_' + payload.name + '_' + item['name']) if len(result['assemblies']) > 1 else payload.name
-        content = b''.join(genbank_bytes(record_name(index,item) + strand_suffix, item['sequence'], item['features'], circular=item['circular'], notes=[strand_note] if strand_note else [])
+        content = b''.join(genbank_bytes(record_name(index,item) + strand_suffix, item['sequence'], item['features'], circular=item['circular'], notes=([strand_note] if strand_note else [])+result['warnings'])
                            for index,item in enumerate(result['assemblies'],1))
         mime,extension = 'text/plain','gb'
     elif format in ('fasta','target_fasta'):

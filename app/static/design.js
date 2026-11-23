@@ -30,7 +30,7 @@
   if(typeof module==='object'&&module.exports){module.exports={dna,addSection,moveEntry,parseVariants,exportPayload,fragmentRcTag};return;}
   const $=id=>document.getElementById(id),uid=()=>crypto.randomUUID();
   let saved={designs:[],activeId:null},activeEntry=null,refs=null,refsEnzyme=null,refRevision=0,
-    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false,assemblyPreview=null,searchRevision=0,searchTimer;
+    revision=0,requestRevision=0,checkTimer,saveTimer,lastResult=null,preview=null,ready=false,dragId=null,generating=false,assemblyPreview=null,searchRevision=0,searchTimer,allowInternalBsmbi=false;
   const current=()=>saved.designs.find(design=>design.id===saved.activeId);
   const entry=()=>current()?.entries.find(item=>item.id===activeEntry);
   const tableUI=root.DesignTable.create({getDesign:current,getContext:()=>preview?.entries||[],onChange:()=>{dirty();renderSections();},report:message=>note(message)});
@@ -43,13 +43,14 @@
   }
   function clearAssemblyPreview(){assemblyPreview?.destroy();assemblyPreview=null;}
   function dirty(){
+    allowInternalBsmbi=false;if($('design-bsmbi-dialog').open)$('design-bsmbi-dialog').close('cancel');
     clearAssemblyPreview();
     revision++;requestRevision++;generating=false;lastResult=null;tableUI.clear();$('design-download').disabled=true;$('design-generate').disabled=false;
     $('design-output').innerHTML='<span class="small muted">Generate to update fragments</span>';
     persist();
     clearTimeout(checkTimer);checkTimer=setTimeout(()=>check(false),450);
   }
-  function payload(){const d=current();return{...d,entries:d.entries.map(item=>({...item})),id:undefined};}
+  function payload(){const d=current();return{...d,allow_internal_bsmbi:allowInternalBsmbi,entries:d.entries.map(item=>({...item})),id:undefined};}
   async function request(url,body){
     const response=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
     if(!response.ok){const data=await response.json();const detail=data.detail;throw Error(typeof detail==='string'?detail:detail?.errors?.join(' ')||detail?.message||(Array.isArray(detail)?detail.map(item=>item.msg).join(' '):'Check the design fields.'));}
@@ -164,19 +165,33 @@
   function renderOutput(result){
     clearAssemblyPreview();
     const assembly=result.assembly;
-    const summary=assembly?`<div class="design-result-summary"><strong class="${result.valid?'design-pass':'reaction-warning'}">${result.valid?'✓ Pass':'! Fail'}</strong><span>${assembly.length.toLocaleString()} bp · ${assembly.circular?'Circular':'Linear'} · ${assembly.gc.toFixed(2)}% GC</span><span>${result.generated.length} new fragments · ${result.assemblies?.length||1} assemblies</span></div><div id="design-assembly-preview"></div>`:'';
+    const summary=assembly?`<div class="design-result-summary"><strong class="${result.valid&&!result.bsmbi_override?'design-pass':'reaction-warning'}">${result.bsmbi_override&&result.valid?'! BsmBI override':result.valid?'✓ Pass':'! Fail'}</strong><span>${assembly.length.toLocaleString()} bp · ${assembly.circular?'Circular':'Linear'} · ${assembly.gc.toFixed(2)}% GC</span><span>${result.generated.length} new fragments · ${result.assemblies?.length||1} assemblies</span></div><div id="design-assembly-preview"></div>`:'';
     $('design-output').innerHTML=root.DesignOverhangs.render(result.overhang_report,label)+summary+(result.generated.length?`<div class="table-scroll"><table class="design-generated"><thead><tr><th>Fragment</th><th>Region</th><th>Target / Full nt</th><th>GC %</th><th>5′</th><th>3′</th><th>Reference bases</th><th>Sequence</th></tr></thead><tbody>${result.generated.map((row,index)=>`<tr><td>${esc(row.name)}</td><td>${row.region_mode==='dynamic'?'Dynamic':'Constant'}${row.variant_name?' · '+esc(row.variant_name):''}</td><td>${row.target_length??row.target.length} / ${row.length}${row.padding_length?'<small class="muted"> · +'+row.padding_length+' bp padding</small>':''}</td><td>${row.gc.toFixed(2)}</td><td>${label(row.left_overhang)}</td><td>${label(row.right_overhang)}</td><td>${row.source_start+1}–${row.source_end}</td><td><details><summary>Target</summary><pre>${esc(row.target_sequence??row.target)}</pre></details><details><summary>Full${row.padding_length?' · includes 3′ padding':''}</summary><pre>${esc(row.full_sequence??row.sequence)}</pre><button type="button" class="text-button" data-design-copy="${index}">Copy</button></details></td></tr>`).join('')}</tbody></table></div>`:'<span class="small muted">No generated fragments</span>')+(result.boundary_shifts.length?`<details><summary>Boundaries</summary><div class="design-boundary-list">${result.boundary_shifts.map(b=>`<span>${b.requested+1} → ${b.actual+1} ${label(b.overhang)}${b.actual!==b.requested?' · '+(b.actual-b.requested>0?'+':'')+(b.actual-b.requested)+' nt':''}</span>`).join('')}</div></details>`:'')+(result.assemblies?.length>1?`<details><summary>Variant assemblies (${result.assemblies.length})</summary>${result.assemblies.map(item=>`<details class="design-product"><summary>${esc(item.name)} · ${item.length.toLocaleString()} bp</summary><pre class="design-final-sequence">${esc(item.sequence)}</pre></details>`).join('')}</details>`:'')+(assembly?`<details><summary>Assembly sequence</summary><pre class="design-final-sequence">${esc(assembly.sequence)}</pre></details>`:'');
     $('design-output').querySelectorAll('[data-design-copy]').forEach(button=>button.onclick=async()=>{try{await navigator.clipboard.writeText(result.generated[Number(button.dataset.designCopy)].sequence);button.textContent='Copied';}catch{note('Select the sequence to copy.',true);}});
     if(assembly?.sequence)assemblyPreview=root.JunctionSequenceViewer.preview($('design-assembly-preview'),root.DesignPreview.assembly(result));
     $('design-download').disabled=!result.valid;
   }
+  function confirmInternalBsmbi(result){
+    const dialog=$('design-bsmbi-dialog');
+    $('design-bsmbi-sites').replaceChildren(...(result.bsmbi_sites||[]).map(message=>{const line=document.createElement('li');line.textContent=message;return line;}));
+    dialog.returnValue='cancel';
+    return new Promise(resolve=>{dialog.addEventListener('close',()=>resolve(dialog.returnValue==='continue'),{once:true});dialog.showModal();});
+  }
   async function check(generate){
     if(!ready||!current()||(!generate&&(generating||lastResult)))return;clearTimeout(checkTimer);const token=++requestRevision,designId=current().id;
     if(generate){generating=true;$('design-generate').disabled=true;note('Generating…');}
     try{
-      const response=await request('/api/design/preview?generate='+generate,payload()),result=await response.json();
+      const body=payload();let response=await request('/api/design/preview?generate='+generate,body),result=await response.json();
       if(token!==requestRevision||designId!==current().id)return;
-      preview=result;renderChecks(result);if(generate){lastResult=result;renderOutput(result);if(result.valid&&!result.generated.length)$('design-export-format').value='gb';note(result.valid?'Generated · Private sandbox':'Resolve design errors',!result.valid);}
+      if(generate&&result.requires_bsmbi_override&&!allowInternalBsmbi){
+        preview=result;renderChecks(result);
+        if(!await confirmInternalBsmbi(result)){note('Generation cancelled');return;}
+        if(token!==requestRevision||designId!==current().id)return;
+        allowInternalBsmbi=true;body.allow_internal_bsmbi=true;
+        response=await request('/api/design/preview?generate=true',body);result=await response.json();
+        if(token!==requestRevision||designId!==current().id)return;
+      }
+      preview=result;renderChecks(result);if(generate){lastResult=result;renderOutput(result);if(result.valid&&!result.generated.length)$('design-export-format').value='gb';note(result.valid?(result.bsmbi_override?'Generated · BsmBI override':'Generated · Private sandbox'):'Resolve design errors',!result.valid||result.bsmbi_override);}
     }catch(error){if(token===requestRevision){$('design-checks').textContent=error.message;note(error.message,true);}}
     finally{if(token===requestRevision){generating=false;$('design-generate').disabled=false;}}
   }
@@ -226,7 +241,7 @@
   $('design-generate').onclick=()=>check(true);
   async function downloadDesign(format,example=false){
     if(!example&&!lastResult?.valid)return;
-    const button=$(example?'design-example':'design-download'),body=exportPayload(current(),!!current().reverse_output,example);button.disabled=true;
+    const button=$(example?'design-example':'design-download'),body={...exportPayload(current(),!!current().reverse_output,example),allow_internal_bsmbi:allowInternalBsmbi};button.disabled=true;
     try{await root.JunctionSandbox.flush();const response=await request('/api/design/export?format='+format,body),blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]||'Design.'+format;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(error){note(error.message,true);}finally{button.disabled=example?false:!lastResult?.valid;}
   }
   $('design-export-rc').onchange=event=>{current().reverse_output=event.target.checked;persist();};

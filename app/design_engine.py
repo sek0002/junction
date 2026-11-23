@@ -48,7 +48,7 @@ def fusion_key(label):
     return min(label, reverse_complement(label))
 
 
-def donor_sequence(left, target, right, enzyme, avoid, right_enzyme=None):
+def donor_sequence(left, target, right, enzyme, avoid, right_enzyme=None, allow_internal_bsmbi=False):
     right_enzyme = right_enzyme or enzyme
     forward, reverse = ENZYMES[enzyme][0], ENZYMES[right_enzyme][1]
     adapters = {enzyme,right_enzyme}
@@ -58,21 +58,26 @@ def donor_sequence(left, target, right, enzyme, avoid, right_enzyme=None):
     for a in 'ACGT':
         for b in 'ACGT':
             sequence = forward + a + left + target + right + b + reverse
-            digest = digest_fragment(sequence, digest_enzyme)
-            if digest['valid'] and not any(site['enzyme'] in avoid - adapters for site in scan_type_ii(sequence)):
+            digest = digest_fragment(sequence, digest_enzyme, allow_internal_bsmbi=allow_internal_bsmbi)
+            if (digest['valid'] and digest['target'] == target and digest['left_overhang'] == left and digest['right_overhang'] == right
+                    and not any(site['enzyme'] in avoid - adapters - ({'BsmBI'} if allow_internal_bsmbi else set()) for site in scan_type_ii(sequence))
+                    and (not allow_internal_bsmbi or not any(site['enzyme']=='BsmBI' and not (7 <= site['start'] and site['end'] <= len(sequence)-7)
+                                and site['start'] not in (0,len(sequence)-6) for site in scan_type_ii(sequence)))):
                 return sequence
     raise ValueError(f'No {enzyme} adapter spacers avoid internal or boundary restriction sites.')
 
 
 def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang='',
            right_overhang='', window=20, avoid_sites=(), excluded_overhangs=(),
-           generate=True, adapter_enzyme='BsaI', left_adapter_enzyme=None, right_adapter_enzyme=None):
+           generate=True, adapter_enzyme='BsaI', left_adapter_enzyme=None, right_adapter_enzyme=None, allow_internal_bsmbi=False):
     active = set(active_enzymes(enzyme))
     adapter = adapter_enzyme if len(active) > 1 else next(iter(active))
     left_adapter = left_adapter_enzyme or adapter
     right_adapter = right_adapter_enzyme or adapter
     avoid = active | set(avoid_sites)
     errors, warnings, nodes, runs, generated = [], [], [], [], []
+    bsmbi_sites = []
+    blocked = avoid - ({'BsmBI'} if allow_internal_bsmbi else set())
     for side, chosen in (('5′',left_adapter),('3′',right_adapter)):
         if chosen not in active:
             errors.append(f'{side} {chosen} adapter is not cut by the selected assembly enzyme. Select {chosen} or the dual-enzyme reaction.')
@@ -82,7 +87,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     if bb:
         errors.extend(bb['errors'])
         reserved.update(fusion_key(bb[key]) for key in ('left_overhang', 'right_overhang') if bb[key])
-    resolved = orient_fragments(entries, enzyme, bb, left_overhang, right_overhang)
+    resolved = orient_fragments(entries, enzyme, bb, left_overhang, right_overhang, allow_internal_bsmbi)
     for index, entry in enumerate(entries):
         node = dict(entry, index=index)
         if entry['kind'] == 'fragment':
@@ -90,12 +95,16 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             node['reverse'] = bool(node['digest']['reverse_complement'])
             node['oriented_sequence'] = node['digest']['input_sequence']
             errors.extend(f"{entry['name']}: {message}" for message in node['digest']['errors'])
+            bsmbi_sites.extend(f"{entry['name']}: BsmBI site at target base {site['start'] + 1}."
+                               for site in scan_type_ii(node['digest']['target']) if site['enzyme']=='BsmBI')
             reserved.update(fusion_key(node['digest'][key]) for key in ('left_overhang', 'right_overhang') if node['digest'][key])
         else:
             node['sequence'] = insert_dna(entry.get('sequence', ''))
             node['sites'] = scan_type_ii(node['sequence'])
             for site in node['sites']:
-                if site['enzyme'] in avoid:
+                if site['enzyme']=='BsmBI':
+                    bsmbi_sites.append(f"{entry['name']}: BsmBI site at insert base {site['start'] + 1}.")
+                if site['enzyme'] in blocked:
                     errors.append(f"{entry['name']}: {site['enzyme']} site at insert base {site['start'] + 1}.")
             if not node['sequence']:
                 errors.append(f"{entry['name']}: paste an insert sequence.")
@@ -108,7 +117,9 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                     if not insert_dna(variant['sequence']) or set(insert_dna(variant['sequence'])) - set('ACGT'):
                         errors.append(f"{section['name']} / {variant['name']}: only A, C, G and T are supported.")
                     for site in scan_type_ii(insert_dna(variant['sequence'])):
-                        if site['enzyme'] in avoid:
+                        if site['enzyme']=='BsmBI':
+                            bsmbi_sites.append(f"{section['name']} / {variant['name']}: BsmBI site at variant base {site['start'] + 1}.")
+                        if site['enzyme'] in blocked:
                             errors.append(f"{section['name']} / {variant['name']}: {site['enzyme']} site at variant base {site['start'] + 1}.")
         nodes.append(node)
 
@@ -184,7 +195,11 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     complete = bool(nodes) and not errors
     result = dict(valid=False, complete=complete, errors=errors, warnings=warnings,
                   entries=nodes, runs=runs, generated=generated, assembly=None,
-                  scanned_enzymes=list(TYPE_II), boundary_shifts=[])
+                  scanned_enzymes=list(TYPE_II), boundary_shifts=[],
+                  requires_bsmbi_override=bool(bsmbi_sites), bsmbi_sites=bsmbi_sites, bsmbi_override=allow_internal_bsmbi and bool(bsmbi_sites))
+    if allow_internal_bsmbi and bsmbi_sites:
+        warnings.append("BsmBI override: internal recognition sites are preserved. If BsmBI is used in this reaction it cuts these sites; plan staged assembly or redesign.")
+        warnings.extend(bsmbi_sites)
     if not nodes:
         errors.append('Add a fragment or placeholder.')
     if not generate or errors:
@@ -258,8 +273,14 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             section = next(iter(contained_dynamic), None) or next((s for s in run['sections'] if s['start'] <= center < s['end']), None)
             export_name = section['name'] if section else run['name']
             name = f'{export_name}_{number}'
+            detected = [f"{name}: BsmBI site at target base {site['start'] + 1}." for site in scan_type_ii(target) if site['enzyme']=='BsmBI']
+            bsmbi_sites.extend(detected)
+            result['requires_bsmbi_override'] = bool(bsmbi_sites)
+            result['bsmbi_override'] = allow_internal_bsmbi and bool(bsmbi_sites)
+            if allow_internal_bsmbi:
+                warnings.extend(detected)
             try:
-                sequence = donor_sequence(left, target, right, left_adapter, avoid, right_adapter)
+                sequence = donor_sequence(left, target, right, left_adapter, avoid, right_adapter, allow_internal_bsmbi)
             except ValueError as exc:
                 errors.append(f'{name}: {exc}')
                 continue
@@ -280,8 +301,14 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
                     alternate = insert_dna(variant['sequence'])
                     variant_target = target[:offset] + alternate + target[offset + dynamic['end'] - dynamic['start']:]
                     variant_name = name + '__' + variant['name']
+                    detected = [f"{variant_name}: BsmBI site at target base {site['start'] + 1}." for site in scan_type_ii(variant_target) if site['enzyme']=='BsmBI']
+                    bsmbi_sites.extend(detected)
+                    result['requires_bsmbi_override'] = bool(bsmbi_sites)
+                    result['bsmbi_override'] = allow_internal_bsmbi and bool(bsmbi_sites)
+                    if allow_internal_bsmbi:
+                        warnings.extend(detected)
                     try:
-                        variant_sequence = donor_sequence(left, variant_target, right, left_adapter, avoid, right_adapter)
+                        variant_sequence = donor_sequence(left, variant_target, right, left_adapter, avoid, right_adapter, allow_internal_bsmbi)
                     except ValueError as exc:
                         errors.append(f'{variant_name}: {exc}')
                         continue
@@ -300,18 +327,18 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
         elif node['run'] not in emitted:
             emitted.add(node['run'])
             donors.extend(fragment for fragment in generated if fragment['run'] == node['run'] and not fragment.get('variant_of'))
-    assembly = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None), nodes)
+    assembly = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None, allow_internal_bsmbi=allow_internal_bsmbi), nodes)
     result['assembly'] = assembly
     errors.extend(assembly['errors'])
     warnings.extend(assembly['warnings'])
-    blocked = [site for site in scan_type_ii(assembly['sequence'], assembly['circular']) if site['enzyme'] in avoid]
-    for site in blocked:
+    blocked_sites = [site for site in scan_type_ii(assembly['sequence'], assembly['circular']) if site['enzyme'] in blocked]
+    for site in blocked_sites:
         message = f"Final assembly: {site['enzyme']} site at base {site['start'] + 1}."
         if message not in errors:
             errors.append(message)
     # Scan complete donors for inactive enzymes requested for exclusion, too.
     for fragment in generated:
-        if any(site['enzyme'] in avoid - active for site in fragment['sites']):
+        if any(site['enzyme'] in blocked - active for site in fragment['sites']):
             errors.append(fragment['name'] + ': an excluded restriction site remains in the donor.')
     result['valid'] = not errors
     result['errors'] = list(dict.fromkeys(errors))
@@ -327,7 +354,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
     products = []
     total_bases = 0
     for index, combination in enumerate(product(*families)):
-        assembled = assembly if index == 0 else assemble(list(combination), enzyme, backbone, slot_id, circular=None)
+        assembled = assembly if index == 0 else assemble(list(combination), enzyme, backbone, slot_id, circular=None, allow_internal_bsmbi=allow_internal_bsmbi)
         annotate_orientations(assembled, nodes)
         total_bases += assembled['length']
         names = [row.get('variant_name', row['name']) for family, row in zip(families, combination) if len(family) > 1]
@@ -336,7 +363,7 @@ def design(entries, enzyme='BsaI', backbone=None, slot_id=None, left_overhang=''
             if message not in result['errors']:
                 result['errors'].append(product_name + ': ' + message)
         for site in scan_type_ii(assembled['sequence'], assembled['circular']):
-            if site['enzyme'] in avoid:
+            if site['enzyme'] in blocked:
                 message = f"{product_name}: {site['enzyme']} site at base {site['start'] + 1}."
                 if message not in result['errors']:
                     result['errors'].append(message)
