@@ -146,6 +146,7 @@ def preview_design(payload, generate=True):
             errors, statuses = check_rows(entries, rows, payload.enzyme, payload.avoid_sites, payload.allow_internal_bsmbi)
             result['errors'].extend(errors)
             result.update(table_mode=True, table_rows=statuses)
+            result['warnings'].extend(row['name']+': '+message for row in statuses for message in row['warnings'])
             result['requires_bsmbi_override'] = result['requires_bsmbi_override'] or any(row['bsmbi_sites'] for row in statuses)
             result['bsmbi_sites'].extend(row['name']+': '+site for row in statuses for site in row['bsmbi_sites'])
     sequence_metadata(result, payload.include_re_sites)

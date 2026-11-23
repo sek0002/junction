@@ -21,17 +21,24 @@ def check_rows(entries, rows, enzyme, avoid_sites=(), allow_internal_bsmbi=False
     if not rows:
         errors.append('Add or paste at least one named table row.')
     for index, row in enumerate(rows, 1):
-        row_errors, bsmbi_sites = [], []
+        row_errors, bsmbi_sites, row_warnings = [], [], []
         name = row['name'].strip()
         if not name:
             row_errors.append('Enter a row name.')
         if name.casefold() in seen:
             row_errors.append('Row names must be unique.')
         seen.add(name.casefold())
-        if set(row['dynamic_inputs']) != set(regions):
-            row_errors.append('Fill each current Dynamic region; remove cells for deleted regions.')
-        for key, sequence in row['dynamic_inputs'].items():
-            title = regions.get(key, {}).get('name', key)
+        missing = set(regions) - set(row['dynamic_inputs'])
+        unused = set(row['dynamic_inputs']) - set(regions)
+        if missing:
+            row_errors.append('Fill each current Dynamic region: '+', '.join(regions[key]['name'] for key in regions if key in missing)+'.')
+        if unused:
+            row_warnings.append(f'Ignored {len(unused)} input(s) for removed or moved Dynamic regions. Stored inputs are retained; only current region columns are used.')
+        for key, region in regions.items():
+            if key not in row['dynamic_inputs']:
+                continue
+            sequence = row['dynamic_inputs'][key]
+            title = region['name']
             if sum(line.lstrip().startswith('>') for line in sequence.splitlines()) > 1:
                 row_errors.append(f'{title}: use one sequence per cell.')
             sequence = insert_dna(sequence)
@@ -43,7 +50,7 @@ def check_rows(entries, rows, enzyme, avoid_sites=(), allow_internal_bsmbi=False
                 if site['enzyme'] in blocked:
                     row_errors.append(f"{title}: {site['enzyme']} site at input base {site['start'] + 1}.")
         errors.extend(f"Row {index} ({name or 'unnamed'}): {message}" for message in row_errors)
-        statuses.append(dict(name=name, valid=not row_errors, errors=row_errors, bsmbi_sites=bsmbi_sites))
+        statuses.append(dict(name=name, valid=not row_errors, errors=row_errors, bsmbi_sites=bsmbi_sites, warnings=row_warnings, unused_inputs=sorted(unused)))
     return errors, statuses
 
 
@@ -54,11 +61,14 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
     result['bsmbi_sites'] = list(dict.fromkeys(base.get('bsmbi_sites',[]) + [row['name']+': '+site for row in statuses for site in row['bsmbi_sites']]))
     result['requires_bsmbi_override'] = bool(result['bsmbi_sites'])
     result['bsmbi_override'] = allow_internal_bsmbi and result['requires_bsmbi_override']
+    input_warnings = [row['name']+': '+message for row in statuses for message in row['warnings']]
     if row_errors or not base['valid']:
+        result['warnings'].extend(input_warnings)
         result['errors'] = list(dict.fromkeys(base['errors'] + row_errors))
         result['valid'] = False
         return result
     result['warnings'] = [message for message in base['warnings'] if message.startswith(('Fixed overhang ','BsmBI override:'))]
+    result['warnings'].extend(input_warnings)
     if result['bsmbi_override']:
         result['warnings'].extend(result['bsmbi_sites'])
         result['warnings'].append('BsmBI override: internal sites are preserved. A reaction containing BsmBI cuts these sites; plan staged assembly or redesign.')

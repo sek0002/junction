@@ -1,4 +1,5 @@
 """BsmBI preservation is explicit and never changes normal assembly QC."""
+from copy import deepcopy
 import csv
 import io
 import json
@@ -42,6 +43,29 @@ class NestedDesignTests(unittest.TestCase):
         result=design([bad,placeholder(NESTED)],left_overhang='TTTG',right_overhang='TGCC',allow_internal_bsmbi=True)
         self.assertFalse(result['valid']);self.assertIn('expected fixed',' '.join(result['errors']))
 
+    def test_old_region_inputs_do_not_block_current_rows_or_add_site_warnings(self):
+        sequence=clean_dna(2)
+        entries=[placeholder(sequence,[dict(name='Cargo',start=140,end=270,mode='dynamic')])]
+        original=[dict(name='Nested variant',dynamic_inputs={
+            'insert:140:270':NESTED,
+            'previous-insert:4:304':'ACGN'+NESTED+'GGTCTC',
+        })]
+        unchanged=deepcopy(original)
+        base=design(entries,'BsmBI',left_overhang='TTTG',right_overhang='ACCT',allow_internal_bsmbi=True)
+        result=table_design(base,original,'BsmBI',allow_internal_bsmbi=True)
+        self.assertTrue(result['valid'],result['errors'])
+        self.assertEqual(result['assemblies'][0]['sequence'],'TTTG'+sequence[:140]+NESTED+sequence[270:]+'ACCT')
+        self.assertTrue(any('Ignored 1 input' in text for text in result['warnings']))
+        self.assertFalse(any('previous-insert' in text for text in result['bsmbi_sites']))
+        self.assertEqual(original,unchanged)
+        # Old cells are never substituted for a missing or blank current region.
+        for value in (None,''):
+            rows=deepcopy(original)
+            if value is None:rows[0]['dynamic_inputs'].pop('insert:140:270')
+            else:rows[0]['dynamic_inputs']['insert:140:270']=value
+            failed=table_design(base,rows,'BsmBI',allow_internal_bsmbi=True)
+            self.assertFalse(failed['valid']);self.assertEqual(failed['assemblies'],[])
+
     def test_table_rows_and_individual_variants_keep_sites_without_changing_constant_ends(self):
         sequence=clean_dna(2)
         for table in (False,True):
@@ -68,6 +92,22 @@ class NestedDesignApiTests(unittest.TestCase):
         if self.previous is None:os.environ.pop('GOLDEN_GATE_DB',None)
         else:os.environ['GOLDEN_GATE_DB']=self.previous
         self.folder.cleanup()
+
+    def test_current_nested_table_rows_export_despite_old_region_cells(self):
+        sequence=clean_dna(2)
+        self.body.update(use_table=True,entries=[placeholder(sequence,[dict(name='Cargo',start=140,end=270,mode='dynamic')])],
+                         table_rows=[dict(name='Nested variant',dynamic_inputs={'insert:140:270':NESTED,'old:4:304':NESTED+'GGTCTC'})])
+        preview=self.client.post('/api/design/preview',json=self.body).json()
+        self.assertTrue(any('Ignored 1 input' in text for text in preview['warnings']))
+        self.assertFalse(any('old:4:304' in text for text in preview['bsmbi_sites']))
+        self.body['allow_internal_bsmbi']=True
+        result=self.client.post('/api/design/preview?generate=true',json=self.body).json()
+        self.assertTrue(result['valid'],result['errors'])
+        exported=self.client.post('/api/design/export?format=csv',json=self.body)
+        self.assertEqual(exported.status_code,200,exported.text)
+        rows=list(csv.DictReader(io.StringIO(exported.content.decode('utf-8-sig'))))
+        self.assertTrue(any(NESTED in row['Target sequence'] for row in rows))
+        self.assertFalse(any('GGTCTC' in row['Target sequence'] for row in rows))
 
     def test_generation_and_export_require_explicit_override_and_exports_keep_warning(self):
         response=self.client.post('/api/design/preview?generate=true',json=self.body)
