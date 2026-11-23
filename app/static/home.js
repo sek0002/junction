@@ -3,7 +3,7 @@
   if(typeof module==='object'&&module.exports)module.exports=factory();
   else root.JunctionHome=factory();
 })(typeof window==='object'?window:globalThis,()=>{
-  const views=new Set(['home','build','design','library','uploads','compare','profile','workbenches','bin']);
+  const views=new Set(['home','build','design','library','uploads','compare','mrna','profile','workbenches','bin']);
   function resolveView(value){return views.has(value)?value:'home';}
   function consumeWelcome(win){
     const url=new URL(win.location.href),welcome=url.searchParams.get('welcome')==='1';

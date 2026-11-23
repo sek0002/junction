@@ -1,0 +1,5 @@
+# Isolated scientific runtime, Python 3.13; BASE source remains a separate install.
+dnachisel==3.2.16
+ViennaRNA==2.8.0
+msgspec==0.22.0
+typing_extensions>=4.12,<5

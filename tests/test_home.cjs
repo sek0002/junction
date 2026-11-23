@@ -25,7 +25,7 @@ function page({reduced=false,href='https://junction.test/?welcome=1#home',active
     run(ms){const task=[...timers].find(([,t])=>t.ms===ms);assert.ok(task,'expected timer '+ms);timers.delete(task[0]);now+=ms;task[1].fn();}};
 }
 test('Home is the default while direct links to all tools and Profile remain valid',()=>{
-  for(const view of ['home','build','design','library','uploads','compare','profile','workbenches','bin'])assert.equal(resolveView(view),view);
+  for(const view of ['home','build','design','library','uploads','compare','mrna','profile','workbenches','bin'])assert.equal(resolveView(view),view);
   for(const value of ['',undefined,'unknown','<script>'])assert.equal(resolveView(value),'home');
 });
 test('startup markers are consumed without losing URL parameters or the current route',()=>{

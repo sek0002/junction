@@ -26,6 +26,7 @@ from .workbenches import router as workbench_router
 from .worksheets import router as worksheet_router
 from .design import router as design_router
 from .custom_uploads import router as custom_upload_router
+from .mrna import router as mrna_router
 from .imports import import_plate, parse_plate, dna
 from .sequence_engine import assemble, digest_fragment, find_backbone_slots, restriction_sites, active_enzymes, fragment_orientations
 from .exports import genbank_bytes, parse_sequence_file, make_workbook, calculate_volumes, reaction_summary, resuspension_plan, build_list_workbook
@@ -144,6 +145,7 @@ app.include_router(workbench_router)
 app.include_router(worksheet_router)
 app.include_router(design_router)
 app.include_router(custom_upload_router)
+app.include_router(mrna_router)
 app.include_router(assembly_export_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 

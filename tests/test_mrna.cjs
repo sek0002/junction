@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict');
+const m=require('../app/static/mrna.js');
+assert.equal(m.hamming('ATGGAATTT','ATGGAGTTC'),2/9);
+assert.equal(m.hamming('aug gaa','ATGGAA'),0);
+assert.equal(m.hamming('ATG','ATGG'),null);
+assert.equal(m.hamming('',''),null);
+assert.deepEqual(m.parse('>A\nauggaa\n>B\nATGGAG').map(r=>r.sequence),['auggaa','ATGGAG']);
+assert.equal(m.parse('>Protein\nACGT','input.faa')[0].kind,'protein');
+assert.deepEqual(m.parse('name,sequence,group\n"a,b",ATGGAA,"Set 1"\n"b",ATGGAG,"Set 2"').map(r=>r.name),['a,b','b']);
+assert.equal(m.parse('tx_id\tcds_sequence\na\tATGGAA','in.tsv')[0].sequence,'ATGGAA');
+assert.throws(()=>m.parse('name,length\na,6'),/sequence or cds/);
+assert.throws(()=>m.csvRows('a,"unclosed'),/Unclosed/);
+assert.equal(m.csvCell('=SUM(A1:A2)'),"\"'=SUM(A1:A2)\"");
+assert.equal(m.csvCell(-123.4),'-123.4');
+console.log('mRNA input, comparison and export checks passed');

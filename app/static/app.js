@@ -18,7 +18,7 @@ function showView(name){
   document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===name));
   document.body.classList.toggle('home-active',name==='home');
   history.replaceState(null,'','#'+name);window.JunctionHomeController?.viewChanged(name);
-  window.JunctionWorksheetController?.setScope(name);if(name==='workbenches')window.JunctionWorkbenchController?.load();if(name==='design')window.JunctionDesign?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();
+  window.JunctionWorksheetController?.setScope(name);if(name==='workbenches')window.JunctionWorkbenchController?.load();if(name==='design')window.JunctionDesign?.open();if(name==='mrna')window.JunctionMRNA?.open();if(name==='library')loadInventory();if(name==='uploads')loadUploads();if(name==='bin')loadBin();
   if(profile)window.JunctionHomeController.onReady(()=>$('account-open').click());
 }
 function settings(){return{...plannerRuleDefaults(),...state.plannerOverrides,backbone_pmol:Number($('backbone-pmol').value),insert_ratio:Number($('insert-ratio').value),reaction_volume_ul:Number($('reaction-ul').value),master_mix_volume_ul:Number($('master-ul').value),backbone_stock_ng_ul:$('backbone-stock').value?Number($('backbone-stock').value):null,assume_target_stock:!$('assume-stock').checked,planner_stock_mode:$('assume-stock').checked?'saved':'custom',fragment_stock_overrides:Object.fromEntries(Object.entries(state.plannerStocks).filter(([id])=>state.parts.some(p=>p.id===Number(id))||selectedNested().some(g=>g.fragment_ids.includes(Number(id))))),resuspension_mode:'constrained'};}
@@ -2458,13 +2458,14 @@ document.addEventListener('click',event=>{
 });
 
 function sandboxSnapshot(){
-  return {version:1,workbench_id:state.workbenchId,worksheet_ids:state.worksheetIds,design:window.JunctionDesign?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
+  return {version:1,workbench_id:state.workbenchId,worksheet_ids:state.worksheetIds,design:window.JunctionDesign?.snapshot(),mrna:window.JunctionMRNA?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
     backboneStocks:Object.fromEntries(backboneStockCache),subtab:state.subtab,view:location.hash.slice(1),
     compareView:{...compareFileView,enzyme:$('compare-enzyme').value,jobs:Object.fromEntries(compareJobs.filter(j=>j.sandboxId).map(j=>[j.sandboxId,{expanded:!!j.expanded,recordIndex:j.recordIndex,selected:compareSelection.has(j.id),path:j.path}]))}};
 }
 async function restoreSandbox(saved,runs){
   state.workbenchId=saved.workbench_id||null;state.worksheetIds=saved.worksheet_ids||{};
   window.JunctionDesign?.restore(saved.design);
+  window.JunctionMRNA?.restore(saved.mrna);
   const draft=saved.draft;
   if(draft){
     state.assemblyNameManual=true;

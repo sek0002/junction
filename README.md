@@ -46,6 +46,41 @@ python3 -m venv .venv
 Set `GOLDEN_GATE_PORT` for a different port. Set `GOLDEN_GATE_DB` to place the persistent database elsewhere. The default database is `data/golden_gate.sqlite3`; keep that file to preserve imports, measured stock concentrations, and saved plasmids. Restarting does not reset it. The app binds to localhost by default (`GOLDEN_GATE_HOST` can override the bind address) and has no external telemetry, AI/API dependency, CDN, or external account.
 
 
+
+## mRNA sequence workspace
+
+The **mRNA** tab designs multiplex sets of independent mRNAs and compares multiple input coding sequences. It accepts DNA/RNA CDS or protein input, multi-record FASTA, and CSV/TSV with `name` and `sequence` (or `cds`) columns. Optional columns are `kind` (`nucleotide` or `protein`) and `group`. Up to 32 inputs and three candidates per input are supported, with 8,000 nt per CDS and 120,000 input coding nucleotides per batch.
+
+Batch parameters include human/mouse codon usage, MaxCAI or human MaxtAI, global/local GC bounds, repeats, homopolymers, excluded motifs/restriction enzymes, UTRs, poly(A), fold temperature and random seed. Each input can override organism, objective, global GC limits and UTRs and preserve specified codon-aligned CDS regions. The BASE v1.0.2 tAI optimiser uses human weights; mouse MaxtAI is explicitly rejected. UTR presets come from the supplied paper's Table S4 and include the Kozak sequence in the 5′ field.
+
+**Compare inputs** scores the supplied sequences. **Design multiplex set** retains each original/reverse-translated baseline and adds synonymous optimised candidates, checking protein preservation. Candidates can coincide; duplicate outcomes are labelled. Optimisation failure on one input is reported without discarding other results. Batch jobs are cancellable and remain private to the signed-in account. Drafts and calculated results travel with a saved Workbench. Batch history and exports persist in the local database. A server restart marks unfinished jobs interrupted, allowing a deliberate rerun.
+
+The comparison table contains GC, CAI, tAI, MFE, MFE density, DegScore estimated half-life, mean codon stability coefficient, RiboNN translation prediction and nucleotide divergence from each input. Pairwise Hamming ratios use equal-length CDSs, with different encoded proteins flagged. GC overlays show each selected sequence's sliding-window profile; out-of-bound windows are listed as selectable hotspots. The interactive ViennaRNA fold/arc views support dragging, wheel/button zoom, nucleotide and pair inspection, coordinate navigation, linked sequence/GC highlighting, and SVG download. Exports include metrics CSV, RNA FASTA, dot-bracket and complete JSON. JSON retains full inputs, settings, outputs and model versions. CSV includes per-sequence parameters, seeds, model versions and transcript hashes.
+
+CAI/tAI/CSC are CDS metrics. Folding and DegScore use the selected CDS/full-transcript scope and temperature. MFE is kcal/mol; MFE density is kcal/mol/nt. DegScore's native half-life estimate is a model output for relative comparison, not measured cellular stability. CSC uses Wu et al. 2019 human `293T_ORFome` coefficients averaged over sense codons and is not applied to mouse. RiboNN reports the ensemble mean over its tissue/cell outputs, with a cell-type selector in Compare and all tissue outputs in the structure details and JSON export. It requires nonempty 5′/3′ UTRs and a terminal stop codon. Model failures and unavailable scores are shown as unavailable, never replaced by a different metric. The older BASE engine does not include DERNA structural optimisation; secondary structure here is predicted and explored with ViennaRNA.
+
+### Local scientific runtime
+
+The private BASE source is not redistributed with Junction. Connect your separately authorised checkout:
+
+```sh
+python3 scripts/setup_mrna.py /path/to/mRNArchitect-v1.0.2
+```
+
+This uses `uv` to create an isolated Python 3.13 runtime under ignored `.tools/`, installs `requirements-mrna.txt`, and connects the public DegScore implementation. The source checkout needs access to its packaged organism database (or permission to build it). The main Junction Python environment does not need these scientific dependencies.
+
+For actual translation predictions, install the optional CPU runtime and published RiboNN weights:
+
+```sh
+python3 scripts/setup_ribonn.py
+```
+
+This downloads approximately 198 MB of pretrained weights from Zenodo record 17258709 and uses an isolated Python 3.10 environment. On another architecture, install compatible PyTorch wheels in that runtime. Prediction inputs stay in temporary local files, with no sequence submission to BASE, Zenodo or another remote service. Installs use network access; subsequent inference is local. Both UTRs are needed for RiboNN, even when ViennaRNA folding scope is CDS only. Run small batches first because the complete ensemble is slower than the other metrics.
+
+Restart Junction after setup. `.tools/mrna-config.json` holds local paths. Environment overrides: `JUNCTION_MRNA_CONFIG`, `JUNCTION_MRNARCHITECT_SOURCE`, `JUNCTION_MRNA_PYTHON`, `JUNCTION_DEGSCORE_PATH`, and `JUNCTION_RIBONN_COMMAND`. The last accepts a trusted local command using JSON stdin/stdout (`organism`, `utr5_sequence`, `cds_sequence`, `utr3_sequence` in; finite `translation`, nonempty `model`, and optional `tissue_predictions` out). The included adapter uses the official RiboNN ensemble, loads checkpoints onto CPU and does not overwrite its source checkout. Model installations and trained weights stay outside Git.
+
+Sources: [mRNArchitect paper](https://doi.org/10.1101/2024.12.03.626696), [DegScore](https://github.com/eternagame/DegScore), [codon stability source data](https://doi.org/10.7554/eLife.45396.006), [RiboNN](https://github.com/Sanofi-Public/RiboNN), [RiboNN weights](https://zenodo.org/records/17258709).
+
 ## Home server
 
 For Linux/systemd installation, a persistent random port, updates and backups, see [DEPLOYMENT.md](DEPLOYMENT.md). The service keeps its database under `/var/lib/junction`, separately from the repository.

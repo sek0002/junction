@@ -123,7 +123,7 @@ def checked(value,nested=False):
             if scope not in ('build','design','compare'):raise ValueError('Unknown worksheet draft type.')
             data['worksheet_drafts'][scope]=checked(snapshot,nested=True)
         workspace=data['workspace']
-        for key in ('design','backboneStocks','plannerStocks','compareView','preferences','plannerOverrides','worksheet_ids'):
+        for key in ('design','backboneStocks','plannerStocks','compareView','preferences','plannerOverrides','worksheet_ids','mrna'):
             if key in workspace and not isinstance(workspace[key],dict):raise ValueError(key+' must be an object.')
         if isinstance(workspace.get('compareView'),dict) and 'jobs' in workspace['compareView'] and not isinstance(workspace['compareView']['jobs'],dict):raise ValueError('Comparison view jobs must be an object.')
         if workspace.get('draft'):workspace['draft']=AssemblyRequest.model_validate(workspace['draft']).model_dump()
