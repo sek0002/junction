@@ -12,49 +12,67 @@ def dynamic_regions(entries):
             for section in entry.get('sections', []) if section.get('mode') == 'dynamic'}
 
 
-def check_rows(entries, rows, enzyme, avoid_sites=()):
+def check_rows(entries, rows, enzyme, avoid_sites=(), allow_internal_bsmbi=False):
     regions = dynamic_regions(entries)
     errors, statuses, seen = [], [], set()
-    blocked = set(active_enzymes(enzyme)) | set(avoid_sites)
+    blocked = (set(active_enzymes(enzyme)) | set(avoid_sites)) - ({'BsmBI'} if allow_internal_bsmbi else set())
     if not regions:
         errors.append('Define a Dynamic region before using table rows.')
     if not rows:
         errors.append('Add or paste at least one named table row.')
     for index, row in enumerate(rows, 1):
-        row_errors = []
+        row_errors, bsmbi_sites, row_warnings = [], [], []
         name = row['name'].strip()
         if not name:
             row_errors.append('Enter a row name.')
         if name.casefold() in seen:
             row_errors.append('Row names must be unique.')
         seen.add(name.casefold())
-        if set(row['dynamic_inputs']) != set(regions):
-            row_errors.append('Fill each current Dynamic region; remove cells for deleted regions.')
-        for key, sequence in row['dynamic_inputs'].items():
-            title = regions.get(key, {}).get('name', key)
+        missing = set(regions) - set(row['dynamic_inputs'])
+        unused = set(row['dynamic_inputs']) - set(regions)
+        if missing:
+            row_errors.append('Fill each current Dynamic region: '+', '.join(regions[key]['name'] for key in regions if key in missing)+'.')
+        if unused:
+            row_warnings.append(f'Ignored {len(unused)} input(s) for removed or moved Dynamic regions. Stored inputs are retained; only current region columns are used.')
+        for key, region in regions.items():
+            if key not in row['dynamic_inputs']:
+                continue
+            sequence = row['dynamic_inputs'][key]
+            title = region['name']
             if sum(line.lstrip().startswith('>') for line in sequence.splitlines()) > 1:
                 row_errors.append(f'{title}: use one sequence per cell.')
             sequence = insert_dna(sequence)
             if not sequence or set(sequence) - set('ACGT'):
                 row_errors.append(f'{title}: enter A/C/G/T DNA.')
             for site in scan_type_ii(sequence):
+                if site['enzyme']=='BsmBI':
+                    bsmbi_sites.append(f"{title}: BsmBI site at input base {site['start'] + 1}.")
                 if site['enzyme'] in blocked:
                     row_errors.append(f"{title}: {site['enzyme']} site at input base {site['start'] + 1}.")
         errors.extend(f"Row {index} ({name or 'unnamed'}): {message}" for message in row_errors)
-        statuses.append(dict(name=name, valid=not row_errors, errors=row_errors))
+        statuses.append(dict(name=name, valid=not row_errors, errors=row_errors, bsmbi_sites=bsmbi_sites, warnings=row_warnings, unused_inputs=sorted(unused)))
     return errors, statuses
 
 
-def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()):
+def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=(), allow_internal_bsmbi=False):
     result = deepcopy(base)
-    row_errors, statuses = check_rows(base['entries'], rows, enzyme, avoid_sites)
+    row_errors, statuses = check_rows(base['entries'], rows, enzyme, avoid_sites, allow_internal_bsmbi)
     result.update(table_mode=True, table_rows=statuses, constant_overhangs=[], assemblies=[], assembly=None)
+    result['bsmbi_sites'] = list(dict.fromkeys(base.get('bsmbi_sites',[]) + [row['name']+': '+site for row in statuses for site in row['bsmbi_sites']]))
+    result['requires_bsmbi_override'] = bool(result['bsmbi_sites'])
+    result['bsmbi_override'] = allow_internal_bsmbi and result['requires_bsmbi_override']
+    input_warnings = [row['name']+': '+message for row in statuses for message in row['warnings']]
     if row_errors or not base['valid']:
+        result['warnings'].extend(input_warnings)
         result['errors'] = list(dict.fromkeys(base['errors'] + row_errors))
         result['valid'] = False
         return result
-    result['warnings'] = [message for message in base['warnings'] if message.startswith('Fixed overhang ')]
-    blocked = set(active_enzymes(enzyme)) | set(avoid_sites)
+    result['warnings'] = [message for message in base['warnings'] if message.startswith(('Fixed overhang ','BsmBI override:'))]
+    result['warnings'].extend(input_warnings)
+    if result['bsmbi_override']:
+        result['warnings'].extend(result['bsmbi_sites'])
+        result['warnings'].append('BsmBI override: internal sites are preserved. A reaction containing BsmBI cuts these sites; plan staged assembly or redesign.')
+    blocked = (set(active_enzymes(enzyme)) | set(avoid_sites)) - ({'BsmBI'} if allow_internal_bsmbi else set())
     original = base['generated']
     constants = [deepcopy(row) | {'row_name': 'Shared'} for row in original if not row['dynamic_regions']]
     generated, products, all_errors = list(constants), [], []
@@ -70,9 +88,15 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
             for region in sorted(fragment['dynamic_regions'], key=lambda region: region['start'], reverse=True):
                 offset = region['start'] - fragment['target_start']
                 target = target[:offset] + insert_dna(row['dynamic_inputs'][region['key']]) + target[offset + region['end'] - region['start']:]
+            detected = [f"{row['name']} / {fragment['name']}: BsmBI site at target base {site['start'] + 1}." for site in scan_type_ii(target) if site['enzyme']=='BsmBI']
+            result['bsmbi_sites'].extend(detected)
+            result['requires_bsmbi_override'] = bool(result['bsmbi_sites'])
+            result['bsmbi_override'] = allow_internal_bsmbi and result['requires_bsmbi_override']
+            if allow_internal_bsmbi:
+                result['warnings'].extend(detected)
             try:
                 sequence = donor_sequence(fragment['left_overhang'], target, fragment['right_overhang'],
-                                          fragment['left_adapter_enzyme'], blocked, fragment['right_adapter_enzyme'])
+                                          fragment['left_adapter_enzyme'], blocked, fragment['right_adapter_enzyme'], allow_internal_bsmbi)
             except ValueError as exc:
                 row_errors.append(f"{fragment['name']}: {exc}")
                 continue
@@ -82,7 +106,7 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
                 variant_name=row['name'].strip(), target=target, sequence=sequence,
                 length=len(sequence), gc=100 * (sequence.count('G') + sequence.count('C')) / len(sequence),
                 sites=scan_type_ii(sequence))
-            parsed = digest_fragment(sequence, enzyme)
+            parsed = digest_fragment(sequence, enzyme, allow_internal_bsmbi=allow_internal_bsmbi)
             if not parsed['valid'] or any(parsed[key] != fragment[key] for key in ('left_overhang', 'right_overhang')):
                 row_errors.append(fragment['name'] + ': constant overhangs changed.')
             by_id[fragment['id']] = candidate
@@ -98,7 +122,7 @@ def table_design(base, rows, enzyme, backbone=None, slot_id=None, avoid_sites=()
             elif node['run'] not in emitted:
                 emitted.add(node['run'])
                 donors.extend(by_id[item['id']] for item in original if item['run'] == node['run'])
-        assembled = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None), base['entries'])
+        assembled = annotate_orientations(assemble(donors, enzyme, backbone, slot_id, circular=None, allow_internal_bsmbi=allow_internal_bsmbi), base['entries'])
         row_errors.extend(assembled['errors'])
         result['warnings'].extend(f"{row['name']}: {message}" for message in assembled['warnings'])
         for site in scan_type_ii(assembled['sequence'], assembled['circular']):

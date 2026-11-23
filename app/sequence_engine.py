@@ -117,7 +117,7 @@ def nested_cassettes(sequence: str, target_start: int, target_end: int) -> list[
     return cassettes
 
 
-def digest_fragment(sequence: str, enzyme: str) -> dict[str, Any]:
+def digest_fragment(sequence: str, enzyme: str, *, allow_internal_bsmbi: bool = False) -> dict[str, Any]:
     """Extract an inward-facing donor's four-base fusion labels and payload.
 
     The first forward and last reverse selected-enzyme recognition sites are
@@ -146,9 +146,12 @@ def digest_fragment(sequence: str, enzyme: str) -> dict[str, Any]:
         return _empty_digest(sequence, ["Incomplete four-base fusion overhang at a donor boundary."], sites)
     retained = left + target + right
     retained_sites = _selected(retained, enzyme)
-    for site in retained_sites:
-        errors.append(f"Internal {site['enzyme']} site at donor base {left_start + site['start'] + 1} ({site['motif']}); digestion cuts the retained fragment.")
     warnings = []
+    for site in retained_sites:
+        if allow_internal_bsmbi and site["enzyme"] == "BsmBI":
+            warnings.append(f"Design override: internal BsmBI site at donor base {left_start + site['start'] + 1} is preserved; BsmBI digestion cuts this fragment.")
+            continue
+        errors.append(f"Internal {site['enzyme']} site at donor base {left_start + site['start'] + 1} ({site['motif']}); digestion cuts the retained fragment.")
     for site in sites:
         if site["start"] == f:
             site["role"] = "outer_left"
@@ -179,11 +182,11 @@ def digest_fragment(sequence: str, enzyme: str) -> dict[str, Any]:
 
 
 
-def fragment_orientations(sequence: str, enzyme: str) -> list[dict[str, Any]]:
+def fragment_orientations(sequence: str, enzyme: str, *, allow_internal_bsmbi: bool = False) -> list[dict[str, Any]]:
     """Digest both whole-molecule orientations, keeping physical source coordinates."""
     sequence=normalize(sequence)
-    forward=digest_fragment(sequence,enzyme)
-    reverse=digest_fragment(reverse_complement(sequence),enzyme)
+    forward=digest_fragment(sequence,enzyme,allow_internal_bsmbi=allow_internal_bsmbi)
+    reverse=digest_fragment(reverse_complement(sequence),enzyme,allow_internal_bsmbi=allow_internal_bsmbi)
     source={'source_input_length':len(sequence),
             'source_left_overhang_start':forward.get('left_site_start',-7)+7,
             'source_right_overhang_end':forward.get('right_site_start',1)-1}
@@ -425,6 +428,7 @@ def _with_fragment_checks(result):
     length=result['length']
     for site in result['restriction_sites']:
         if site['enzyme'] not in active_enzymes(result['enzyme']):continue
+        if result.get('bsmbi_design_override') and site['enzyme']=='BsmBI':continue
         spans=[(site['start'],min(site['end'],length))]
         if site['end']>length:spans.append((0,site['end']-length))
         for feature in result['features']:
@@ -442,7 +446,7 @@ def _with_fragment_checks(result):
 def assemble(fragment_dicts: list[dict[str, Any]], enzyme: str,
              backbone: dict[str, Any] | None = None, slot_id: str | None = None,
              circular: bool | None = True, left_overhang: str | None = None,
-             right_overhang: str | None = None) -> dict[str, Any]:
+             right_overhang: str | None = None, *, allow_internal_bsmbi: bool = False) -> dict[str, Any]:
     """Digest and join ordered donors, optionally into a retained backbone.
 
     With a backbone, the returned sequence begins at the backbone's retained
@@ -461,7 +465,7 @@ def assemble(fragment_dicts: list[dict[str, Any]], enzyme: str,
     for index,item in enumerate(inputs):
         name=str(item.get('name') or item.get('id') or f'Fragment {index+1}')
         variants=([prepare_backbone(item.get('sequence',''),enzyme,slot_id) | {'orientation':1,'reverse_complement':False}]
-                  if item['_is_backbone'] else fragment_orientations(item.get('sequence',''),enzyme))
+                  if item['_is_backbone'] else fragment_orientations(item.get('sequence',''),enzyme,allow_internal_bsmbi=allow_internal_bsmbi))
         options.append([digest | {'name':name,'id':item.get('id'),'is_backbone':item['_is_backbone']} for digest in variants])
     edges=_oriented_chain(options,circular,left_overhang,right_overhang)
     for edge in edges:
@@ -526,6 +530,10 @@ def assemble(fragment_dicts: list[dict[str, Any]], enzyme: str,
     errors.extend(_collision_messages(labels))
     all_sites = restriction_sites(sequence, circular=circular)
     selected_sites = [site for site in all_sites if site["enzyme"] in active_enzymes(enzyme)]
+    preserved_sites = [site for site in selected_sites if allow_internal_bsmbi and site["enzyme"] == "BsmBI"]
+    if preserved_sites:
+        warnings.append("Design override: retained BsmBI sites are preserved. This is an intended sequence, not a validated single BsmBI-containing reaction; use a staged strategy or redesign before assembly.")
+    selected_sites = [site for site in selected_sites if site not in preserved_sites]
     if selected_sites:
         positions_text = ", ".join(str(site["start"] + 1) for site in selected_sites)
         errors.append(f"The assembled product retains {len(selected_sites)} {enzyme} site(s), starting at base(s) {positions_text}; it would be cut again in the assembly reaction.")
@@ -538,6 +546,7 @@ def assemble(fragment_dicts: list[dict[str, Any]], enzyme: str,
             "features": sorted(features, key=lambda feature: (feature["start"], feature["end"])),
             "junctions": junctions, "errors": _unique(errors), "warnings": _unique(warnings),
             "restriction_sites": all_sites, "valid": not errors,
+            "bsmbi_design_override":bool(preserved_sites), "single_reaction_valid":not errors and not preserved_sites,
             "retained_cassettes": retained_cassettes,
             "left_overhang": edges[0]["left_overhang"] if edges else "",
             "right_overhang": edges[-1]["right_overhang"] if edges else "",

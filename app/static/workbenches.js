@@ -49,12 +49,12 @@
     }
     async function open(item){
       if(locked)return;lock(true);menu(false);
-      try{root.JunctionHomeController.start('Saving the current Workbench…');await flush();pause();root.JunctionHomeController.status('Loading '+item.name+'…');const result=await request('/api/workbenches/'+item.id+'/open');reload(result.view);}
+      try{root.JunctionHomeController.start('Saving the current Workbench…');await flush();await pause();root.JunctionHomeController.status('Loading '+item.name+'…');const result=await request('/api/workbenches/'+item.id+'/open');reload(result.view);}
       catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
     }
     async function startNew(discard=false){
       if(locked)return;lock(true);menu(false);
-      try{root.JunctionHomeController.start('Saving the current Workbench…');await flush();pause();root.JunctionHomeController.status('Creating a new Workbench…');await request('/api/workbenches/new',{discard_unsaved:discard});reload();}
+      try{root.JunctionHomeController.start('Saving the current Workbench…');await flush();await pause();root.JunctionHomeController.status('Creating a new Workbench…');await request('/api/workbenches/new',{discard_unsaved:discard});reload();}
       catch(error){resume();root.JunctionHomeController.cancel();notify(error.message);lock(false);}
     }
     async function newInstance(){

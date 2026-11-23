@@ -19,6 +19,9 @@ def fragment_rows(result):
         row['right_adapter_enzyme'] if row['include_re_sites'] else '',
         row['left_re_site'], row['right_re_site'], row['five_prime_sequence'], row['three_prime_sequence'],
         row['include_re_sites'], row['source_start'] + 1, row['source_end'], row.get('output_orientation','Forward')])) for row in result['generated']]
+    if result.get('bsmbi_override'):
+        for exported in rows:
+            exported['BsmBI override'] = 'Internal sites preserved by confirmation; BsmBI digestion cuts these sites.'
     if result.get('make_twist_compatible'):
         for exported, row in zip(rows, result['generated']):
             exported.update({'Unpadded full sequence': row['unpadded_full_sequence'],

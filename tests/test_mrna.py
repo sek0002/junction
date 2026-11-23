@@ -100,6 +100,20 @@ class PrivateJobTests(unittest.TestCase):
         self.assertNotIn('mrna',self.bob.get('/api/workspace').json()['data'])
         response=self.alice.get('/');self.assertIn('data-view="mrna"',response.text);self.assertIn('/static/mrna.js',response.text)
 
+    def test_mrna_survives_newer_page_scoped_worksheet_switches(self):
+        mrna={'draft':{'records':[{'name':'Keep my RNA','sequence':SEQUENCE}]},'result':{'rows':[]}}
+        state={'view':'mrna','mrna':mrna,'draft':{'name':'Assembly A','enzyme':'BsaI','fragment_ids':[]},'design':{'designs':[{'id':'design-a','name':'Design A','enzyme':'BsaI','entries':[]}],'activeId':'design-a'},'compareView':{'jobs':{}}}
+        self.assertEqual(self.alice.put('/api/workspace',json={'data':state}).status_code,200)
+        for scope in ['build','design','compare']:
+            saved=self.alice.post('/api/worksheets',json={'scope':scope,'name':scope+' compatibility'})
+            self.assertEqual(saved.status_code,200,saved.text)
+            changed=self.alice.post('/api/worksheets/new',json={'scope':scope,'discard_unsaved':True})
+            self.assertEqual(changed.status_code,200,changed.text)
+            self.assertEqual(self.alice.get('/api/workspace').json()['data']['mrna'],mrna)
+            opened=self.alice.post('/api/worksheets/'+saved.json()['id']+'/open')
+            self.assertEqual(opened.status_code,200,opened.text)
+            self.assertEqual(self.alice.get('/api/workspace').json()['data']['mrna'],mrna)
+
     def test_workbench_roundtrip_preserves_mrna_data(self):
         state={'view':'mrna','mrna':{'draft':{'records':[{'name':'Portable RNA','sequence':SEQUENCE}]},'result':{'rows':[]}}}
         self.assertEqual(self.alice.put('/api/workspace',json={'data':state}).status_code,200)

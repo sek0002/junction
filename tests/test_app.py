@@ -26,18 +26,23 @@ class WorkbenchIntegrationTests(unittest.TestCase):
     def test_comparison_export_filters_exact_results_and_selected_near_matches(self):
         records=[{'filename':'exact.gb','query_name':'Exact','matches':[{'name':'Reference','identity':1,'exact':True,'reference_coverage':1,'query_coverage':1,'aligned_bp':100}]},
                  {'filename':'near.gb','query_name':'Near','matches':[{'name':'Reference','identity':.9999,'exact':False}]}]
+        records.append({'filename':'adjusted.gb','query_name':'Adjusted','matches':[{'name':'Reference','identity':.9,'adjusted_identity':1,'exact':False,'excluded_at_deletion_bp':20}]})
         response=self.client.post('/api/compare/export',json={'scope':'exact','records':records})
         self.assertEqual(response.status_code,200,response.text if response.status_code!=200 else '')
-        wb=load_workbook(io.BytesIO(response.content));self.assertEqual(wb['Results'].max_row,2)
+        wb=load_workbook(io.BytesIO(response.content));self.assertEqual(wb['Results'].max_row,3)
         self.assertEqual(wb['Results']['A2'].value,'exact.gb')
-        self.assertEqual(wb['Results']['T2'].value,100)
+        self.assertEqual(wb['Results']['A3'].value,'adjusted.gb')
+        self.assertEqual(wb['Results']['AB3'].value,'Adjusted 100%')
+        self.assertEqual(wb['Results']['H3'].value,90)
+        self.assertEqual(wb['Results']['I3'].value,100)
         self.assertEqual(wb['Results']['U2'].value,100)
         self.assertEqual(wb['Results']['V2'].value,100)
+        self.assertEqual(wb['Results']['W2'].value,100)
         self.assertIn('comparison-exact.xlsx',response.headers['content-disposition'])
         selected=self.client.post('/api/compare/export',json={'scope':'selected','records':records[1:]})
         self.assertEqual(selected.status_code,200)
-        self.assertEqual(load_workbook(io.BytesIO(selected.content))['Results']['I2'].value,'No')
-        self.assertEqual(self.client.post('/api/compare/export',json={'scope':'exact','records':records[1:]}).status_code,422)
+        self.assertEqual(load_workbook(io.BytesIO(selected.content))['Results']['J2'].value,'No')
+        self.assertEqual(self.client.post('/api/compare/export',json={'scope':'exact','records':records[1:2]}).status_code,422)
 
     def test_advanced_compare_is_unavailable(self):
         self.assertEqual(self.client.get('/api/compare/advanced/status').status_code,404)

@@ -78,3 +78,11 @@ test('search and selected-file filtering preserve queue order and hidden selecti
   assert.equal(s.read('visibleCompareJobs().map(j=>j.id).join()'),'2');
   assert.equal(s.read('compareJobs.map(j=>j.id).join()'),'1,2');
 });
+
+test('100% export menu counts adjusted matches and enables the download',()=>{
+ const s=setup();
+ s.read("compareJobs.push({id:1,status:'Done',result:{records:[{matches:[{identity:.9,adjusted_identity:1,exact:false}]}]}})");
+ s.read('updateCompareSelection()');
+ assert.equal(s.element('compare-export-exact').disabled,false);
+ assert.equal(s.element('compare-export-exact').textContent,'100% matches (1)');
+});

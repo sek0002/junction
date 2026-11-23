@@ -1,0 +1,11 @@
+# mRNA architect logo
+
+Generated with the built-in image_gen tool. Transparent PNG used by Junction's mRNA page.
+
+## Initial prompt
+
+Use case: logo-brand. Asset type: production logo for the mRNA page inside Junction, a scientific sequence-design web app. Create a new original horizontal logo with a compact RNA-inspired emblem on the left and the exact wordmark "mRNA architect" on the right. Exact casing: lowercase m, uppercase RNA, one space, lowercase architect. Style: very simple flat geometric vector-like branding, clean filled shapes, rounded corners, strong silhouette, balanced negative space, crisp professional sans-serif typography. Match Junction's restrained natural palette: forest green #176c58, dark evergreen #18312e, muted sage #8EB99A and #779C70, with one small warm mustard #E2B02B accent. Emblem: a single folded RNA ribbon forming a subtle lowercase m or architectural arch, with two or three short modular base-pair bars; keep it instantly legible and minimal. Wordmark is clearly readable at small page-header size, with mRNA slightly bolder and architect medium weight. Composition: one single finished logo, wide horizontal lockup about 4:1, tightly framed with modest even margins; emblem height comparable to wordmark, not towering above it. Truly transparent alpha background. Flat solid colors only: no gradients, no shadows, no 3D, no mockup, no border, no texture, no extra labels or slogans. Do not imitate the BASE facility's existing logo; this is a new mark to fit Junction's flat modular visual language.
+
+## Final refinement prompt
+
+Refine this logo to strictly flat solid colors. Keep the exact emblem geometry, layout, spacing, and exact wordmark text "mRNA architect" unchanged. Remove every gradient, tonal transition, highlight, texture and shadow. Give each geometric ribbon segment one perfectly uniform fill: dark forest green #176c58 and muted sage #8EB99A; use flat sage #779C70 for the short bars and one flat mustard yellow #E2B02B bar. Text "mRNA" must be one uniform dark evergreen #18312e; "architect" one uniform forest green #176c58. Crisp vector-like contours with ordinary antialiasing only. Preserve the genuinely transparent alpha background and horizontal composition. This is a production flat logo, no 3D or simulated lighting.

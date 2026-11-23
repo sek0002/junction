@@ -10,7 +10,7 @@
   function searchable(job){return normalize([job.path,job.file?.name,job.status,job.error,...records(job).flatMap(r=>[r.query_name,r.error,...(r.matches||[]).flatMap(m=>[m.name,m.source,...(m.aliases||[]).map(a=>a.name)]),...(r.fragment_matches||[]).map(f=>f.name)])].filter(Boolean).join(' '));}
   function matches(job,filter,selection){
     const rs=records(job),valid=rs.filter(r=>!r.error);
-    if(filter==='exact')return visuals.filePerfect(job);
+    if(filter==='exact')return !!visuals.fileMatchType(job);
     if(filter==='differences')return job.status==='Done'&&!visuals.filePerfect(job)&&valid.some(r=>r.matches?.length);
     if(filter==='no-matches')return job.status==='Done'&&valid.length>0&&valid.every(r=>!r.matches?.length);
     if(filter==='errors')return job.status==='Error'||rs.some(r=>r.error);
@@ -22,7 +22,7 @@
     if(key==='file')return job.path;
     if(key==='status')return ['Queued','Comparing','Done','Error','Skipped'].indexOf(job.status);
     if(key==='match')return best?.name??null;
-    if(key==='identity')return best?.identity??null;
+    if(key==='identity')return visuals.identity(best)??null;
     if(key==='fragments')return job.status==='Done'&&r&&!r.error?(r.fragment_matches?.length||0):null;
     return null;
   }

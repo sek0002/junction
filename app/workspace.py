@@ -6,19 +6,23 @@ from pydantic import BaseModel, Field
 
 from . import database as store
 from .auth import user_id
+from .comparison_metrics import refresh_comparison_percentages
+from .coding_analysis import refresh_coding_results
+from .exports import parse_sequence_file
 
 router=APIRouter()
 
 
 class Workspace(BaseModel):
     data:dict=Field(default_factory=dict)
+    context_version:int | None=Field(default=None,ge=0)
 
 
 @router.get('/api/workspace')
 def workspace():
     with store.connection() as db:
-        row=db.execute('SELECT data,updated_at FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
-    return {'data':json.loads(row['data']) if row else {},'updated_at':row['updated_at'] if row else None}
+        row=db.execute('SELECT data,updated_at,context_version FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
+    return {'data':json.loads(row['data']) if row else {},'updated_at':row['updated_at'] if row else None,'context_version':row['context_version'] if row else 0}
 
 
 @router.put('/api/workspace')
@@ -26,6 +30,23 @@ def save_workspace(payload:Workspace):
     try:encoded=json.dumps(payload.data,allow_nan=False)
     except (ValueError,TypeError):raise HTTPException(422,'Workspace must contain valid JSON values.') from None
     with store.connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        current=db.execute('SELECT data,context_version FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
+        saved=json.loads(current['data']) if current else {}
+        if payload.context_version is None and ('worksheet_ids' in payload.data or 'workbench_id' in payload.data):
+            def context(data):
+                return (data.get('workbench_id') or None,{key:value for key,value in data.get('worksheet_ids',{}).items() if value})
+            if context(payload.data)!=context(saved):
+                raise HTTPException(409,'Worksheet or Workbench changed. Reload Junction before saving; the stale save was not applied.')
+        if payload.context_version is not None:
+            if payload.context_version != (current['context_version'] if current else 0):
+                raise HTTPException(409,'Worksheet or Workbench changed while this page was open. Reload Junction before saving; the stale save was not applied.')
+            # Only explicit worksheet/workbench actions may change these pointers.
+            incoming=dict(payload.data)
+            for key in ('workbench_id','worksheet_ids'):
+                incoming.pop(key,None)
+                if key in saved:incoming[key]=saved[key]
+            encoded=json.dumps(incoming,allow_nan=False)
         db.execute('INSERT INTO user_workspaces(user_id,data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=CURRENT_TIMESTAMP',(user_id(),encoded))
         from .worksheets import autosave
         autosave(db)
@@ -36,7 +57,23 @@ def save_workspace(payload:Workspace):
 def comparisons():
     with store.connection() as db:
         rows=db.execute('SELECT * FROM comparison_runs WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),)).fetchall()
-    return {'items':[dict(row,result=json.loads(row['result']) if row['result'] else None) for row in rows]}
+    return {'items':[dict(row,result=restored_comparison(row)) for row in rows]}
+
+
+def restored_comparison(row):
+    if not row['result']:
+        return None
+    result=refresh_comparison_percentages(json.loads(row['result']))
+    records=result.get('records') or [result]
+    if any('query_features' not in record for record in records):
+        try:
+            source_records=parse_sequence_file(row['source'],row['filename'])
+        except (ValueError,IndexError):
+            source_records=[]
+        by_name={record['name']:record.get('features',[]) for record in source_records}
+        for record in records:
+            record.setdefault('query_features',by_name.get(record.get('query_name'),[]))
+    return refresh_coding_results(result)
 
 
 @router.delete('/api/workspace/comparisons')
