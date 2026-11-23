@@ -61,6 +61,15 @@ def run(data):
         from mrnarchitect.constants.sequences import EGFP, LUCIFERASE
         presets=json.loads((Path(__file__).parent/'data/mrna/elements.json').read_text())
         return {'ready':True,'versions':versions,'models':{'mRNArchitect':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
+    if data['action']=='stability':
+        if not degscore_ready:return {'available':False,'scores':None,'message':'DegScore is not connected.'}
+        sys.path.insert(0,config['degscore'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            from DegScore import DegScore
+        model=DegScore(data['sequence'].replace('T','U'),structure=data['structure'])
+        values=[float(x) for x in model.degscore_by_position]
+        if not all(math.isfinite(x) for x in values):raise ValueError('DegScore returned a non-finite position score.')
+        return {'available':True,'scores':values,'model':'DegScore 2.1','total':float(model.degscore)}
     batch=data['batch'];record=data['record'];params=record.get('parameters') or batch['parameters'];organism=params['organism']
     np.random.seed(batch['seed']+data['index']);random.seed(batch['seed']+data['index'])
     sequence=record['sequence']
@@ -100,11 +109,13 @@ def run(data):
         except (ValueError,KeyError,ZeroDivisionError):tai=None
         csc_score=sum(csc[c] for c in codons)/len(codons) if codons and csc and all(c in csc for c in codons) else None
         if organism!='homo-sapiens':csc_score=None;warnings.append('Human 293T codon stability coefficients are not applied to mouse.')
-        deg=None;half=None
+        deg=None;half=None;stability_profile=None
         if degclass:
             try:
                 model=degclass(foldseq.replace('T','U'),structure=structure);deg=float(model.degscore);half=float(model.est_half_life)
                 if not math.isfinite(half) or half<=0:half=None
+                stability_profile=[float(x) for x in model.degscore_by_position]
+                if not all(math.isfinite(x) for x in stability_profile):stability_profile=None
             except (ValueError,IndexError,AssertionError):warnings.append('DegScore could not evaluate this fold.')
         te=None;tissue_predictions={}
         if batch.get('predict_translation'):
@@ -123,7 +134,7 @@ def run(data):
         rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number}'),
             'input_name':record['name'],'seed':batch['seed']+data['index'],'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
             'fold_sequence':foldseq,'fold_scope':batch['fold_scope'],'temperature':batch['temperature'],'structure':structure,'coordinates':coords,'pairs':pairs,
-            'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
+            'stability_profile':stability_profile,'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
             'model_versions':dict(versions),'sha256':hashlib.sha256(transcript.encode()).hexdigest(),'optimization':report,'tissue_predictions':tissue_predictions,
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)

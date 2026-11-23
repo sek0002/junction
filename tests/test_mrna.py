@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -44,6 +45,9 @@ class ScientificTests(unittest.TestCase):
         for row in result['rows']:
             self.assertTrue(row['metrics']['protein_preserved']);self.assertEqual(len(row['coordinates']),len(row['fold_sequence']));self.assertEqual(len(row['structure']),len(row['fold_sequence']))
             self.assertLessEqual(row['metrics']['mfe'],0);self.assertGreater(row['metrics']['cai'],0);self.assertGreater(row['metrics']['predicted_half_life'],0)
+            self.assertEqual(len(row['stability_profile']),len(row['fold_sequence']))
+            self.assertTrue(all(math.isfinite(v) for v in row['stability_profile']))
+            self.assertAlmostEqual(sum(row['stability_profile']),row['metrics']['degscore'],places=5)
             self.assertAlmostEqual(row['metrics']['mfe_density'],row['metrics']['mfe']/len(row['fold_sequence']),places=5)
             self.assertAlmostEqual(row['metrics']['gc'],sum(x in 'GC' for x in row['cds'])/len(row['cds']))
         with open(runtime_config()['csc']) as f:weights={r['codon']:float(r['293T_ORFome']) for r in csv.DictReader(f)}
@@ -53,6 +57,8 @@ class ScientificTests(unittest.TestCase):
         row=invoke({'action':'run','batch':params,'record':params['records'][0],'index':0})['rows'][0]
         self.assertEqual(row['transcript'],'GCGCGC'+SEQUENCE+'AAACCC'+'A'*10)
         self.assertEqual(len(row['structure']),len(row['transcript']));self.assertEqual(row['regions']['cds'],[7,114])
+        profile=invoke({'action':'stability','sequence':row['fold_sequence'],'structure':row['structure']})
+        self.assertTrue(profile['available']);self.assertEqual(profile['scores'],row['stability_profile'])
 
     @unittest.skipUnless(runtime_config().get('ribonn_command'),'Optional RiboNN trained runtime not configured')
     def test_real_ribonn_ensemble(self):
@@ -99,6 +105,19 @@ class PrivateJobTests(unittest.TestCase):
         self.assertEqual(self.alice.get('/api/workspace').json()['data'],state)
         self.assertNotIn('mrna',self.bob.get('/api/workspace').json()['data'])
         response=self.alice.get('/');self.assertIn('data-view="mrna"',response.text);self.assertIn('/static/mrna.js',response.text)
+
+    def test_stability_profile_validation_and_legacy_fold(self):
+        from unittest.mock import patch
+        anon=TestClient(app)
+        self.assertEqual(anon.post('/api/mrna/stability',json={'sequence':'ATG','structure':'...'}).status_code,401)
+        anon.close()
+        for seq,fold in [('ATG','..'),('ATG',')..'),('ATG','(..'),('ANG','...')]:
+            self.assertEqual(self.alice.post('/api/mrna/stability',json={'sequence':seq,'structure':fold}).status_code,422)
+        with patch('app.mrna.invoke',return_value={'available':True,'scores':[.1,.2,.3],'total':.6}) as worker:
+            response=self.alice.post('/api/mrna/stability',json={'sequence':'aug','structure':'...'})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(worker.call_args.args[0],{'action':'stability','sequence':'ATG','structure':'...'})
+            self.assertEqual(response.json()['scores'],[.1,.2,.3])
 
     def test_mrna_survives_newer_page_scoped_worksheet_switches(self):
         mrna={'draft':{'records':[{'name':'Keep my RNA','sequence':SEQUENCE}]},'result':{'rows':[]}}

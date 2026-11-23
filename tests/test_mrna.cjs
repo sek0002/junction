@@ -14,3 +14,28 @@ assert.throws(()=>m.csvRows('a,"unclosed'),/Unclosed/);
 assert.equal(m.csvCell('=SUM(A1:A2)'),"\"'=SUM(A1:A2)\"");
 assert.equal(m.csvCell(-123.4),'-123.4');
 console.log('mRNA input, comparison and export checks passed');
+
+// Independent column scales retain missing values and use population SD.
+const stats=m.columnStats([1,2,3,null],x=>x);
+assert.equal(stats.n,3);assert.equal(stats.mean,2);
+assert.equal(m.zScore(2,stats),0);assert.ok(Math.abs(m.zScore(3,stats)-Math.sqrt(1.5))<1e-10);
+assert.equal(m.zScore(null,stats),null);assert.equal(m.zScore(4,m.columnStats([4,4],x=>x)),0);
+assert.equal(m.zScore(1,m.columnStats([],x=>x)),null);
+assert.equal(m.zColor(-2),'#86b7d2');assert.equal(m.zColor(2),'#d6918b');assert.equal(m.zColor(0),'#f5f5ef');
+assert.equal(m.stabilityColor(0,0,1),'#2a9d8f');assert.equal(m.stabilityColor(1,0,1),'#d76a59');assert.equal(m.stabilityColor(null,0,1),'#aab7b0');
+const row={id:'0-0',input_name:'A',name:'A input',strategy:'input',group:'G',cds:'GCGCAT',fold_sequence:'AAAGCGCATTT',fold_scope:'transcript',regions:{cds:[4,9]},gc_window:4,gc_profile:[[1,1],[2,.75],[3,.5]],pairs:[[1,11],[4,9]]};
+assert.deepEqual(m.foldRange(row,1,4),{start:1,end:4,fold_start:4,fold_end:7});
+assert.equal(m.gcWindowForBase(row,3),null);assert.equal(m.gcWindowForBase(row,10),null);
+assert.equal(m.gcWindowForBase(row,4).fold_start,4);assert.equal(m.gcWindowForBase(row,9).fold_end,9);
+const after={...row,id:'0-1',name:'A after',strategy:'MaxCAI',gc_profile:[[1,.5],[2,.5],[3,.5]]};
+const unrelated={...row,id:'1-0',input_name:'B',group:'Other'};
+assert.equal(m.matchedPairs([unrelated,after,row])[0].before.id,row.id);
+assert.equal(m.matchedPairs([unrelated,after]).length,0);
+const sameStrategy={...row,id:'2-0',name:'C input',gc_profile:[[1,.5],[2,.25]]};
+const grouped=m.gcSeries([row,after,sameStrategy],true);
+assert.equal(grouped.length,2);assert.equal(grouped[0].strategy,'input');assert.equal(grouped[0].points[0].gc,.75);assert.equal(grouped[0].points[0].n,2);assert.equal(grouped[0].points.at(-1).n,1);
+assert.equal(grouped[1].points[0].gc,.5);
+const long={...row,fold_sequence:'A'.repeat(1000),pairs:[[1,1000],[50,140],[400,700]]};
+const arc=m.arcGeometry(long,500,150);assert.equal(arc.width,150);assert.ok(arc.start<=500&&arc.end>=500);assert.equal(arc.end-arc.start,149);assert.ok(arc.box[3]<arc.box[2]);
+assert.equal(m.arcGeometry(long,1,150).start,1);assert.equal(m.arcGeometry(long,1000,150).end,1000);assert.equal(m.arcGeometry(long,500,'all').width,1000);
+console.log('mRNA linked coordinates, heatmap, grouping, paired radar and arc checks passed');

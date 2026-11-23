@@ -208,6 +208,30 @@ def capabilities():
     return capabilities_cached(c['python'],c['source'],c['degscore'],c['ribonn_command'])
 
 
+class StabilityRequest(BaseModel):
+    sequence:str=Field(min_length=1,max_length=10000)
+    structure:str=Field(min_length=1,max_length=10000,pattern=r'^[().]+$')
+
+    @model_validator(mode='after')
+    def valid_fold(self):
+        self.sequence=''.join(self.sequence.split()).upper().replace('U','T')
+        if not self.sequence or set(self.sequence)-set('ACGT'):raise ValueError('Use only A, C, G, T or U.')
+        if len(self.sequence)!=len(self.structure):raise ValueError('Sequence and dot-bracket structure lengths must match.')
+        depth=0
+        for char in self.structure:
+            depth+=(char=='(')-(char==')')
+            if depth<0:raise ValueError('Dot-bracket structure is unbalanced.')
+        if depth:raise ValueError('Dot-bracket structure is unbalanced.')
+        return self
+
+
+@router.post('/stability')
+def stability(payload:StabilityRequest):
+    user_id()
+    try:return invoke({'action':'stability',**payload.model_dump()},timeout=60)
+    except RuntimeError as error:raise HTTPException(503,str(error)) from None
+
+
 def serialize(row, full=True):
     item={k:row[k] for k in ['id','name','status','completed','total','error','created_at','updated_at']}
     if full:
