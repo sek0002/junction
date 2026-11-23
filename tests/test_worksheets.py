@@ -150,6 +150,78 @@ class WorksheetTests(unittest.TestCase):
         overhangs=[j['overhang'] for j in metrics.json()['junctions']];self.assertEqual(len(overhangs),len(set(overhangs)));self.assertIn('AAAA',overhangs)
         for item in metrics.json()['junctions']:self.assertLessEqual(item['overhang'],item['reverse_complement'])
 
+    def test_late_autosaves_cannot_copy_one_worksheet_over_another(self):
+        from app.design import DesignRequest
+        from app.main import AssemblyRequest
+        def content(workspace,scope):
+            if scope=='design':
+                value=workspace['design']
+                return {'activeId':value['activeId'],'designs':[{'id':item['id'],**DesignRequest.model_validate(item).model_dump()} for item in value['designs']]}
+            if scope=='build':return AssemblyRequest.model_validate(workspace['draft']).model_dump()
+            return workspace['compareView']
+        for scope in ('design','build','compare'):
+            with self.subTest(scope=scope):
+                first=self.save(scope,scope+' A')
+                self.assertEqual(self.client.post('/api/worksheets/new',json={'scope':scope}).status_code,200)
+                draft=self.client.get('/api/workspace').json()
+                if scope=='design':draft['data']['design']={'designs':[self.design|{'id':'design-b','name':'Design B','entries':[{'id':'cargo','kind':'placeholder','name':'Cargo B','sequence':'AACCGGTT','sections':[]}]}],'activeId':'design-b'}
+                elif scope=='build':draft['data']['draft']=self.draft|{'name':'Assembly B'}
+                else:draft['data']['compareView']={'search':'Sample B','jobs':{}}
+                self.assertEqual(self.client.put('/api/workspace',json=draft).status_code,200)
+                second=self.save(scope,scope+' B')
+                expected={}
+                for row in (first,second):
+                    expected[row['id']]=content(self.client.get('/api/worksheets/'+row['id']+'/export').json()['snapshot']['workspace'],scope)
+                for target in (first,second,first,second):
+                    before=self.client.get('/api/workspace').json()
+                    response=self.client.post('/api/worksheets/'+target['id']+'/open')
+                    self.assertEqual(response.status_code,200,response.text)
+                    after=self.client.get('/api/workspace').json()
+                    self.assertGreater(after['context_version'],before['context_version'])
+                    # The delayed request is rejected even if its mutable pointers
+                    # have already picked up the new worksheet's identity.
+                    stale=json.loads(json.dumps(before))
+                    stale['data']['worksheet_ids']=after['data']['worksheet_ids']
+                    rejected=self.client.put('/api/workspace',json=stale)
+                    self.assertEqual(rejected.status_code,409,rejected.text)
+                    self.assertEqual(self.client.get('/api/workspace').json()['data'],after['data'])
+                    legacy=self.client.put('/api/workspace',json={'data':before['data']})
+                    self.assertEqual(legacy.status_code,409,legacy.text)
+                    for identifier in expected:
+                        exported=self.client.get('/api/worksheets/'+identifier+'/export').json()['snapshot']['workspace']
+                        self.assertEqual(content(exported,scope),expected[identifier])
+                    fresh=self.client.get('/api/workspace').json()
+                    saved=self.client.put('/api/workspace',json=fresh)
+                    self.assertEqual(saved.status_code,200,saved.text)
+
+    def test_context_guard_keeps_server_owned_worksheet_pointer_after_named_save(self):
+        draft=self.client.get('/api/workspace').json()
+        saved=self.save('design')
+        # Naming this same draft does not change its loaded page context. A
+        # queued snapshot may lack the new ID, but may never clear that pointer.
+        response=self.client.put('/api/workspace',json=draft)
+        self.assertEqual(response.status_code,200,response.text)
+        current=self.client.get('/api/workspace').json()
+        self.assertEqual(current['context_version'],draft['context_version'])
+        self.assertEqual(current['data']['worksheet_ids']['design'],saved['id'])
+
+    def test_new_workbench_rejects_autosaves_from_the_previous_instance(self):
+        before=self.client.get('/api/workspace').json()
+        saved=self.client.post('/api/workbenches',json={'name':'Original instance'})
+        self.assertEqual(saved.status_code,200,saved.text)
+        self.assertEqual(self.client.post('/api/workbenches/new',json={}).status_code,200)
+        fresh=self.client.get('/api/workspace').json()
+        self.assertGreater(fresh['context_version'],before['context_version'])
+        self.assertEqual(self.client.put('/api/workspace',json=before).status_code,409)
+        self.assertEqual(self.client.get('/api/workspace').json()['data'],{})
+        self.assertEqual(self.client.post('/api/workbenches/'+saved.json()['id']+'/open').status_code,200)
+        restored=self.client.get('/api/workspace').json()
+        self.assertGreater(restored['context_version'],fresh['context_version'])
+        self.assertEqual(restored['data']['design']['activeId'],before['data']['design']['activeId'])
+        self.assertEqual(restored['data']['design']['designs'][0]['name'],before['data']['design']['designs'][0]['name'])
+        self.assertEqual(restored['data']['design']['designs'][0]['entries'],before['data']['design']['designs'][0]['entries'])
+        self.assertEqual(self.client.put('/api/workspace',json=fresh).status_code,409)
+
     def test_named_autosave_updates_same_record_for_all_pages(self):
         identifiers={scope:self.save(scope)['id'] for scope in ('build','design','compare')}
         data=self.client.get('/api/workspace').json()['data'];data['draft']['name']='Changed assembly';data['design']['designs'][0]['name']='Changed design';data['compareView']['search']='changed sample'

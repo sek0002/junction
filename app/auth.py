@@ -129,6 +129,8 @@ def initialize():
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(user_id,workbench_key,scope));
         CREATE INDEX IF NOT EXISTS worksheet_owner ON saved_worksheets(user_id,workbench_id,scope,archived_at);
         ''')
+        if 'context_version' not in {row['name'] for row in db.execute('PRAGMA table_info(user_workspaces)')}:
+            db.execute('ALTER TABLE user_workspaces ADD COLUMN context_version INTEGER NOT NULL DEFAULT 0')
         columns={r['name'] for r in db.execute('PRAGMA table_info(auth_users)')}
         for field in PERMISSIONS:
             if field not in columns:db.execute(f'ALTER TABLE auth_users ADD COLUMN {field} INTEGER NOT NULL DEFAULT 1')

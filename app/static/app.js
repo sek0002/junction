@@ -4,7 +4,7 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const plateLabel=id=>state.plateLabels?.[id]??(/^pSHPs/i.test(String(id||''))?(String(id).slice(5).replace(/[^a-z0-9]/gi,'').slice(0,4)||id):String(id||''));
 const spanLabel=(a,b)=>a===b?'gap after '+a:`${a+1}–${b}`;
 const fmt=(x,n=2)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:n});
-const state={worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plateWellSelection:new Set(),plateArchiveBusy:false,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
+const state={workspaceContextVersion:0,worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plateWellSelection:new Set(),plateArchiveBusy:false,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
 let toastTimer,searchTimer,previewTimer,assemblyCheckTimer,searchCounter=0,checkCounter=0,resuspCounter=0;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),6000);}
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
@@ -2470,7 +2470,8 @@ function sandboxSnapshot(){
     backboneStocks:Object.fromEntries(backboneStockCache),subtab:state.subtab,view:location.hash.slice(1),
     compareView:{...compareFileView,enzyme:$('compare-enzyme').value,jobs:Object.fromEntries(compareJobs.filter(j=>j.sandboxId).map(j=>[j.sandboxId,{expanded:!!j.expanded,recordIndex:j.recordIndex,selected:compareSelection.has(j.id),path:j.path}]))}};
 }
-async function restoreSandbox(saved,runs){
+async function restoreSandbox(saved,runs,contextVersion=0){
+  state.workspaceContextVersion=contextVersion;
   state.workbenchId=saved.workbench_id||null;state.worksheetIds=saved.worksheet_ids||{};
   window.JunctionDesign?.restore(saved.design);
   const draft=saved.draft;
@@ -2498,23 +2499,23 @@ async function restoreSandbox(saved,runs){
   comparisonQueue();selectSubtab(['assembly','reaction','export'].includes(saved.subtab)?saved.subtab:'assembly');
   showView(JunctionHome.resolveView(location.hash.slice(1)));renderBuildList();
 }
-const sandbox=SandboxState.create({request:(url,body)=>api(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),capture:sandboxSnapshot,report:error=>toast('Sandbox not saved: '+error.message)});
+const sandbox=SandboxState.create({request:(url,body)=>api(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),capture:sandboxSnapshot,context:()=>state.workspaceContextVersion,report:error=>toast('Sandbox not saved: '+error.message)});
 window.JunctionSandbox=Object.assign(sandbox,{preferences:{}});
 for(const event of ['input','change','click'])document.addEventListener(event,()=>sandbox.schedule());
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sandbox.flush().catch(error=>toast(error.message));});
-window.addEventListener('pagehide',()=>{if(sandbox.ready)fetch('/api/workspace',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:sandboxSnapshot()}),keepalive:true}).catch(()=>{});});
+window.addEventListener('pagehide',()=>{if(sandbox.ready)fetch('/api/workspace',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sandbox.body()),keepalive:true}).catch(()=>{});});
 window.JunctionWorkbenchController=JunctionWorkbenches.setup(window,document,{
   api,download:fileDownload,notify:toast,
   setCurrent:id=>{state.workbenchId=id;},
   recommendedName:()=>{const name=$('assembly-name').value.trim();return name&&name!=='New assembly'?name:'Workbench '+new Date().toLocaleDateString();},
   stats:()=>`${state.buildList.length} builds · ${window.JunctionDesign?.snapshot()?.designs?.length||0} designs · ${compareJobs.length} comparison files · v${document.querySelector('.brand-version').textContent.replace(/^v/,'')}`,
   flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
-  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching workbenches.');sandbox.stop();},
-  resume:()=>sandbox.start(sandboxSnapshot())
+  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching workbenches.');return sandbox.stop();},
+  resume:()=>sandbox.start()
 });
 window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
   api,flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
-  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching worksheets.');sandbox.stop();},resume:()=>sandbox.start(sandboxSnapshot()),
+  pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching worksheets.');return sandbox.stop();},resume:()=>sandbox.start(),
   reload:view=>location.replace('/?worksheet='+Date.now()+'#'+view),download:fileDownload,notify:toast,
   nameFor:scope=>scope==='design'?$('design-name').value:scope==='build'?$('assembly-name').value:'Compare worksheet',
   setCurrent:(scope,id)=>{state.worksheetIds[scope]=id;},changed:scheduleLibraryMetrics
@@ -2532,7 +2533,7 @@ showView(JunctionHome.resolveView(location.hash.slice(1)));
     sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
     splash.status('Loading fragments, backbones and rules…');await refresh();
     splash.status('Restoring build plans…');await loadBuildList();
-    splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items);sandbox.start(sandboxSnapshot());
+    splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items,workspace.context_version||0);
     splash.status('Loading saved worksheets and Workbenches…');
     await api('/api/worksheets/bootstrap',jsonBody({})).catch(error=>toast('Worksheet migration: '+error.message));
     await Promise.all([
@@ -2540,6 +2541,6 @@ showView(JunctionHome.resolveView(location.hash.slice(1)));
       window.JunctionWorkbenchController.load(),
       refreshLibraryMetrics()
     ]);
-    splash.ready();runCompareQueue();
+    sandbox.start(sandboxSnapshot());splash.ready();runCompareQueue();
   }catch(error){splash.fail(error.message);}
 })();

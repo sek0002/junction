@@ -230,8 +230,9 @@ def save_record(db,name,notes,data,identifier=None,**extra):
     return owned(db,identifier)
 
 
-def set_working(db,data):
+def set_working(db,data,*,switch=False):
     db.execute('INSERT INTO user_workspaces(user_id,data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=CURRENT_TIMESTAMP',(user_id(),encode(data)))
+    if switch:db.execute('UPDATE user_workspaces SET context_version=context_version+1 WHERE user_id=?',(user_id(),))
 
 
 def current_record(db):
@@ -414,7 +415,7 @@ def open_workbench(identifier:str):
         if isinstance(view,dict) and isinstance(view.get('jobs'),dict):view['jobs']={str(comparison_ids[int(key)]):value for key,value in view['jobs'].items() if str(key).isdigit() and int(key) in comparison_ids}
         from .worksheets import restore_registry
         workspace['worksheet_ids']=restore_registry(db,data,identifier)
-        workspace['workbench_id']=identifier;set_working(db,workspace)
+        workspace['workbench_id']=identifier;set_working(db,workspace,switch=True)
     view=workspace.get('view')
     return {'opened':identifier,'view':view if view in ('build','design','library','uploads','compare') else 'build'}
 
@@ -432,5 +433,5 @@ def new_workbench(payload:New):
         db.execute('UPDATE build_list SET removed_at=CURRENT_TIMESTAMP WHERE user_id=? AND removed_at IS NULL',(user_id(),))
         db.execute('UPDATE comparison_runs SET removed_at=CURRENT_TIMESTAMP WHERE user_id=? AND removed_at IS NULL',(user_id(),))
         db.execute("DELETE FROM worksheet_drafts WHERE user_id=? AND workbench_key=''",(user_id(),))
-        set_working(db,{})
+        set_working(db,{},switch=True)
     return {'created':True,'autosaved':current['id'] if current else None}

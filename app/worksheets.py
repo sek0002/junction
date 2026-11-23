@@ -212,7 +212,7 @@ def replace_page(db,data,scope,identifier=None):
         if isinstance(view.get('jobs'),dict):view['jobs']={str(ids[int(key)]):value for key,value in view['jobs'].items() if str(key).isdigit() and int(key) in ids}
     workspace=wb.working(db)
     for key in KEYS[scope]:workspace.pop(key,None)
-    workspace.update(page);workspace.setdefault('worksheet_ids',{})[scope]=identifier;wb.set_working(db,workspace)
+    workspace.update(page);workspace.setdefault('worksheet_ids',{})[scope]=identifier;wb.set_working(db,workspace,switch=True)
 
 
 def meaningful(data,scope):
