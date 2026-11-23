@@ -28,6 +28,40 @@ def gc_profile(sequence, window, minimum, maximum):
     return profile,hotspots,window
 
 
+def homopolymer_metrics(sequence):
+    """Junction definition: bases in maximal CDS runs of at least two identical bases."""
+    import itertools
+    runs=[(base,len(list(items))) for base,items in itertools.groupby(sequence)]
+    nt=sum(length for _,length in runs if length>=2)
+    return {'homopolymer_nt':nt,'homopolymer_ratio':nt/len(sequence),'homopolymer_longest':max((length for _,length in runs),default=0)}
+
+
+def design_quality(sequence, parameters):
+    """Explicit local proxy, not the undocumented Figure 1c manufacturing formula."""
+    import msgspec
+    from dnachisel import DnaOptimizationProblem
+    from mrnarchitect.optimize.engine import build_constraints_and_objectives
+    from mrnarchitect.optimize.models import OptimizationConfig
+    metrics=homopolymer_metrics(sequence)
+    config=dict(parameters);config['gc_window_size']=min(config['gc_window_size'],len(sequence))
+    config=msgspec.convert(config,type=OptimizationConfig)
+    hard,objectives=build_constraints_and_objectives(sequence,config)
+    allowed={'EnforceGCContent','AvoidPattern','AvoidHairpins','UniquifyAllKmers'}
+    checks=[c for c in hard+objectives if type(c).__name__ in allowed]
+    affected=bytearray(len(sequence));report=[]
+    if checks:
+        problem=DnaOptimizationProblem(sequence,constraints=checks)
+        for evaluation in problem.constraints_evaluations():
+            locations=[]
+            if not evaluation.passes:
+                spans=[(span.start,span.end) for span in evaluation.locations] if evaluation.locations else [(0,len(sequence))]
+                for start,end in spans:
+                    start=max(0,int(start));end=min(len(sequence),int(end))
+                    if start<end:affected[start:end]=b'\x01'*(end-start);locations.append([start+1,end])
+            report.append({'check':str(evaluation.specification),'passed':bool(evaluation.passes),'native_score':float(evaluation.score),'locations':locations})
+    metrics['manufacturability']=100*(1-sum(affected)/len(sequence)) if checks else None
+    return {'metrics':metrics,'definition':'Junction v1: homopolymer nt counts bases in maximal CDS runs >=2; manufacturability is 100*(1 - union of DNA Chisel violation locations / CDS length), for enabled GC, homopolymer, repeat, hairpin and motif checks. This is not the unpublished Figure 1c formula.','affected_nt':sum(affected),'checks':report}
+
 def translation(config, sequence, five, three, organism):
     command=config.get('ribonn_command')
     if not command:return None,'RiboNN trained runtime is not connected.'
@@ -53,14 +87,16 @@ def run(data):
     from mrnarchitect.sequence import Sequence
     from mrnarchitect.sequence_metrics import compute_cai, compute_tai
     import mrnarchitect.organism as organisms
-    versions={'mRNArchitect':'unknown','ViennaRNA':RNA.__version__,'CSC':'Wu 2019 / 293T_ORFome'}
+    from importlib.metadata import version
+    versions={'DNAChisel':version('dnachisel'),'mRNArchitect':'unknown','ViennaRNA':RNA.__version__,'CSC':'Wu 2019 / 293T_ORFome'}
     for line in (source/'pyproject.toml').read_text().splitlines():
         if line.startswith('version = '): versions['mRNArchitect']=line.split('"')[1];break
     degscore_ready=(Path(config['degscore'])/'DegScore.py').is_file()
     if data['action']=='capabilities':
         from mrnarchitect.constants.sequences import EGFP, LUCIFERASE
         presets=json.loads((Path(__file__).parent/'data/mrna/elements.json').read_text())
-        return {'ready':True,'versions':versions,'models':{'mRNArchitect':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
+        return {'ready':True,'versions':versions,'models':{'mRNArchitect':True,'dnachisel':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
+    if data['action']=='quality':return design_quality(data['sequence'],data['parameters'])
     if data['action']=='stability':
         if not degscore_ready:return {'available':False,'scores':None,'message':'DegScore is not connected.'}
         sys.path.insert(0,config['degscore'])
@@ -130,12 +166,17 @@ def run(data):
             'rare_codon_ratio':None}
         table=organisms.load_codon_usage_table_from_database(organism)
         metrics['rare_codon_ratio']=sum(table.weight(c)<.1 for c in codons)/len(codons) if codons else None
+        try:quality=design_quality(cds,params)
+        except (ValueError,IndexError,AssertionError) as error:
+            quality={'metrics':{**homopolymer_metrics(cds),'manufacturability':None},'error':str(error)}
+            warnings.append('The manufacturing constraint-coverage score could not be calculated.')
+        metrics.update(quality['metrics'])
         candidate_id=f"{data['index']}-{number}"
         rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number}'),
             'input_name':record['name'],'seed':batch['seed']+data['index'],'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
             'fold_sequence':foldseq,'fold_scope':batch['fold_scope'],'temperature':batch['temperature'],'structure':structure,'coordinates':coords,'pairs':pairs,
             'stability_profile':stability_profile,'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
-            'model_versions':dict(versions),'sha256':hashlib.sha256(transcript.encode()).hexdigest(),'optimization':report,'tissue_predictions':tissue_predictions,
+            'model_versions':dict(versions),'sha256':hashlib.sha256(transcript.encode()).hexdigest(),'optimization':report,'design_quality':quality,'tissue_predictions':tissue_predictions,
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)
     if batch['mode']=='design':

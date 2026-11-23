@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from app.main import app
 from app import database as store
 from app.mrna import Batch, Record, Parameters, capabilities, invoke, runtime_config
-from app.mrna_worker import gc_profile
+from app.mrna_worker import gc_profile,homopolymer_metrics
 from auth_client import bootstrap_pin
 
 SEQUENCE='ATGGAGGACGCCAAGAACATCAAGAAGGGCCCCGCCCCCTTCTACCCCCTGGAGGACGGCACCGCCGGCGAGCAGCTGCACAAGGCCATGAAGAGGTACGCCCTGTGA'
@@ -27,6 +27,28 @@ class ScientificTests(unittest.TestCase):
         with self.assertRaises(ValidationError):Record(name='bad',sequence=SEQUENCE,preserve_regions=[(2,20)])
         with self.assertRaises(ValidationError):Batch(records=[Record(name='duplicate',sequence=SEQUENCE)]*2)
         self.assertEqual(Record(name='RNA',sequence='aug gaa uaa').sequence,'ATGGAATAA')
+
+    def test_homopolymer_count_has_explicit_definition(self):
+        metrics=homopolymer_metrics('ATGAAAACCTAA')
+        self.assertEqual(metrics['homopolymer_nt'],8)
+        self.assertEqual(metrics['homopolymer_longest'],4)
+        self.assertAlmostEqual(metrics['homopolymer_ratio'],8/12)
+
+    @unittest.skipUnless(Path(runtime_config()['python']).is_file(),'Optional local scientific runtime not configured')
+    def test_dnachisel_manufacturing_coverage_unions_overlaps(self):
+        params=Parameters(gc_global_min=0,gc_global_max=1,gc_window_min=0,gc_window_max=1,avoid_repeat_length=None,avoid_poly_a=6,avoid_poly_t=None,avoid_poly_c=None,avoid_poly_g=None).model_dump()
+        sequence='ATG'+'A'*9+'CTA'+'TAA'
+        result=invoke({'action':'quality','sequence':sequence,'parameters':params})
+        self.assertEqual(result['affected_nt'],9)
+        self.assertAlmostEqual(result['metrics']['manufacturability'],50)
+        self.assertEqual(len(result['checks']),1)
+        self.assertGreater(len(result['checks'][0]['locations']),1)
+        params['avoid_poly_a']=None
+        empty=invoke({'action':'quality','sequence':sequence,'parameters':params})
+        self.assertIsNone(empty['metrics']['manufacturability'])
+        params['avoid_sequences']=['CGCGCG']
+        clean=invoke({'action':'quality','sequence':sequence,'parameters':params})
+        self.assertEqual(clean['metrics']['manufacturability'],100)
 
     def test_gc_windows_include_last_window_and_merge_hotspots(self):
         profile,spots,window=gc_profile('GGGGAAAATTTT',4,.25,.75)
@@ -118,6 +140,18 @@ class PrivateJobTests(unittest.TestCase):
             self.assertEqual(response.status_code,200,response.text)
             self.assertEqual(worker.call_args.args[0],{'action':'stability','sequence':'ATG','structure':'...'})
             self.assertEqual(response.json()['scores'],[.1,.2,.3])
+
+    def test_manufacturing_metrics_endpoint_validation(self):
+        from unittest.mock import patch
+        anon=TestClient(app)
+        self.assertEqual(anon.post('/api/mrna/design-metrics',json={'name':'CDS','sequence':SEQUENCE}).status_code,401)
+        anon.close()
+        self.assertEqual(self.alice.post('/api/mrna/design-metrics',json={'name':'bad','sequence':'ATGNNN'}).status_code,422)
+        self.assertEqual(self.alice.post('/api/mrna/design-metrics',json={'name':'protein','kind':'protein','sequence':'MVSK'}).status_code,422)
+        with patch('app.mrna.invoke',return_value={'metrics':{'homopolymer_nt':2,'manufacturability':100}}) as worker:
+            response=self.alice.post('/api/mrna/design-metrics',json={'name':'CDS','sequence':SEQUENCE})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(worker.call_args.args[0]['action'],'quality')
 
     def test_mrna_survives_newer_page_scoped_worksheet_switches(self):
         mrna={'draft':{'records':[{'name':'Keep my RNA','sequence':SEQUENCE}]},'result':{'rows':[]}}

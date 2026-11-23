@@ -21,8 +21,8 @@ assert.equal(stats.n,3);assert.equal(stats.mean,2);
 assert.equal(m.zScore(2,stats),0);assert.ok(Math.abs(m.zScore(3,stats)-Math.sqrt(1.5))<1e-10);
 assert.equal(m.zScore(null,stats),null);assert.equal(m.zScore(4,m.columnStats([4,4],x=>x)),0);
 assert.equal(m.zScore(1,m.columnStats([],x=>x)),null);
-assert.equal(m.zColor(-2),'#86b7d2');assert.equal(m.zColor(2),'#d6918b');assert.equal(m.zColor(0),'#f5f5ef');
-assert.equal(m.stabilityColor(0,0,1),'#2a9d8f');assert.equal(m.stabilityColor(1,0,1),'#d76a59');assert.equal(m.stabilityColor(null,0,1),'#aab7b0');
+assert.equal(m.zColor(-2),'#000004');assert.equal(m.zColor(2),'#fcffa4');assert.equal(m.zColor(0),'#bc3754');
+assert.equal(m.stabilityColor(0,0,1),'#fcffa4');assert.equal(m.stabilityColor(1,0,1),'#000004');assert.equal(m.stabilityColor(null,0,1),'#aab7b0');
 const row={id:'0-0',input_name:'A',name:'A input',strategy:'input',group:'G',cds:'GCGCAT',fold_sequence:'AAAGCGCATTT',fold_scope:'transcript',regions:{cds:[4,9]},gc_window:4,gc_profile:[[1,1],[2,.75],[3,.5]],pairs:[[1,11],[4,9]]};
 assert.deepEqual(m.foldRange(row,1,4),{start:1,end:4,fold_start:4,fold_end:7});
 assert.equal(m.gcWindowForBase(row,3),null);assert.equal(m.gcWindowForBase(row,10),null);
@@ -39,3 +39,30 @@ const long={...row,fold_sequence:'A'.repeat(1000),pairs:[[1,1000],[50,140],[400,
 const arc=m.arcGeometry(long,500,150);assert.equal(arc.width,150);assert.ok(arc.start<=500&&arc.end>=500);assert.equal(arc.end-arc.start,149);assert.ok(arc.box[3]<arc.box[2]);
 assert.equal(m.arcGeometry(long,1,150).start,1);assert.equal(m.arcGeometry(long,1000,150).end,1000);assert.equal(m.arcGeometry(long,500,'all').width,1000);
 console.log('mRNA linked coordinates, heatmap, grouping, paired radar and arc checks passed');
+
+// A selected transcript region clips to the CDS without losing UTR coordinates.
+assert.deepEqual(m.sequenceRange(row,8,5),{fold_start:5,fold_end:8,start:2,end:5,gc:.75});
+assert.deepEqual(m.sequenceRange(row,1,3),{fold_start:1,fold_end:3,start:null,end:null,gc:null});
+assert.deepEqual(m.sequenceRange(row,2,6),{fold_start:2,fold_end:6,start:1,end:3,gc:1});
+assert.deepEqual(m.sequenceRange(row,8,11),{fold_start:8,fold_end:11,start:5,end:6,gc:0});
+assert.equal(m.sequenceRange(row,-10,100).fold_end,11);
+assert.equal(m.sequenceRange({...row,fold_scope:'cds',fold_sequence:row.cds},2,4).gc,1);
+assert.equal(m.selectedPositions(null,{}),null);
+console.log('mRNA persistent sequence range and transcript/CDS clipping checks passed');
+
+assert.equal(m.infernoColor(0),'#000004');assert.equal(m.infernoColor(1),'#fcffa4');assert.equal(m.infernoColor(-1),'#000004');
+assert.equal(m.contrastColor('#000004'),'#ffffff');assert.equal(m.contrastColor('#fcffa4'),'#000000');
+assert.equal(m.radarFraction(.8,{min:0,max:1,direction:'higher'}),.8);
+assert.equal(m.radarFraction(-.25,{min:-.5,max:0,direction:'lower'}),.5);
+assert.equal(m.radarFraction(60,{min:40,max:70,target:60,direction:'target'}),1);
+assert.equal(m.radarFraction(70,{min:40,max:70,target:60,direction:'target'}),0);
+assert.equal(m.radarFraction(100,{min:0,max:1,direction:'higher'}),1);
+assert.equal(m.radarFraction(null,{min:0,max:1,direction:'higher'}),null);
+assert.equal(m.restoreRadarRanges({cai:{min:2,max:1,direction:'higher'}}).cai.max,1);
+assert.equal(m.restoreRadarRanges({gc:{min:40,max:70,target:100,direction:'target'}}).gc.target,60);
+console.log('mRNA Inferno and fixed-reference radar checks passed');
+assert.deepEqual(m.gcDisplayRange(100,{start:20,end:80}),{start:20,end:80});
+assert.deepEqual(m.gcDisplayRange(100,{start:-10,end:200}),{start:1,end:100});
+assert.deepEqual(m.gcDisplayRange(100,{start:100,end:100}),{start:99,end:100});
+assert.deepEqual(m.gcDisplayRange(100,{start:1,end:null}),{start:1,end:100});
+console.log('mRNA GC viewport bounds checks passed');

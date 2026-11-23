@@ -232,6 +232,14 @@ def stability(payload:StabilityRequest):
     except RuntimeError as error:raise HTTPException(503,str(error)) from None
 
 
+@router.post('/design-metrics')
+def design_metrics(payload:Record):
+    user_id()
+    if payload.kind!='nucleotide':raise HTTPException(422,'Supply the scored nucleotide CDS.')
+    try:return invoke({'action':'quality','sequence':payload.sequence,'parameters':(payload.parameters or Parameters()).model_dump()},timeout=60)
+    except RuntimeError as error:raise HTTPException(503,str(error)) from None
+
+
 def serialize(row, full=True):
     item={k:row[k] for k in ['id','name','status','completed','total','error','created_at','updated_at']}
     if full:
@@ -322,7 +330,7 @@ def export(identifier:str, format:Literal['json','csv','fasta','dbn']='csv'):
     row=owned(identifier,user_id()); data=json.loads(row['result']); rows=data.get('rows',[])
     if format=='json': content=json.dumps(serialize(row),indent=2,allow_nan=False); mime='application/json'
     elif format=='csv':
-        stream=io.StringIO(); fields=['name','input_name','group','strategy','length','gc','cai','tai','mfe','mfe_density','paired_ratio','degscore','predicted_half_life','csc','translation','hamming_ratio','protein_preserved','fold_scope','temperature','model_versions','parameters','seed','sha256','cds','transcript']
+        stream=io.StringIO(); fields=['name','input_name','group','strategy','length','gc','cai','tai','mfe','mfe_density','paired_ratio','degscore','predicted_half_life','csc','translation','homopolymer_nt','homopolymer_ratio','manufacturability','hamming_ratio','protein_preserved','fold_scope','temperature','model_versions','parameters','seed','sha256','cds','transcript']
         writer=csv.DictWriter(stream,fieldnames=fields,extrasaction='ignore');writer.writeheader()
         for item in rows:
             record={**item,**item['metrics']}; record['model_versions']=json.dumps(item['model_versions'],sort_keys=True); record['parameters']=json.dumps(item['parameters'],sort_keys=True)
