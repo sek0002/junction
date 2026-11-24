@@ -88,9 +88,9 @@ assert.equal(m.fitRadarRange([]),null);
 console.log('mRNA optional translation axis fit checks passed');
 
 assert.equal(m.radarDefaults.predicted_half_life.max,2);
-assert.deepEqual([m.radarDefaults.translation.min,m.radarDefaults.translation.max],[0,5]);
+assert.deepEqual([m.radarDefaults.translation.min,m.radarDefaults.translation.max],[0,2]);
 const migrated=m.restoreRadarRanges({translation:{min:-3,max:3,direction:'higher'},predicted_half_life:{min:0,max:24,direction:'higher'}},1);
-assert.equal(migrated.translation.max,5);assert.equal(migrated.predicted_half_life.max,2);
+assert.equal(migrated.translation.max,2);assert.equal(migrated.predicted_half_life.max,2);
 assert.equal(m.restoreRadarRanges({translation:{min:-2,max:7,direction:'higher'}},1).translation.max,7);
 assert.equal(m.restoreRadarRanges({translation:{min:-3,max:3,direction:'higher'}},2).translation.max,3);
 console.log('mRNA revised model ranges migrate only legacy defaults and preserve custom bounds');
@@ -100,3 +100,16 @@ assert.equal(m.matchedPairs([row,after,reference]).length,1);
 assert.equal(m.hamming(reference.cds,reference.cds),0);
 assert.equal(m.hamming(reference.cds,row.cds+'ATG'),null);
 console.log('mRNA references remain separate from optimisation pairs');
+
+// Previous default migrates once; deliberate custom limits remain unchanged.
+assert.equal(m.restoreRadarRanges({translation:{min:0,max:5,direction:'higher'}},2).translation.max,2);
+assert.equal(m.restoreRadarRanges({translation:{min:0,max:5,direction:'higher'}},3).translation.max,5);
+assert.equal(m.restoreRadarRanges({translation:{min:-1,max:5,direction:'higher'}},2).translation.min,-1);
+for(const [key,range] of Object.entries(m.radarDefaults)){
+ const lo=m.radarScaleBounds(key,range,'min'),hi=m.radarScaleBounds(key,range,'max');
+ assert(lo.min<=range.min&&lo.max<range.max&&lo.step>0);assert(hi.max>=range.max&&hi.min>range.min&&hi.step>0);
+ if(range.direction==='target'){const t=m.radarScaleBounds(key,range,'target');assert(t.min<range.target&&t.max>range.target);assert(lo.max<range.target&&hi.min>range.target);}
+}
+assert.equal(m.radarScaleBounds('translation',{min:-7,max:9,direction:'higher'},'min').min,-7);
+assert.equal(m.radarScaleBounds('translation',{min:-7,max:9,direction:'higher'},'max').max,9);
+console.log('mRNA translation range migration and parameter slider bounds passed');

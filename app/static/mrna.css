@@ -137,3 +137,5 @@
 #mrna .mrna-actions{min-width:0;max-width:100%}#mrna .mrna-actions select{min-width:0;max-width:100%;box-sizing:border-box}#mrna-translation-cell{width:min(100%,340px)!important}
 
 .mrna-radar-legend label{display:flex;flex-direction:row!important;align-items:center;gap:7px;cursor:pointer;font-size:11px!important;font-weight:400!important;max-width:100%;min-width:0}.mrna-radar-legend input{margin:0;flex-shrink:0;accent-color:#338d78}.mrna-radar-legend .is-hidden span{opacity:.5;text-decoration:line-through}.mrna-radar-legend input:focus-visible{outline:2px solid var(--accent,#338d78);outline-offset:3px}
+
+.mrna-radar-range label{min-width:0}.mrna-radar-range input[type="range"]{width:100%;min-width:0;padding:0!important;margin:3px 0 0;accent-color:var(--green,#338d78);height:18px;border:0;background:transparent;box-shadow:none;cursor:pointer}

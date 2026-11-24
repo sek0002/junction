@@ -71,7 +71,7 @@
   return positions.length?[Math.min(...positions),Math.max(...positions)]:null;
  }
  const paperRadarKeys=['gc','homopolymer_nt','manufacturability','cai','mfe_density'];
- const radarDefaults={length:{min:0,max:8000,direction:'higher',unit:'nt'},gc:{min:40,max:70,target:60,direction:'target',unit:'%'},cai:{min:0,max:1,direction:'higher',unit:''},tai:{min:0,max:1,direction:'higher',unit:''},mfe:{min:-1000,max:0,direction:'lower',unit:'kcal/mol'},mfe_density:{min:-.5,max:0,direction:'lower',unit:'kcal/mol/nt'},predicted_half_life:{min:0,max:2,direction:'higher',unit:'model h'},csc:{min:-.1,max:.1,direction:'higher',unit:'coefficient'},translation:{min:0,max:5,direction:'higher',unit:'model units'},homopolymer_nt:{min:0,max:100,direction:'lower',unit:'% CDS in runs ≥2'},manufacturability:{min:0,max:100,direction:'higher',unit:'% coverage proxy'}};
+ const radarDefaults={length:{min:0,max:8000,direction:'higher',unit:'nt'},gc:{min:40,max:70,target:60,direction:'target',unit:'%'},cai:{min:0,max:1,direction:'higher',unit:''},tai:{min:0,max:1,direction:'higher',unit:''},mfe:{min:-1000,max:0,direction:'lower',unit:'kcal/mol'},mfe_density:{min:-.5,max:0,direction:'lower',unit:'kcal/mol/nt'},predicted_half_life:{min:0,max:2,direction:'higher',unit:'model h'},csc:{min:-.1,max:.1,direction:'higher',unit:'coefficient'},translation:{min:0,max:2,direction:'higher',unit:'model units'},homopolymer_nt:{min:0,max:100,direction:'lower',unit:'% CDS in runs ≥2'},manufacturability:{min:0,max:100,direction:'higher',unit:'% coverage proxy'}};
  function radarFraction(value,range){
    if(!Number.isFinite(value)||!range||!(range.max>range.min))return null;
    let t=(value-range.min)/(range.max-range.min);
@@ -79,7 +79,12 @@
    if(range.direction==='target'){const target=range.target;t=value<=target?(value-range.min)/(target-range.min):(range.max-value)/(range.max-target);}
    return Math.max(0,Math.min(1,t));
  }
- function restoreRadarRanges(saved,version=2){return Object.fromEntries(Object.entries(radarDefaults).map(([key,defaults])=>{let r=saved?.[key];if(version<2&&r?.direction==='higher'&&((key==='translation'&&r.min===-3&&r.max===3)||(key==='predicted_half_life'&&r.min===0&&r.max===24)))r=null;const valid=r&&Number.isFinite(r.min)&&Number.isFinite(r.max)&&r.min<r.max&&['higher','lower','target'].includes(r.direction)&&(r.direction!=='target'||Number.isFinite(r.target)&&r.target>r.min&&r.target<r.max);return [key,valid?{...r,unit:defaults.unit}:{...defaults}];}));}
+ function restoreRadarRanges(saved,version=3){return Object.fromEntries(Object.entries(radarDefaults).map(([key,defaults])=>{let r=saved?.[key];if(version<2&&r?.direction==='higher'&&((key==='translation'&&r.min===-3&&r.max===3)||(key==='predicted_half_life'&&r.min===0&&r.max===24)))r=null;if(version<3&&key==='translation'&&r?.min===0&&r.max===5&&r.direction==='higher')r=null;const valid=r&&Number.isFinite(r.min)&&Number.isFinite(r.max)&&r.min<r.max&&['higher','lower','target'].includes(r.direction)&&(r.direction!=='target'||Number.isFinite(r.target)&&r.target>r.min&&r.target<r.max);return [key,valid?{...r,unit:defaults.unit}:{...defaults}];}));}
+ function radarScaleBounds(key,range,bound){
+  const domains={length:[0,20000,50],gc:[0,100,1],cai:[0,1,.01],tai:[0,1,.01],mfe:[-3000,0,10],mfe_density:[-1,0,.005],predicted_half_life:[0,10,.05],csc:[-.2,.2,.001],translation:[-3,5,.01],homopolymer_nt:[0,100,1],manufacturability:[0,100,1]};
+  const [low,high,increment]=domains[key],target=range.direction==='target',gap=target?Math.min(range.target-range.min,range.max-range.target):range.max-range.min,step=Number(Math.min(increment,gap/100).toPrecision(8));
+  return bound==='min'?{min:Math.min(low,range.min),max:(target?range.target:range.max)-step,step}:bound==='max'?{min:(target?range.target:range.min)+step,max:Math.max(high,range.max),step}:{min:range.min+step,max:range.max-step,step};
+ }
  function gcDisplayRange(length,requested={}){
   const max=Math.max(1,Math.round(length)||1);let start=Math.max(1,Math.min(max,Math.round(Number(requested.start))||1)),end=Math.max(start,Math.min(max,Math.round(Number(requested.end))||max));
   if(start===end&&max>1){if(end<max)end++;else start--;}
@@ -248,7 +253,7 @@
     }catch(error){qualityRequests.delete(key);qualityStatus.set(row,{error:error.message});if(token===generation)$('radar-range-error').textContent='Could not load design quality metrics: '+error.message;}
   }
   const radarInputValue=(row,key)=>key==='gc'?row.metrics.gc*100:key==='homopolymer_nt'?100*row.metrics.homopolymer_nt/row.cds.length:metricValue(row,key);
-  function drawRadar(){
+  function drawRadar({keepRanges=false}={}){
     radarView=null;radarPinned=false;radarFocusAnchor=null;clearRadarHover();
     const pairs=matchedPairs(results.rows),old=value('radar-pair')||radarCandidate;
     $('radar-pair').innerHTML=pairs.length?pairs.map(p=>`<option value="${escape(p.after.id)}">${escape(p.after.group+' · '+p.after.name)}</option>`).join(''):'<option value="">Reference comparison</option>';
@@ -262,7 +267,7 @@
     const requested=specs.filter(([key])=>radarKeys.has(key));
     $('radar-translation-controls').hidden=!radarKeys.has('translation');$('radar-translation-cell').innerHTML=$('translation-cell').innerHTML;$('radar-translation-cell').value=value('translation-cell');$('radar-translation-note').textContent='';$('radar-fit-translation').disabled=true;
     $('radar-half-life-controls').hidden=!radarKeys.has('predicted_half_life');$('radar-half-life-note').textContent='';$('radar-fit-half-life').disabled=true;
-    $('radar-ranges').innerHTML=requested.map(([key,label])=>{const r=radarRanges[key];return `<div class="mrna-radar-range" data-radar-range="${key}"><strong>${escape(label)}<small>${escape(r.unit)}</small></strong><label>Min<input type="number" step="any" data-bound="min" value="${r.min}"></label><label>Max<input type="number" step="any" data-bound="max" value="${r.max}"></label><label>Outer edge<select data-bound="direction"><option value="higher" ${r.direction==='higher'?'selected':''}>Higher</option><option value="lower" ${r.direction==='lower'?'selected':''}>Lower</option><option value="target" ${r.direction==='target'?'selected':''}>Target</option></select></label>${r.direction==='target'?`<label>Target<input type="number" step="any" data-bound="target" value="${r.target}"></label>`:''}</div>`;}).join('');
+    if(!keepRanges)$('radar-ranges').innerHTML=requested.map(([key,label])=>{const r=radarRanges[key],control=(bound,title)=>{const b=radarScaleBounds(key,r,bound);return `<label>${title}<input type="number" step="any" data-bound="${bound}" value="${r[bound]}"><input type="range" data-slider-bound="${bound}" min="${b.min}" max="${b.max}" step="${b.step}" value="${r[bound]}" aria-label="${escape(label+' '+title.toLowerCase()+' scale')}"></label>`;};return `<div class="mrna-radar-range" data-radar-range="${key}"><strong>${escape(label)}<small>${escape(r.unit)}</small></strong>${control('min','Min')}${control('max','Max')}<label>Outer edge<select data-bound="direction"><option value="higher" ${r.direction==='higher'?'selected':''}>Higher</option><option value="lower" ${r.direction==='lower'?'selected':''}>Lower</option><option value="target" ${r.direction==='target'?'selected':''}>Target</option></select></label>${r.direction==='target'?control('target','Target'):''}</div>`;}).join('');
     if(!series.length){$('radar-chart').innerHTML='<p class="mrna-empty">'+(allSeries.length?'All radar groups are hidden. Select a group above to show it.':'Design candidates to compare each optimised sequence with its matched input.')+'</p>';$('radar-values').innerHTML='';$('radar-note').textContent='Candidates match to the original input name and multiplex set.';return;}
     if(pair&&radarKeys.has('translation')){
       const a=translationValue(pair.before),b=translationValue(pair.after),available=Number.isFinite(a)&&Number.isFinite(b),target=value('translation-cell'),label=target?target.replace('predicted_TE_',''):'mean across cells',range=radarRanges.translation;
@@ -346,12 +351,19 @@
   $('radar-fit-translation').onclick=()=>{const pair=matchedPairs(results.rows).find(p=>p.after.id===radarCandidate);if(!pair)return;const range=fitRadarRange([translationValue(pair.before),translationValue(pair.after)]);if(!range)return;radarRanges.translation={...radarRanges.translation,...range};drawRadar();save();};
   $('radar-fit-half-life').onclick=()=>{const pair=matchedPairs(results.rows).find(p=>p.after.id===radarCandidate);if(!pair)return;const range=fitRadarRange([pair.before.metrics.predicted_half_life,pair.after.metrics.predicted_half_life]);if(!range)return;radarRanges.predicted_half_life={...radarRanges.predicted_half_life,...range,min:Math.max(0,range.min)};drawRadar();save();};
   $('radar-reset-ranges').onclick=()=>{radarRanges=restoreRadarRanges();$('radar-range-error').textContent='';drawRadar();save();};
+  $('radar-ranges').oninput=e=>{
+    const bound=e.target.dataset.sliderBound,item=e.target.closest('[data-radar-range]');if(!bound||!item)return;
+    const key=item.dataset.radarRange;radarRanges[key]={...radarRanges[key],[bound]:Number(e.target.value)};
+    item.querySelector(`[data-bound="${bound}"]`).value=e.target.value;
+    for(const slider of item.querySelectorAll('[data-slider-bound]')){if(slider===e.target)continue;const limits=radarScaleBounds(key,radarRanges[key],slider.dataset.sliderBound);for(const attr of ['min','max','step'])slider[attr]=limits[attr];}
+    $('radar-range-error').textContent='';drawRadar({keepRanges:true});save();
+  };
   $('radar-ranges').onchange=e=>{
     const item=e.target.closest('[data-radar-range]');if(!item)return;const key=item.dataset.radarRange,r={...radarRanges[key]};
     for(const input of item.querySelectorAll('[data-bound]'))r[input.dataset.bound]=input.dataset.bound==='direction'?input.value:input.value===''?NaN:Number(input.value);
     if(r.direction==='target'&&!Number.isFinite(r.target))r.target=(r.min+r.max)/2;
     if(!Number.isFinite(r.min)||!Number.isFinite(r.max)||r.min>=r.max||r.direction==='target'&&!(r.target>r.min&&r.target<r.max)){$('radar-range-error').textContent='Min must be below max, and a target must be inside that range.';return;}
-    $('radar-range-error').textContent='';radarRanges[key]=r;drawRadar();save();
+    $('radar-range-error').textContent='';radarRanges[key]=r;drawRadar();if(e.target.dataset.sliderBound)$('radar-ranges').querySelector(`[data-radar-range="${key}"] [data-slider-bound="${e.target.dataset.sliderBound}"]`)?.focus();save();
   };
 
   function choose(id,openStructure=true){if(focus!==id){sequenceSelection=null;selectionAnchor=null;}focus=id;base=1;viewbox=null;$('focus').value=id;renderResults();if(openStructure)switchTab('structure');save();}
@@ -546,7 +558,7 @@
   $('arc-prev').onclick=()=>moveArc(-1);$('arc-next').onclick=()=>moveArc(1);
   $('focus').onchange=()=>choose(value('focus'),false);$('layout').onchange=()=>{viewbox=null;drawStructure();save();};$('zoom-in').onclick=()=>zoom(1/1.4);$('zoom-out').onclick=()=>zoom(1.4);$('fit').onclick=()=>{viewbox=null;drawStructure();};
 
-  function snapshot(){return {benchmarks:{rows:benchmarkRows,hidden:[...benchmarkHidden]},exports:sequenceExporter.snapshot(),fragment_assembly:fragmentBuilder.snapshot(),sections:{...sectionState},draft:{fields:Object.fromEntries(fields.map(id=>[id,value(id)])),records},result:results,job_id:job,tab,focus,translation_cell:value('translation-cell'),selected:[...selected],comparison:{gc_hidden:[...gcHidden],gc_mode:value('gc-mode'),gc_view:gcView,gc_reference:gcReference,heatmap:value('heatmap'),radar_keys:[...radarKeys],radar_ranges:radarRanges,radar_range_version:2,radar_candidate:radarCandidate,radar_hidden:[...radarHidden]},structure_view:{layout:value('layout'),arc_size:value('arc-size'),position:base,selection:sequenceSelection}};}
+  function snapshot(){return {benchmarks:{rows:benchmarkRows,hidden:[...benchmarkHidden]},exports:sequenceExporter.snapshot(),fragment_assembly:fragmentBuilder.snapshot(),sections:{...sectionState},draft:{fields:Object.fromEntries(fields.map(id=>[id,value(id)])),records},result:results,job_id:job,tab,focus,translation_cell:value('translation-cell'),selected:[...selected],comparison:{gc_hidden:[...gcHidden],gc_mode:value('gc-mode'),gc_view:gcView,gc_reference:gcReference,heatmap:value('heatmap'),radar_keys:[...radarKeys],radar_ranges:radarRanges,radar_range_version:3,radar_candidate:radarCandidate,radar_hidden:[...radarHidden]},structure_view:{layout:value('layout'),arc_size:value('arc-size'),position:base,selection:sequenceSelection}};}
   function validRow(r){
    if(!r||!['id','name','input_name','group','strategy','cds','transcript','fold_sequence','structure','sha256'].every(k=>typeof r[k]==='string'))return false;
    const len=r.fold_sequence.length;if(!len||len>10000||!/^[ACGT]+$/.test(r.cds)||!/^[ACGT]+$/.test(r.fold_sequence)||!/^[().]+$/.test(r.structure)||r.structure.length!==len)return false;
@@ -564,5 +576,5 @@
   add();renderRecords();initialiseSections();
   return {open,snapshot,restore};
  }
- return {parse,csvRows,csvCell,normalize,hamming,stabilityColor,infernoColor,contrastColor,radarFraction,radarAxisIndex,radarDefaults,restoreRadarRanges,foldRange,gcWindowForBase,columnStats,zScore,zColor,matchedPairs,gcSeries,arcGeometry,gcDisplayRange,sequenceRange,selectedPositions,fitRadarRange,setup};
+ return {parse,csvRows,csvCell,normalize,hamming,stabilityColor,infernoColor,contrastColor,radarFraction,radarAxisIndex,radarDefaults,restoreRadarRanges,radarScaleBounds,foldRange,gcWindowForBase,columnStats,zScore,zColor,matchedPairs,gcSeries,arcGeometry,gcDisplayRange,sequenceRange,selectedPositions,fitRadarRange,setup};
 });
