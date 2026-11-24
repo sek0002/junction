@@ -1,7 +1,7 @@
 /* Page worksheets are distinct from the collection saved as a Workbench. */
 (function(root){
   'use strict';
-  const scopes={build:'Assembly',design:'Design',compare:'Compare'};
+  const scopes={build:'Assembly',design:'Design',compare:'Compare',mrna:'mRNA'};
   const paths={save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-3M9 14l6 3"/>',new:'<path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9ZM14 3v6h6M8 15h8M12 11v8"/>',remove:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',edit:'<path d="m16 3 5 5L8 21H3v-5ZM13 6l5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>'};
   const icon=kind=>'<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[kind]+'</svg>';
   function setup(win,doc,{api,flush,pause,resume,reload,download,notify,nameFor,changed,setCurrent}){
@@ -21,7 +21,7 @@
     }
     async function loadAll(){await Promise.all(Object.keys(scopes).map(load));}
     function setScope(view){scope=scopes[view]?view:null;
-      for(const action of ['save','share','new']){$('worksheet-'+action).disabled=!scope;$('worksheet-'+action).title=(scope?scopes[scope]+' worksheet':'Open Assembly, Design or Compare')+' · '+action;}
+      for(const action of ['save','share','new']){$('worksheet-'+action).disabled=!scope;$('worksheet-'+action).title=(scope?scopes[scope]+' worksheet':'Open Assembly, Design, Compare or mRNA')+' · '+action;}
       if(scope)load(scope).catch(error=>notify(error.message));
     }
     function menuClose(){if($('workbench-menu-toggle').getAttribute('aria-expanded')==='true')$('workbench-menu-toggle').click();}

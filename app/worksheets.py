@@ -12,9 +12,9 @@ from .auth import user_id
 from . import workbenches as wb
 
 router=APIRouter(prefix='/api/worksheets')
-Scope=Literal['build','design','compare']
+Scope=Literal['build','design','compare','mrna']
 KEYS={'build':{'draft','activeBuildId','plannerOverrides','backboneStocks','subtab'},
-      'design':{'design'},'compare':{'compareView'}}
+      'design':{'design'},'compare':{'compareView'},'mrna':{'mrna'}}
 FORMAT='junction-worksheet'
 
 
@@ -210,6 +210,10 @@ def replace_page(db,data,scope,identifier=None):
                 (user_id(),item['filename'],item['source'],item['enzyme'],wb.encode(item['result']) if item['result'] is not None else None,item['error'])).lastrowid
         view=page.get('compareView',{})
         if isinstance(view.get('jobs'),dict):view['jobs']={str(ids[int(key)]):value for key,value in view['jobs'].items() if str(key).isdigit() and int(key) in ids}
+    if scope=='mrna':
+        manual=(page.get('mrna') or {}).get('fragment_assembly') or {}
+        for part in manual.get('parts',[]):
+            if part.get('id') in fragments:part['id']=fragments[part['id']]
     workspace=wb.working(db)
     for key in KEYS[scope]:workspace.pop(key,None)
     workspace.update(page);workspace.setdefault('worksheet_ids',{})[scope]=identifier;wb.set_working(db,workspace,switch=True)
@@ -221,6 +225,9 @@ def meaningful(data,scope):
         draft=workspace.get('draft') or {}
         return bool(data['builds'] or draft.get('fragment_ids') or draft.get('backbone_id') or draft.get('starter_fragment_id') or draft.get('nested_assemblies') or draft.get('name') not in (None,'','New assembly','Golden Gate assembly'))
     if scope=='compare':return bool(data['comparisons'])
+    if scope=='mrna':
+        page=workspace.get('mrna') or {};draft=page.get('draft') or {}
+        return bool(page.get('job_id') or (page.get('result') or {}).get('rows') or (page.get('fragment_assembly') or {}).get('parts') or any(str(r.get('sequence','')).strip() for r in draft.get('records',[])) or draft.get('fields',{}).get('name') not in (None,'','mRNA design batch'))
     return any(item.get('entries') or item.get('backbone_id') or item.get('table_rows') or item.get('name') not in (None,'','New design') for item in (workspace.get('design') or {}).get('designs',[]))
 
 

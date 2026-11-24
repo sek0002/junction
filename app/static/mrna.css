@@ -114,3 +114,14 @@
 .mrna-batch-input-list>h3{font-size:13px;margin:0 0 14px;color:var(--ink)}
 .mrna-main-card-minimise{border:0;background:none;color:var(--ink);font-size:21px;line-height:1;padding:8px;flex-shrink:0}
 .mrna-main-card-minimise:hover,.mrna-main-card-minimise:focus-visible{background:var(--green-light);border-radius:5px}
+.mrna-export-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px;margin-bottom:16px}
+.mrna-export-options>label:first-child{grid-column:1/-1}
+.mrna-export-table-wrap{max-height:620px;margin-top:14px}
+.mrna-export-table{min-width:1300px}
+.mrna-export-table td{vertical-align:top;white-space:normal}
+.mrna-export-table td:first-child{min-width:160px}
+.mrna-export-table td small{display:block;color:var(--muted);font-size:10px}
+#mrna .mrna-export-table textarea{width:280px;min-width:240px;max-width:100%;font:11px/1.5 ui-monospace,monospace;resize:vertical;white-space:pre-wrap;word-break:break-all;margin:0}
+.mrna-export-pagination{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
+.mrna-export-pagination>span{margin-right:auto}
+.mrna-tabs{flex-wrap:wrap}

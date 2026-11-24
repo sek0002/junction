@@ -2553,7 +2553,7 @@ window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
   api,flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
   pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching worksheets.');return sandbox.stop();},resume:()=>sandbox.start(),
   reload:view=>location.replace('/?worksheet='+Date.now()+'#'+view),download:fileDownload,notify:toast,
-  nameFor:scope=>scope==='design'?$('design-name').value:scope==='build'?$('assembly-name').value:'Compare worksheet',
+  nameFor:scope=>scope==='design'?$('design-name').value:scope==='build'?$('assembly-name').value:scope==='mrna'?$('mrna-name').value:'Compare worksheet',
   setCurrent:(scope,id)=>{state.worksheetIds[scope]=id;},changed:scheduleLibraryMetrics
 });
 $('junction-count-button').onclick=async()=>{await refreshLibraryMetrics();$('junction-list-search').value='';renderJunctionList();if(!$('junction-list-dialog').open)$('junction-list-dialog').showModal();$('junction-list-search').focus();};

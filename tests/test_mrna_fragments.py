@@ -73,6 +73,9 @@ class FragmentMappingTests(unittest.TestCase):
                     self.assertEqual(dna[:a],original[:a]);self.assertEqual(dna[b:],original[b:])
                     self.assertEqual(assemble(output['fragments'],'BsaI',circular=False)['sequence'],dna)
                     for before,after in zip(p['assembly']['fragments'],output['fragments']):
+                        self.assertTrue(after['non_cds_preserved'])
+                        mutable={i for a,b in after['cds_regions'] for i in range(a-1,b)}
+                        self.assertTrue(all(a==b for i,(a,b) in enumerate(zip(before['sequence'],after['sequence'])) if i not in mutable))
                         old=digest_fragment(before['sequence'],'BsaI');new=digest_fragment(after['sequence'],'BsaI')
                         self.assertEqual(old['left_overhang'],new['left_overhang']);self.assertEqual(old['right_overhang'],new['right_overhang'])
                         self.assertEqual(before['sequence'][:old['target_start']],after['sequence'][:new['target_start']])
@@ -189,6 +192,23 @@ class FragmentInputAPITests(unittest.TestCase):
         result=self.client.post('/api/mrna/assembly/preview',json=payload)
         self.assertEqual(result.status_code,200,result.text);self.assertEqual(result.json()['sequence'],CDS[3:])
         self.assertEqual(self.client.post('/api/mrna/assembly/preview',json=payload|{'frame':1}).status_code,422)
+
+    def test_fragment_comparison_preserves_exogenous_dna_from_snapshot(self):
+        for reverse in (False,True):
+            p=prepare_assembly(fixture(reverse_cds=reverse,reverse_donor=True))
+            sequence=synonym(p)
+            response=self.client.post('/api/mrna/export/fragment-comparison',json={'assembly':p['assembly'],'sequence':sequence})
+            self.assertEqual(response.status_code,200,response.text);data=response.json()
+            self.assertEqual(data['before_sequence'],p['assembled_sequence']);self.assertTrue(data['non_cds_preserved'])
+            for original,fragment in zip(p['assembly']['fragments'],data['fragments']):
+                self.assertEqual(fragment['before_sequence'],original['sequence'])
+                self.assertEqual(len(fragment['before_sequence']),len(fragment['after_sequence']))
+                self.assertTrue(fragment['non_cds_preserved'])
+                mutable={i for a,b in fragment['cds_regions'] for i in range(a-1,b)}
+                self.assertTrue(all(a==b for i,(a,b) in enumerate(zip(fragment['before_sequence'],fragment['after_sequence'])) if i not in mutable))
+            bad='GTG'+sequence[3:]
+            self.assertEqual(self.client.post('/api/mrna/export/fragment-comparison',json={'assembly':p['assembly'],'sequence':bad}).status_code,422)
+        with TestClient(app) as anon:self.assertEqual(anon.post('/api/mrna/export/fragment-comparison',json={'assembly':p['assembly'],'sequence':sequence}).status_code,401)
 
 
 if __name__=='__main__':unittest.main()

@@ -139,9 +139,21 @@ def project_fragments(snapshot, cds):
         oriented = edge['input_sequence']
         updated = oriented[:edge['target_start']]+dna[feature['start']+4:feature['end']]+oriented[edge['target_end']:]
         physical = updated if edge['orientation'] > 0 else reverse_complement(updated)
+        # Map the selected CDS intersection back to the supplied donor strand.
+        begin,end=max(a,feature['start']+4),min(b,feature['end'])
+        cds_regions=[]
+        if begin<end:
+            lo=edge['target_start']+begin-(feature['start']+4)
+            hi=edge['target_start']+end-(feature['start']+4)
+            if edge['orientation']<0:lo,hi=len(physical)-hi,len(physical)-lo
+            cds_regions=[[lo+1,hi]]
+        mutable={position for lo,hi in cds_regions for position in range(lo-1,hi)}
+        preserved=all(old==new for position,(old,new) in enumerate(zip(source['sequence'],physical)) if position not in mutable)
+        if not preserved:raise ValueError('Projection changed donor DNA outside the selected CDS.')
         exported.append({'id': source.get('id'), 'name': source['name'], 'sequence': physical,
             'orientation': edge['orientation'], 'left_overhang': edge['left_overhang'],
-            'right_overhang': edge['right_overhang'], 'changed_nt': sum(x != y for x, y in zip(source['sequence'], physical))})
+            'right_overhang': edge['right_overhang'], 'changed_nt': sum(x != y for x, y in zip(source['sequence'], physical)),
+            'cds_regions':cds_regions,'non_cds_preserved':preserved})
     rebuilt = assemble(exported, snapshot['enzyme'], circular=False,
         left_overhang=snapshot.get('left_overhang'),right_overhang=snapshot.get('right_overhang'))
     if not rebuilt['valid'] or rebuilt['sequence'] != dna:

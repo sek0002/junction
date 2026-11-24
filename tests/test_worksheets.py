@@ -32,6 +32,48 @@ class WorksheetTests(unittest.TestCase):
     def save(self,scope,name=None):
         r=self.client.post('/api/worksheets',json={'scope':scope,'name':name or scope+' worksheet'});self.assertEqual(r.status_code,200,r.text);return r.json()
 
+    def test_mrna_worksheets_restore_inputs_results_exports_and_keep_other_pages(self):
+        mrna={'draft':{'records':[{'name':'Gene A','sequence':'ATGAAATAA'}],'fields':{'name':'RNA Alpha'}},
+            'result':{'rows':[]},'exports':{'stage':'both','kind':'fragments'},'tab':'export',
+            'fragment_assembly':{'parts':[{'id':self.fid,'name':'Donor'}]},'sections':{'fragment-exports':True}}
+        data=self.client.get('/api/workspace').json()['data'];data['mrna']=mrna;data['view']='mrna'
+        self.assertEqual(self.client.put('/api/workspace',json={'data':data}).status_code,200)
+        saved=self.save('mrna','RNA Alpha')
+        new=self.client.post('/api/worksheets/new',json={'scope':'mrna'});self.assertEqual(new.status_code,200,new.text)
+        data=self.client.get('/api/workspace').json()['data'];self.assertNotIn('mrna',data)
+        self.assertEqual(data['draft']['name'],'Assembly A');self.assertEqual(data['design'],self.workspace['design'])
+        self.assertEqual(len(self.client.get('/api/build-list').json()['items']),1)
+        opened=self.client.post('/api/worksheets/'+saved['id']+'/open');self.assertEqual(opened.status_code,200,opened.text)
+        self.assertEqual(self.client.get('/api/workspace').json()['data']['mrna'],mrna)
+        exported=self.client.get('/api/worksheets/'+saved['id']+'/export');self.assertEqual(exported.status_code,200,exported.text)
+        content=exported.json();self.assertEqual(content['scope'],'mrna');self.assertEqual(content['snapshot']['builds'],[])
+        self.assertEqual(content['snapshot']['workspace']['mrna']['exports'],mrna['exports'])
+        self.assertEqual([f['id'] for f in content['snapshot']['inventory']['fragments']],[self.fid])
+        imported=self.client.post('/api/worksheets/import',files={'file':('RNA.junc',exported.content,'application/json')})
+        self.assertEqual(imported.status_code,200,imported.text)
+        self.assertEqual(self.client.post('/api/worksheets/'+imported.json()['id']+'/open').status_code,200)
+        restored=self.client.get('/api/workspace').json()['data']['mrna']
+        self.assertEqual(restored['draft'],mrna['draft']);self.assertEqual(restored['tab'],'export')
+        self.assertTrue(store.get_fragment(restored['fragment_assembly']['parts'][0]['id']))
+        workbench=self.client.post('/api/workbenches',json={'name':'RNA collection'});self.assertEqual(workbench.status_code,200,workbench.text)
+        bundled=self.client.get('/api/workbenches/'+workbench.json()['id']+'/export').json()
+        self.assertIn('mrna',bundled['snapshot']['worksheet_active']);self.assertIn('mrna',bundled['snapshot']['worksheet_drafts'])
+        extracted=self.client.get('/api/workbenches/'+workbench.json()['id']+'/export?scope=mrna')
+        self.assertEqual(extracted.status_code,200,extracted.text);self.assertEqual(extracted.json()['scope'],'mrna')
+
+    def test_mrna_worksheet_ownership_and_unnamed_draft_detection(self):
+        data=self.client.get('/api/workspace').json()['data'];data['mrna']={'draft':{'records':[{'sequence':''}]}}
+        self.client.put('/api/workspace',json={'data':data})
+        self.assertFalse(self.client.get('/api/worksheets?scope=mrna').json()['has_content'])
+        data['mrna']['draft']['records'][0]['sequence']='ATGAAATAA';self.client.put('/api/workspace',json={'data':data})
+        self.assertTrue(self.client.get('/api/worksheets?scope=mrna').json()['has_content'])
+        saved=self.save('mrna','Private RNA')
+        self.client.post('/api/auth/users',json={'username':'rna-other','pin':'654321'})
+        with TestClient(app) as other:
+            other.post('/api/auth/login',json={'username':'rna-other','pin':'654321'})
+            self.assertEqual(other.get('/api/worksheets?scope=mrna').json()['items'],[])
+            self.assertEqual(other.post('/api/worksheets/'+saved['id']+'/open').status_code,404)
+
     def test_new_and_open_assembly_include_build_list_without_changing_other_pages(self):
         saved=self.save('build');r=self.client.post('/api/worksheets/new',json={'scope':'build'});self.assertEqual(r.status_code,200,r.text)
         data=self.client.get('/api/workspace').json()['data'];self.assertNotIn('draft',data);self.assertEqual(data['design'],self.workspace['design']);self.assertEqual(data['compareView'],self.workspace['compareView']);self.assertEqual(self.client.get('/api/build-list').json()['items'],[])
@@ -252,7 +294,7 @@ class WorksheetTests(unittest.TestCase):
                 elif scope=='design':self.assertEqual(restored['design']['designs'][0]['name'],'Unsaved design')
                 else:self.assertEqual(restored['compareView']['search'],'Unsaved compare')
             self.assertEqual(len(self.client.get('/api/worksheets?scope='+scope).json()['items']),1)
-        with store.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM worksheet_drafts').fetchone()[0],3)
+        with store.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM worksheet_drafts').fetchone()[0],4)
 
     def test_empty_new_clears_draft_and_dirty_new_requires_choice(self):
         self.client.post('/api/worksheets/new',json={'scope':'build','discard_unsaved':True})

@@ -94,7 +94,7 @@ class Comparison(BaseModel):
 
 class Worksheet(BaseModel):
     id:str=Field(min_length=1,max_length=100)
-    scope:Literal['build','design','compare']
+    scope:Literal['build','design','compare','mrna']
     name:str=Field(min_length=1,max_length=100)
     notes:str=Field(default='',max_length=4000)
     snapshot:dict
@@ -106,8 +106,8 @@ class Snapshot(BaseModel):
     comparisons:list[Comparison]=Field(default_factory=list,max_length=200)
     inventory:Inventory=Field(default_factory=Inventory)
     worksheets:list[Worksheet]=Field(default_factory=list,max_length=100)
-    worksheet_drafts:dict[str,dict]=Field(default_factory=dict,max_length=3)
-    worksheet_active:dict[str,str]=Field(default_factory=dict,max_length=3)
+    worksheet_drafts:dict[str,dict]=Field(default_factory=dict,max_length=4)
+    worksheet_active:dict[str,str]=Field(default_factory=dict,max_length=4)
 
 
 def encode(value):
@@ -124,13 +124,20 @@ def checked(value,nested=False):
         if nested and (data['worksheets'] or data['worksheet_active'] or data['worksheet_drafts']):raise ValueError('Worksheets cannot contain nested worksheets.')
         if len({item['id'] for item in data['worksheets']})!=len(data['worksheets']):raise ValueError('Duplicate worksheet IDs.')
         for item in data['worksheets']:item['snapshot']=checked(item['snapshot'],nested=True)
-        if any(scope not in ('build','design','compare') for scope in data['worksheet_active']):raise ValueError('Unknown worksheet type.')
+        if any(scope not in ('build','design','compare','mrna') for scope in data['worksheet_active']):raise ValueError('Unknown worksheet type.')
         for scope,snapshot in data['worksheet_drafts'].items():
-            if scope not in ('build','design','compare'):raise ValueError('Unknown worksheet draft type.')
+            if scope not in ('build','design','compare','mrna'):raise ValueError('Unknown worksheet draft type.')
             data['worksheet_drafts'][scope]=checked(snapshot,nested=True)
         workspace=data['workspace']
         for key in ('design','backboneStocks','plannerStocks','compareView','preferences','plannerOverrides','worksheet_ids','mrna'):
             if key in workspace and not isinstance(workspace[key],dict):raise ValueError(key+' must be an object.')
+        mrna=workspace.get('mrna') or {}
+        for key in ('draft','result','fragment_assembly','comparison','structure_view','exports','sections'):
+            if key in mrna and not isinstance(mrna[key],dict):raise ValueError('mRNA '+key+' must be an object.')
+        records=(mrna.get('draft') or {}).get('records',[])
+        if not isinstance(records,list) or any(not isinstance(record,dict) for record in records):raise ValueError('mRNA inputs must be a list of records.')
+        parts=(mrna.get('fragment_assembly') or {}).get('parts',[])
+        if not isinstance(parts,list) or any(not isinstance(part,dict) for part in parts):raise ValueError('mRNA manual fragments must be a list of records.')
         if isinstance(workspace.get('compareView'),dict) and 'jobs' in workspace['compareView'] and not isinstance(workspace['compareView']['jobs'],dict):raise ValueError('Comparison view jobs must be an object.')
         if workspace.get('draft'):workspace['draft']=AssemblyRequest.model_validate(workspace['draft']).model_dump()
         for item in data['builds']:item['request']=AssemblyRequest.model_validate(item['request']).model_dump()
@@ -164,6 +171,8 @@ def references(data):
         for nested in item.get('nested_assemblies',[]):
             fragments.add(nested['parent_fragment_id']);fragments.update(nested.get('fragment_ids',[]))
     assembly(data['workspace'].get('draft'))
+    manual=(data['workspace'].get('mrna') or {}).get('fragment_assembly') or {}
+    fragments.update(part['id'] for part in manual.get('parts',[]) if isinstance(part,dict) and isinstance(part.get('id'),int))
     for item in data['builds']:assembly(item['request'])
     for design in (data['workspace'].get('design') or {}).get('designs',[]):
         if design.get('backbone_id'):plasmids.add(design['backbone_id'])
@@ -178,7 +187,7 @@ def working(db):
 
 
 def capture(db,include_worksheets=True,scope=None):
-    workspace=working(db);workspace.pop('workbench_id',None);active={key:value for key,value in workspace.pop('worksheet_ids',{}).items() if key in ('build','design','compare') and isinstance(value,str) and value}
+    workspace=working(db);workspace.pop('workbench_id',None);active={key:value for key,value in workspace.pop('worksheet_ids',{}).items() if key in ('build','design','compare','mrna') and isinstance(value,str) and value}
     if scope:
         from .worksheets import KEYS
         workspace={key:value for key,value in workspace.items() if key in KEYS[scope]}
@@ -290,7 +299,7 @@ def export_current():
 
 
 @router.get('/{identifier}/export')
-def export_saved(identifier:str,scope:Literal['build','design','compare'] | None=None):
+def export_saved(identifier:str,scope:Literal['build','design','compare','mrna'] | None=None):
     with store.connection() as db:row=owned(db,identifier)
     if scope:
         from .worksheets import subset,bundle as worksheet_bundle
@@ -421,11 +430,14 @@ def open_workbench(identifier:str):
                 (user_id(),item['filename'],item['source'],item['enzyme'],encode(item['result']) if item['result'] is not None else None,item['error'])).lastrowid
         view=workspace.get('compareView')
         if isinstance(view,dict) and isinstance(view.get('jobs'),dict):view['jobs']={str(comparison_ids[int(key)]):value for key,value in view['jobs'].items() if str(key).isdigit() and int(key) in comparison_ids}
+        manual=(workspace.get('mrna') or {}).get('fragment_assembly') or {}
+        for part in manual.get('parts',[]):
+            if part.get('id') in fragments:part['id']=fragments[part['id']]
         from .worksheets import restore_registry
         workspace['worksheet_ids']=restore_registry(db,data,identifier)
         workspace['workbench_id']=identifier;set_working(db,workspace,switch=True)
     view=workspace.get('view')
-    return {'opened':identifier,'view':view if view in ('build','design','library','uploads','compare') else 'build'}
+    return {'opened':identifier,'view':view if view in ('build','design','library','uploads','compare','mrna') else 'build'}
 
 
 @router.post('/new')

@@ -177,6 +177,34 @@ def preview_saved_assembly(payload:FragmentAssembly):
     return result
 
 
+class FragmentProjection(BaseModel):
+    assembly: FragmentAssembly
+    sequence: str = Field(min_length=3,max_length=8000)
+
+    @field_validator('sequence')
+    @classmethod
+    def coding_dna(cls,value):
+        value=''.join(value.split()).upper().replace('U','T')
+        if set(value)-set('ACGT') or len(value)%3:raise ValueError('Supply a complete-codon DNA/RNA sequence.')
+        return value
+
+
+@router.post('/export/fragment-comparison')
+def export_fragment_comparison(payload:FragmentProjection):
+    user_id()
+    snapshot=payload.assembly.model_dump()
+    try:
+        prepared=prepare_assembly(snapshot)
+        from Bio.Seq import Seq
+        if str(Seq(prepared['sequence']).translate())!=str(Seq(payload.sequence).translate()):
+            raise ValueError('The optimised CDS does not preserve the original encoded protein.')
+        output=project_fragments(snapshot,payload.sequence)
+    except ValueError as error:raise HTTPException(422,str(error)) from None
+    return {'before_sequence':prepared['assembled_sequence'],'after_sequence':output['sequence'],
+        'non_cds_preserved':True,'fragments':[{**part,'before_sequence':original['sequence'],
+            'after_sequence':part['sequence']} for original,part in zip(snapshot['fragments'],output['fragments'])]}
+
+
 class AssembleInput(BaseModel):
     fragment_ids: list[int] = Field(min_length=1,max_length=32)
     enzyme: Literal['BsaI','BsmBI','BsmBI + BsaI'] = 'BsaI'
