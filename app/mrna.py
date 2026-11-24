@@ -173,7 +173,15 @@ def preview_saved_assembly(payload:FragmentAssembly):
     user_id()
     try:result=prepare_assembly(payload.model_dump())
     except ValueError as error:raise HTTPException(422,str(error)) from None
-    result.pop('_result')
+    assembled = result.pop('_result')
+    # Zero-based, end-exclusive payload bounds on each supplied donor strand.
+    result['donor_target_ranges'] = []
+    for edge in assembled['fragments']:
+        start, end = edge['target_start'], edge['target_end']
+        if edge['orientation'] < 0:
+            length = len(edge['input_sequence'])
+            start, end = length - end, length - start
+        result['donor_target_ranges'].append([start, end])
     return result
 
 
