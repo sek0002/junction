@@ -204,7 +204,10 @@
       ${[0,.5,1].map(v=>`<path class="grid" d="M42,${y(v)}H${width-18}"/><text x="34" y="${y(v)+3}" text-anchor="end">${v*100}%</text>`).join('')}
       ${[1,Math.round(last/2),last].map(nt=>`<text x="${x(nt)}" y="100" text-anchor="middle">${nt} nt</text>`).join('')}
       <polyline points="${points}" fill="none" stroke="${rowColor(row)}" stroke-width="2.3"><title>${escape(row.name)} · ${row.gc_window} nt windows</title></polyline>
-      <g data-gc-hover="true" pointer-events="none"></g>
+      <g data-gc-hover="true" pointer-events="none" visibility="hidden">
+        <rect class="mrna-gc-range" y="12" height="76"/>
+        <path class="mrna-gc-crosshair"/>
+      </g>
       ${cursor>=1&&cursor<=last?`<path class="gc-selection-cursor" d="M${x(cursor)},12V88" stroke="var(--green)" stroke-dasharray="4 3"/>`:''}</svg>`;
   }
 
@@ -424,7 +427,7 @@
   };
 
   function choose(id,openStructure=true){if(focus!==id){sequenceSelection=null;selectionAnchor=null;}focus=id;base=1;viewbox=null;$('focus').value=id;renderResults();if(openStructure)switchTab('structure');save();}
-  let baseNodes=[],hoverNodes=[];
+  let baseNodes=[],hoverNodes=new Set(),focusedHoverNode=null;
   function scoresFor(row){const values=row?.stability_profile;return Array.isArray(values)&&values.length===row.fold_sequence.length&&values.every(Number.isFinite)?values:null;}
   function stabilityExtent(){let low=Infinity,high=-Infinity;for(const row of displayRows()){const values=scoresFor(row);if(values)for(const v of values){low=Math.min(low,v);high=Math.max(high,v);}}return Number.isFinite(low)?[low,high]:[0,1];}
   async function ensureProfile(row){
@@ -473,8 +476,8 @@
   }
   function drawStructure(){
     structureComparer.render();
-    const r=activeRow();if(!r){$('structure').innerHTML='<div class="mrna-empty">Calculate a batch to explore its structure.</div>';for(const id of ['stability-legend','sequence-track','gc-detail','hotspots','model-details','gc-hover-info','base-info','fold-meta','gc-meta','sequence-count','selection-info'])$(id).replaceChildren();$('arc-controls').hidden=true;$('selection-apply').disabled=true;$('selection-clear').disabled=true;sequenceSelection=null;baseNodes=[];hoverNodes=[];linkedHover=null;return;}
-    linkedHover=null;hoverNodes=[];delete $('structure').dataset.linkStart;delete $('structure').dataset.linkEnd;
+    const r=activeRow();if(!r){$('structure').innerHTML='<div class="mrna-empty">Calculate a batch to explore its structure.</div>';for(const id of ['stability-legend','sequence-track','gc-detail','hotspots','model-details','gc-hover-info','base-info','fold-meta','gc-meta','sequence-count','selection-info'])$(id).replaceChildren();$('arc-controls').hidden=true;$('selection-apply').disabled=true;$('selection-clear').disabled=true;sequenceSelection=null;baseNodes=[];hoverNodes.clear();focusedHoverNode=null;linkedHover=null;return;}
+    linkedHover=null;hoverNodes.clear();focusedHoverNode=null;delete $('structure').dataset.linkStart;delete $('structure').dataset.linkEnd;
     const scores=scoresFor(r),[low,high]=stabilityExtent(),seq=r.fold_sequence;
     ({coords,arcRange,viewbox}=renderStructurePlot(r,base,value('layout'),value('arc-size'),viewbox,$));
     baseNodes=[];for(const node of $('structure').querySelectorAll('.base'))baseNodes[Number(node.dataset.base)-1]=node;
@@ -526,19 +529,38 @@
   function drawGCHover(r,range,chart=$('gc-detail')){
     const overlay=chart.querySelector('[data-gc-hover]');if(!overlay)return;
     const selection=chart.querySelector('.gc-selection-cursor');if(selection)selection.style.display=range?'none':'';
-    if(!range||range.start==null){overlay.replaceChildren();return;}
-    const width=chart.querySelector('svg').viewBox.baseVal.width;const x=p=>42+(p-1)/Math.max(1,r.cds.length-1)*(width-60),left=x(range.start),right=x(range.end);
-    overlay.innerHTML=`<rect class="mrna-gc-range" x="${left}" y="12" width="${Math.max(2,right-left)}" height="76"/><path d="M${x((range.start+range.end)/2)},12V88" class="mrna-gc-crosshair"/>`;
+    if(range?.start==null){
+      overlay.setAttribute('visibility','hidden');
+      return;
+    }
+    const width=overlay.ownerSVGElement.viewBox.baseVal.width;
+    const x=nt=>42+(nt-1)/Math.max(1,r.cds.length-1)*(width-60);
+    const left=x(range.start),right=x(range.end),band=overlay.firstElementChild;
+    band.setAttribute('x',left);
+    band.setAttribute('width',Math.max(2,right-left));
+    overlay.lastElementChild.setAttribute('d',`M${(left+right)/2},12V88`);
+    overlay.setAttribute('visibility','visible');
   }
   function gcRangeLabel(range,source){return range?.start!=null?`${source==='selection'?'Selected':'Linked'} CDS ${range.start}–${range.end}${Number.isFinite(range.gc)?` · ${number(range.gc*100,1)}% GC`:''} · structure ${range.fold_start}–${range.fold_end}`:'This region is outside the CDS GC profile.';}
   function highlightRange(range,source,position){
     const r=activeRow();if(!r)return;
     position=Math.max(1,Math.min(r.fold_sequence.length,Math.round(position)));
     const key=[source,range?.fold_start,range?.fold_end,position].join(':');if(linkedHover?.key===key)return;
-    for(const node of hoverNodes)node.classList.remove('range-highlight','hovered-base');hoverNodes=[];
+    const nextNodes=new Set();
+    if(range)for(let nt=range.fold_start;nt<=range.fold_end;nt++){
+      const node=baseNodes[nt-1];
+      if(node)nextNodes.add(node);
+    }
+    for(const node of hoverNodes)if(!nextNodes.has(node))node.classList.remove('range-highlight');
+    for(const node of nextNodes)if(!hoverNodes.has(node))node.classList.add('range-highlight');
+    hoverNodes=nextNodes;
+    const focused=baseNodes[position-1];
+    if(focused!==focusedHoverNode){
+      focusedHoverNode?.classList.remove('hovered-base');
+      focused?.classList.add('hovered-base');
+      focusedHoverNode=focused;
+    }
     linkedHover={...range,key,source,position};
-    if(range)for(let i=range.fold_start;i<=range.fold_end;i++){const node=baseNodes[i-1];if(node){node.classList.add('range-highlight');hoverNodes.push(node);}}
-    const focused=baseNodes[position-1];if(focused){focused.classList.add('hovered-base');if(!hoverNodes.includes(focused))hoverNodes.push(focused);}
     $('structure').dataset.linkStart=range?.fold_start??position;$('structure').dataset.linkEnd=range?.fold_end??position;
     if(source!=='selection')$('base-info').textContent=describePosition(r,position);
     drawGCHover(r,range);
@@ -547,7 +569,9 @@
   }
   function clearHover(){
     linkedHover=null;
-    for(const node of hoverNodes)node.classList.remove('range-highlight','hovered-base');hoverNodes=[];
+    for(const node of hoverNodes)node.classList.remove('range-highlight');
+    focusedHoverNode?.classList.remove('hovered-base');
+    hoverNodes.clear();focusedHoverNode=null;
     delete $('structure').dataset.linkStart;delete $('structure').dataset.linkEnd;
     $('hotspots').querySelectorAll('.linked').forEach(node=>node.classList.remove('linked'));
     const r=activeRow();if(r){$('base-info').textContent=describePosition(r,base);drawGCHover(r,null);restoreSelectionHighlight();}

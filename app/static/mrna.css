@@ -202,3 +202,24 @@
     }
   }
 }
+
+/* Keep changing nucleotide details from moving the GC plot under the pointer. */
+#mrna-structure-panel .mrna-inspector {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  row-gap:6px;
+}
+#mrna-structure-panel .mrna-inspector > :first-child { grid-column:1 / -1; }
+#mrna-base-info, #mrna-secondary-base-info {
+  min-width:0;
+  height:3lh;
+  overflow:auto;
+  font-variant-numeric:tabular-nums;
+}
+#mrna-secondary-base-info { grid-column:1 / -1; }
+#mrna-gc-hover-info, #mrna-secondary-gc-info {
+  height:2lh;
+  overflow:auto;
+  font-variant-numeric:tabular-nums;
+}
