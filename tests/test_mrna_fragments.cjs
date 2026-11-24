@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {exportRows,validAssembly}=require('../app/static/mrna-fragments.js');
+const output={junctions_preserved:true,fragments:[{name:'Part A',sequence:'ACGT',orientation:-1}]};
+const rows=[{id:'input',strategy:'input',name:'Input',fragment_output:output},{id:'a',strategy:'CAI',name:'A',fragment_output:output},{id:'b',strategy:'CAI',name:'B',fragment_output:output},{id:'plain',strategy:'CAI',name:'Plain CDS'}];
+assert.equal(exportRows(rows).length,2);
+assert.deepEqual(exportRows(rows,new Set(['a'])),[{candidate:'A',name:'Part A',sequence:'ACGT',orientation:-1}]);
+assert.deepEqual(exportRows(rows,new Set()),[]);
+assert.deepEqual(exportRows([{id:'x',strategy:'CAI',fragment_output:{junctions_preserved:false,fragments:[]}}]),[]);
+assert.deepEqual(exportRows([{id:'x',strategy:'CAI',fragment_output:{junctions_preserved:true,fragments:null}}]),[]);
+assert.equal(validAssembly({enzyme:'BsaI',frame:'<img>',cds_start:1,cds_end:9,fragments:[]}),false);
+assert.equal(validAssembly({enzyme:'BsaI',frame:-2,cds_start:5,cds_end:55,fragments:[{name:'Part A',sequence:'ACGT'}]}),true);
+console.log('mRNA donor export selection passed');

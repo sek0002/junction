@@ -71,6 +71,10 @@ CAI/tAI/CSC are CDS metrics. Folding and DegScore use the selected CDS/full-tran
 
 ### Local scientific runtime
 
+The mRNA input card can assemble ordered library donors into a linear DNA input, or use the current Assembly donor selection. It validates digestion, orientations and junctions with the normal Golden Gate engine. CDS detection examines all six reading frames and prioritises the longest complete ATG-to-stop ORF. Select an alternative detected ORF, specify a +1/+2/+3 or −1/−2/−3 frame, or enter inclusive CDS coordinates on the assembled forward DNA. Partial calls and multiple complete ORFs are flagged for review. Negative frames optimise the reverse-complement CDS and map changes back to the supplied donor strands.
+
+Optimisation locks every fusion overhang and the complete CDS codons overlapping it. It also excludes the assembly's active restriction enzymes. DNA outside the selected CDS, source adapters, buffers and original donor orientations are retained. Conflicting locked bases and optimisation constraints produce a sequence error rather than relaxing the junction locks. Choose **Optimised fragments · DNA FASTA** or **Optimised fragments · CSV** to export the selected optimised candidates as full donor DNA; input rows and plain CDS inputs are excluded. Every candidate's exported donors are re-digested and reassembled before acceptance. Source snapshots travel with saved batches and workbenches, so later library edits do not change a saved design. Exported donors do not overwrite the inventory. Nested replacements must first be exported/imported as standalone donors. UTR modelling settings remain separate from the noncoding DNA retained in donor exports.
+
 The private BASE source is not redistributed with Junction. Connect your separately authorised checkout:
 
 ```sh

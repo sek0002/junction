@@ -10,6 +10,12 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+try:
+    from .mrna_fragments import project_fragments
+    from .sequence_engine import active_enzymes
+except ImportError:
+    from mrna_fragments import project_fragments
+    from sequence_engine import active_enzymes
 
 
 def gc_profile(sequence, window, minimum, maximum):
@@ -106,7 +112,9 @@ def run(data):
         values=[float(x) for x in model.degscore_by_position]
         if not all(math.isfinite(x) for x in values):raise ValueError('DegScore returned a non-finite position score.')
         return {'available':True,'scores':values,'model':'DegScore 2.1','total':float(model.degscore)}
-    batch=data['batch'];record=data['record'];params=record.get('parameters') or batch['parameters'];organism=params['organism']
+    batch=data['batch'];record=data['record'];params=dict(record.get('parameters') or batch['parameters']);organism=params['organism']
+    if record.get('assembly'):
+        params['avoid_restriction_sites']=list(dict.fromkeys(params['avoid_restriction_sites']+list(active_enzymes(record['assembly']['enzyme']))))
     np.random.seed(batch['seed']+data['index']);random.seed(batch['seed']+data['index'])
     sequence=record['sequence']
     if record['kind']=='protein':sequence=Sequence.reverse_translate(sequence,organism)
@@ -172,11 +180,13 @@ def run(data):
             warnings.append('The manufacturing constraint-coverage score could not be calculated.')
         metrics.update(quality['metrics'])
         candidate_id=f"{data['index']}-{number}"
+        fragment_output=project_fragments(record['assembly'],cds) if record.get('assembly') else None
         rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number}'),
             'input_name':record['name'],'seed':batch['seed']+data['index'],'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
             'fold_sequence':foldseq,'fold_scope':batch['fold_scope'],'temperature':batch['temperature'],'structure':structure,'coordinates':coords,'pairs':pairs,
             'stability_profile':stability_profile,'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
             'model_versions':dict(versions),'sha256':hashlib.sha256(transcript.encode()).hexdigest(),'optimization':report,'design_quality':quality,'tissue_predictions':tissue_predictions,
+            'fragment_output':fragment_output,'assembly':record.get('assembly'),
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)
     if batch['mode']=='design':
@@ -192,7 +202,9 @@ def run(data):
             if result.status!='success':errors.append({'name':record['name'],'candidate':number,'error':result.error.message,'summary':result.error.summary});continue
             designed=result.solution.sequence
             if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Optimisation did not preserve the encoded protein.')
-            score(designed,params['objective'].upper(),number,msgspec.to_builtins(result))
+            try:score(designed,params['objective'].upper(),number,msgspec.to_builtins(result))
+            except ValueError as error:
+                errors.append({'name':record['name'],'candidate':number,'error':str(error)});continue
             if designed in seen:rows[-1]['warnings'].append('This candidate duplicates the input or an earlier candidate; optimisation does not guarantee distinct designs.')
             seen.add(designed)
     return {'rows':rows,'errors':errors}

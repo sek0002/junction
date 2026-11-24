@@ -18,6 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator, field_validator
 from . import database as store
 from .auth import user_id
+from .mrna_fragments import prepare_assembly, project_fragments
 
 ROOT = Path(__file__).resolve().parents[1]
 router = APIRouter(prefix='/api/mrna', tags=['mRNA'])
@@ -93,6 +94,53 @@ class Parameters(BaseModel):
         return self
 
 
+class AssemblyFragment(BaseModel):
+    id: int | None = None
+    name: str = Field(min_length=1, max_length=1000)
+    sequence: str = Field(min_length=1, max_length=40000)
+
+    @field_validator('sequence')
+    @classmethod
+    def dna(cls, value):
+        value=''.join(value.split()).upper()
+        if set(value)-set('ACGT'):raise ValueError('Donor DNA must contain only A, C, G and T.')
+        return value
+
+
+class FragmentAssembly(BaseModel):
+    fragments: list[AssemblyFragment] = Field(min_length=1, max_length=32)
+    enzyme: Literal['BsaI','BsmBI','BsmBI + BsaI'] = 'BsaI'
+    frame: Literal['auto',1,2,3,-1,-2,-3] = 'auto'
+    cds_start: int | None = Field(None, ge=1)
+    cds_end: int | None = Field(None, ge=1)
+
+
+class AssembleInput(BaseModel):
+    fragment_ids: list[int] = Field(min_length=1,max_length=32)
+    enzyme: Literal['BsaI','BsmBI','BsmBI + BsaI'] = 'BsaI'
+    frame: Literal['auto',1,2,3,-1,-2,-3] = 'auto'
+    cds_start: int | None = Field(None,ge=1)
+    cds_end: int | None = Field(None,ge=1)
+
+
+@router.post('/assemble')
+def assemble_input(payload:AssembleInput):
+    user_id()
+    if len(set(payload.fragment_ids))!=len(payload.fragment_ids):raise HTTPException(422,'Choose each donor fragment once.')
+    fragments=[]
+    for identifier in payload.fragment_ids:
+        fragment=store.get_fragment(identifier)
+        if not fragment:raise HTTPException(404,f'Fragment {identifier} is unavailable.')
+        fragments.append({'id':fragment['id'],'name':fragment['name'],
+            'sequence':fragment.get('construct_sequence') or fragment['sequence']})
+    try:
+        snapshot=FragmentAssembly(fragments=fragments,**payload.model_dump(exclude={'fragment_ids'})).model_dump()
+        result=prepare_assembly(snapshot)
+    except ValueError as error:raise HTTPException(422,str(error)) from None
+    result.pop('_result')
+    return result
+
+
 class Record(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     sequence: str = Field(min_length=1, max_length=24000)
@@ -101,7 +149,8 @@ class Record(BaseModel):
     parameters: Parameters | None = None
     five_prime_utr: str | None = Field(None, max_length=1500)
     three_prime_utr: str | None = Field(None, max_length=2000)
-    preserve_regions: list[tuple[int, int]] = Field(default_factory=list, max_length=30)
+    preserve_regions: list[tuple[int, int]] = Field(default_factory=list, max_length=96)
+    assembly: FragmentAssembly | None = None
 
     @field_validator('name')
     @classmethod
@@ -119,6 +168,12 @@ class Record(BaseModel):
         elif set(self.sequence)-set('ACDEFGHIKLMNPQRSTVWY*'):
             raise ValueError('Protein inputs must use the standard 20 amino acids and optional terminal *.')
         if not self.sequence: raise ValueError('Sequence is empty.')
+        if self.assembly:
+            if self.kind!='nucleotide':raise ValueError('Fragment assemblies require nucleotide input.')
+            assembled=prepare_assembly(self.assembly.model_dump())
+            if self.sequence!=assembled['sequence']:raise ValueError('The CDS differs from its fragment assembly. Rebuild the input or detach it before editing.')
+            self.assembly=FragmentAssembly(**assembled['assembly'])
+            self.preserve_regions=list(dict.fromkeys([*self.preserve_regions,*(tuple(r) for r in assembled['preserve_regions'])]))
         length = len(self.sequence)*(3 if self.kind=='protein' else 1)
         if length>8000: raise ValueError('Use coding sequences up to 8,000 nt per record.')
         for start, end in self.preserve_regions:
@@ -326,9 +381,26 @@ def cancel(identifier:str):
 
 
 @router.get('/jobs/{identifier}/export')
-def export(identifier:str, format:Literal['json','csv','fasta','dbn']='csv'):
+def export(identifier:str, format:Literal['json','csv','fasta','dbn','fragments-fasta','fragments-csv']='csv'):
     row=owned(identifier,user_id()); data=json.loads(row['result']); rows=data.get('rows',[])
-    if format=='json': content=json.dumps(serialize(row),indent=2,allow_nan=False); mime='application/json'
+    if format.startswith('fragments-'):
+        fragments=[]
+        for item in rows:
+            if item['strategy']=='input' or not item.get('assembly'):continue
+            try:output=project_fragments(item['assembly'],item['cds'])
+            except ValueError as error:raise HTTPException(422,str(error)) from None
+            fragments.extend({'candidate':item['name'],**part} for part in output['fragments'])
+        if not fragments:raise HTTPException(422,'Optimise a fragment assembly before exporting new donor fragments.')
+        if format=='fragments-csv':
+            stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=['candidate','name','sequence','orientation','left_overhang','right_overhang','changed_nt'],extrasaction='ignore');writer.writeheader()
+            for part in fragments:
+                for key in ('candidate','name'):
+                    if part[key].startswith(('=','+','-','@','\t','\r')):part[key]="'"+part[key]
+                writer.writerow(part)
+            content=stream.getvalue();mime='text/csv'
+        else:
+            content='\n'.join('>'+ ' '.join((p['candidate']+' | '+p['name']).split())+'\n'+'\n'.join(p['sequence'][i:i+80] for i in range(0,len(p['sequence']),80)) for p in fragments)+'\n';mime='text/plain'
+    elif format=='json': content=json.dumps(serialize(row),indent=2,allow_nan=False); mime='application/json'
     elif format=='csv':
         stream=io.StringIO(); fields=['name','input_name','group','strategy','length','gc','cai','tai','mfe','mfe_density','paired_ratio','degscore','predicted_half_life','csc','translation','homopolymer_nt','homopolymer_ratio','manufacturability','hamming_ratio','protein_preserved','fold_scope','temperature','model_versions','parameters','seed','sha256','cds','transcript']
         writer=csv.DictWriter(stream,fieldnames=fields,extrasaction='ignore');writer.writeheader()
@@ -346,4 +418,5 @@ def export(identifier:str, format:Literal['json','csv','fasta','dbn']='csv'):
             if format=='fasta':chunks.append('>'+name+'\n'+'\n'.join(item['transcript'][i:i+80].replace('T','U') for i in range(0,len(item['transcript']),80)))
             else: chunks.append('>'+name+' | '+item['fold_scope']+' | '+str(item['metrics']['mfe'])+' kcal/mol\n'+item['fold_sequence'].replace('T','U')+'\n'+item['structure'])
         content='\n'.join(chunks)+'\n';mime='text/plain'
-    return Response(content,media_type=mime,headers={'Content-Disposition':f'attachment; filename="junction-mrna-{identifier[:8]}.{format}"'})
+    extension={'fragments-fasta':'fragments.fasta','fragments-csv':'fragments.csv'}.get(format,format)
+    return Response(content,media_type=mime,headers={'Content-Disposition':f'attachment; filename="junction-mrna-{identifier[:8]}.{extension}"'})
