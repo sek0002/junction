@@ -1,4 +1,4 @@
-"""Private, user-owned sequence references and context-matched scientific scores."""
+"""Instance-wide and private sequence references with context-matched scores."""
 import hashlib
 import json
 import threading
@@ -16,17 +16,19 @@ def initialize():
         db.executescript('''
         CREATE TABLE IF NOT EXISTS mrna_benchmarks(
           id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES auth_users(id),
-          name TEXT NOT NULL, definition TEXT NOT NULL,
+          name TEXT NOT NULL, definition TEXT NOT NULL, is_global INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id,name));
         CREATE TABLE IF NOT EXISTS mrna_benchmark_scores(
           benchmark_id TEXT NOT NULL REFERENCES mrna_benchmarks(id) ON DELETE CASCADE,
           context_key TEXT NOT NULL, result TEXT NOT NULL,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(benchmark_id,context_key));
         ''')
+        if 'is_global' not in {row['name'] for row in db.execute('PRAGMA table_info(mrna_benchmarks)')}:
+            db.execute('ALTER TABLE mrna_benchmarks ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0')
 
 
-def register(owner, definition):
-    """Import a private reference; called by the authorised local/server importer."""
+def register(owner, definition, *, global_reference=False):
+    """Import a reference; global registration is an authorised administrator action."""
     from .mrna import Batch, Record, Parameters
     batch = Batch(records=[Record(name=definition['name'], sequence=definition['sequence'])],
         five_prime_utr=definition['five_prime_utr'], three_prime_utr=definition['three_prime_utr'],
@@ -42,17 +44,26 @@ def register(owner, definition):
     encoded = json.dumps(reference, sort_keys=True)
     initialize()
     with store.connection() as db:
+        if global_reference:
+            administrator = db.execute('SELECT is_admin FROM auth_users WHERE id=?', (owner,)).fetchone()
+            if not administrator or not administrator['is_admin']:
+                raise ValueError('Built-in references must be registered by an administrator.')
         existing = db.execute('SELECT * FROM mrna_benchmarks WHERE user_id=? AND name=?',
                               (owner, reference['name'])).fetchone()
+        if global_reference:
+            existing = db.execute('SELECT * FROM mrna_benchmarks WHERE is_global=1 AND name=?',
+                                  (reference['name'],)).fetchone() or existing
         if existing:
             identifier = existing['id']
+            if global_reference and not existing['is_global']:
+                db.execute('UPDATE mrna_benchmarks SET is_global=1 WHERE id=?', (identifier,))
             if existing['definition'] != encoded:
                 db.execute('UPDATE mrna_benchmarks SET definition=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (encoded,identifier))
                 db.execute('DELETE FROM mrna_benchmark_scores WHERE benchmark_id=?', (identifier,))
         else:
             identifier = str(uuid4())
-            db.execute('INSERT INTO mrna_benchmarks(id,user_id,name,definition) VALUES(?,?,?,?)',
-                       (identifier,owner,reference['name'],encoded))
+            db.execute('INSERT INTO mrna_benchmarks(id,user_id,name,definition,is_global) VALUES(?,?,?,?,?)',
+                       (identifier,owner,reference['name'],encoded,int(global_reference)))
     return identifier
 
 
@@ -61,7 +72,7 @@ def score(owner, context):
     initialize()
     with store.connection() as db:
         references = [dict(row) for row in db.execute(
-            'SELECT * FROM mrna_benchmarks WHERE user_id=? ORDER BY name', (owner,))]
+            'SELECT * FROM mrna_benchmarks WHERE user_id=? OR is_global=1 ORDER BY is_global DESC,name', (owner,))]
     if not references:
         return {'rows':[]}
     caps = capabilities()
@@ -103,5 +114,6 @@ def score(owner, context):
                     db.execute('DELETE FROM mrna_benchmark_scores WHERE benchmark_id=? AND context_key NOT IN '
                                '(SELECT context_key FROM mrna_benchmark_scores WHERE benchmark_id=? ORDER BY created_at DESC LIMIT 16)',
                                (reference['id'],reference['id']))
+            row['benchmark']['builtin'] = bool(reference['is_global'])
             rows.append(row)
     return {'rows':rows}

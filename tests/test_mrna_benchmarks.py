@@ -78,3 +78,18 @@ class BenchmarkTests(unittest.TestCase):
     def test_checksum_is_verified_before_registration(self):
         with self.assertRaisesRegex(ValueError,'checksum'):
             register(self.owner,{**self.definition,'transcript_sha256':'0'*64})
+
+    def test_builtin_reference_is_shared_and_reuses_scores_across_users(self):
+        with self.assertRaisesRegex(ValueError,'administrator'):
+            register(self.owner,self.definition,global_reference=True)
+        with store.connection() as db:administrator=db.execute("SELECT id FROM auth_users WHERE username='admin'").fetchone()[0]
+        identifier=register(administrator,self.definition)
+        self.assertEqual(register(administrator,self.definition,global_reference=True),identifier)
+        with patch('app.mrna.capabilities',return_value={'ready':True,'models':{'ribonn':True}}),patch('app.mrna.invoke',side_effect=self.fake_score) as invoke:
+            for client in (self.alice,self.bob):
+                response=client.post('/api/mrna/benchmarks/score',json={})
+                self.assertEqual(response.status_code,200,response.text)
+                row=response.json()['rows'][0]
+                self.assertTrue(row['benchmark']['builtin'])
+                self.assertEqual(row['benchmark']['id'],identifier)
+            self.assertEqual(invoke.call_count,1)
