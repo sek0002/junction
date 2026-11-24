@@ -113,6 +113,68 @@ class FragmentAssembly(BaseModel):
     frame: Literal['auto',1,2,3,-1,-2,-3] = 'auto'
     cds_start: int | None = Field(None, ge=1)
     cds_end: int | None = Field(None, ge=1)
+    left_overhang: str | None = Field(None,pattern='^[ACGT]{4}$')
+    right_overhang: str | None = Field(None,pattern='^[ACGT]{4}$')
+    fixed_regions: list[tuple[int,int]] = Field(default_factory=list,max_length=128)
+
+
+@router.get('/build-list')
+def importable_build_list():
+    """Snapshot complete donor assemblies from the caller's active Build list."""
+    owner=user_id()
+    from .main import AssemblyRequest, build
+    from .sequence_engine import reverse_complement
+    with store.connection() as db:
+        saved=db.execute('SELECT id,request FROM build_list WHERE user_id=? AND removed_at IS NULL ORDER BY id',(owner,)).fetchall()
+    items=[];sources={fragment['id']:fragment for fragment in store.fragments()}
+    for row in saved:
+        raw=json.loads(row['request']);item={'id':row['id'],'name':raw.get('name','Assembly'),'enzyme':raw.get('enzyme','BsaI')}
+        try:
+            request=AssemblyRequest.model_validate(raw)
+            result,_=build(request)
+            if request.nested_assemblies and any(not n.get('applied') or n.get('errors') for n in result.get('nested_assemblies',[])):
+                raise ValueError('Resolve the nested assembly errors in the Assembly Build list before importing.')
+            edges=[edge for edge in result['fragments'] if not edge['is_backbone'] and edge['id']!=request.starter_fragment_id]
+            if not edges:raise ValueError('This build has no donor fragments after excluding the backbone.')
+            fragments=[]
+            for edge in edges:
+                source=sources.get(edge['id'])
+                if not source:raise ValueError('A source donor is unavailable.')
+                sequence=edge['input_sequence']
+                if edge.get('orientation',1)<0:sequence=reverse_complement(sequence)
+                physical=source.get('construct_sequence')
+                if physical:
+                    if physical.count(source['sequence'])!=1:raise ValueError('The physical donor has an ambiguous insert location.')
+                    sequence=physical.replace(source['sequence'],sequence,1)
+                fragments.append({'id':source['id'],'name':source['name'],'sequence':sequence})
+            first=next(f for f in result['features'] if f.get('source')=='fragment' and f.get('fragment_id')==edges[0]['id'])
+            shift=first['start']
+            nested=[(f['start']-shift+1,f['end']-shift) for f in result['features'] if f.get('source')=='nested_fusion' and f['start']>=shift]
+            snapshot=FragmentAssembly(fragments=fragments,enzyme=request.enzyme,
+                left_overhang=edges[0]['left_overhang'],right_overhang=edges[-1]['right_overhang'],fixed_regions=nested).model_dump()
+            prepared=prepare_assembly(snapshot)
+            Record(name=item['name'],sequence=prepared['sequence'],assembly=prepared['assembly'])
+            prepared.pop('_result')
+            # Library metadata is kept separately from immutable donor DNA.
+            prepared['cards']=[{'id':edge['id'],'name':edge['name'],'left':edge['left_overhang'],'right':edge['right_overhang'],
+                'orientation':edge.get('orientation',1),'plate_id':sources[edge['id']].get('plate_id',''),
+                'well':sources[edge['id']].get('well',''),'length':len(fragment['sequence'])}
+                for edge,fragment in zip(edges,fragments)]
+            if request.nested_assemblies:prepared['warnings'].append('Nested replacements are imported as assembled parent donors; their fusion labels are protected.')
+            item.update(prepared)
+        except (ValueError,KeyError,StopIteration,HTTPException) as error:
+            item['error']=str(error.detail if isinstance(error,HTTPException) else error)
+        items.append(item)
+    return {'items':items}
+
+
+@router.post('/assembly/preview')
+def preview_saved_assembly(payload:FragmentAssembly):
+    user_id()
+    try:result=prepare_assembly(payload.model_dump())
+    except ValueError as error:raise HTTPException(422,str(error)) from None
+    result.pop('_result')
+    return result
 
 
 class AssembleInput(BaseModel):
@@ -149,7 +211,7 @@ class Record(BaseModel):
     parameters: Parameters | None = None
     five_prime_utr: str | None = Field(None, max_length=1500)
     three_prime_utr: str | None = Field(None, max_length=2000)
-    preserve_regions: list[tuple[int, int]] = Field(default_factory=list, max_length=96)
+    preserve_regions: list[tuple[int, int]] = Field(default_factory=list, max_length=256)
     assembly: FragmentAssembly | None = None
 
     @field_validator('name')

@@ -62,3 +62,27 @@
 .mrna-assembly-warnings{color:var(--amber,#a76a1f)}
 #mrna-assembly-error:empty{display:none}
 .mrna-record-assembly{padding:7px 9px;border-left:3px solid var(--green);font-size:12px;background:var(--soft)}
+.mrna-build-import{margin:12px 0 18px}
+.mrna-build-search-wrap{position:relative;min-width:0}
+.mrna-build-matches{position:absolute;top:100%;left:0;right:0;z-index:25;max-height:320px;overflow:auto;background:var(--surface,#fff);border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 24px #0002;padding:5px}
+.mrna-fragment-option{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;border:0;background:none;color:var(--ink);text-align:left;padding:10px;border-radius:5px}
+.mrna-fragment-option:hover,.mrna-fragment-option:focus{background:var(--green-light)}
+.mrna-fragment-option>span:first-child{min-width:0;overflow-wrap:anywhere}
+.mrna-fragment-option strong{font-size:12px;display:block}
+.mrna-fragment-option small{font-size:10px;display:block;color:var(--muted)}
+.mrna-fragment-option>span:last-child{font-size:10px;color:var(--green)}
+.mrna-search-options{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 10px}
+#mrna .mrna-search-options label{display:flex;flex-direction:row;gap:6px;align-items:center;font-size:11px;margin:0}
+#mrna .mrna-search-options input{width:14px;height:14px}
+.mrna-search-options code{font-size:11px;color:var(--green)}
+#mrna-records,.mrna-record,.mrna-assembly-card{min-width:0;max-width:100%}
+.mrna-assembly-card{margin:10px 0}
+.mrna-build-summary{border:0;background:none;padding:0;color:var(--green);font-size:11px;text-align:left}
+.mrna-fixed-chain{display:flex;gap:6px;align-items:stretch;overflow:auto;margin:9px 0;padding:2px 0 7px;min-width:0;max-width:100%}
+.mrna-fixed-fragment{flex:0 0 150px;min-width:0;border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px;padding:10px;text-align:left;background:var(--surface,#fff);color:var(--ink)}
+.mrna-fixed-fragment strong{display:block;font-size:11px;overflow-wrap:anywhere}
+.mrna-fixed-fragment small{display:block;font-size:9px;color:var(--muted);margin:6px 0}
+.mrna-fixed-fragment code{font-size:10px;color:var(--green)}
+.mrna-fixed-fragment:hover,.mrna-fixed-fragment:focus{border-color:var(--green)}
+.mrna-chain-arrow{align-self:center;color:var(--muted);font-size:12px}
+.mrna-cds-details{margin:10px 0;font-size:11px}

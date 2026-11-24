@@ -51,9 +51,12 @@ def prepare_assembly(snapshot):
         raise ValueError('Choose between 1 and 32 donor fragments.')
     if sum(len(f['sequence']) for f in fragments) > 100000:
         raise ValueError('Use at most 100,000 nt of donor DNA per assembly.')
-    result = assemble(fragments, snapshot['enzyme'], circular=False)
+    result = assemble(fragments, snapshot['enzyme'], circular=False,
+        left_overhang=snapshot.get('left_overhang'),right_overhang=snapshot.get('right_overhang'))
     if not result['valid']:
         raise ValueError('Assembly is invalid: '+' '.join(result['errors']))
+    if any(snapshot.get(side+'_overhang') and snapshot[side+'_overhang']!=result[side+'_overhang'] for side in ('left','right')):
+        raise ValueError('The donor chain no longer matches its fixed Build list overhangs.')
     dna = result['sequence']
     frame = snapshot.get('frame', 'auto')
     candidates = detect_cds(dna, frame)
@@ -83,6 +86,9 @@ def prepare_assembly(snapshot):
     # an overlapping label to whole CDS codons to keep optimiser locations aligned.
     spans = [(f['start'], f['start']+4) for f in result['features'] if f.get('source') == 'fragment']
     spans.append((len(dna)-4, len(dna)))
+    for a,b in snapshot.get('fixed_regions',[]):
+        if not 1<=a<=b<=len(dna):raise ValueError('A fixed fusion region lies outside the donor assembly.')
+        spans.append((a-1,b))
     protected = []
     for a, b in spans:
         a, b = max(a, start-1), min(b, end)
@@ -136,7 +142,8 @@ def project_fragments(snapshot, cds):
         exported.append({'id': source.get('id'), 'name': source['name'], 'sequence': physical,
             'orientation': edge['orientation'], 'left_overhang': edge['left_overhang'],
             'right_overhang': edge['right_overhang'], 'changed_nt': sum(x != y for x, y in zip(source['sequence'], physical))})
-    rebuilt = assemble(exported, snapshot['enzyme'], circular=False)
+    rebuilt = assemble(exported, snapshot['enzyme'], circular=False,
+        left_overhang=snapshot.get('left_overhang'),right_overhang=snapshot.get('right_overhang'))
     if not rebuilt['valid'] or rebuilt['sequence'] != dna:
         raise ValueError('Optimised donor reassembly failed validation: '+' '.join(rebuilt['errors']))
     return {'sequence': dna, 'fragments': exported, 'junctions_preserved': True,

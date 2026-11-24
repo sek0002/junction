@@ -41,6 +41,13 @@ def synonym(prepared):
 
 
 class FragmentMappingTests(unittest.TestCase):
+    def test_fixed_build_boundaries_keep_reverse_orientation(self):
+        source=fixture()['fragments'][:1]
+        p=prepare_assembly({'fragments':source,'enzyme':'BsaI','frame':'auto',
+            'left_overhang':reverse_complement('GCTG'),'right_overhang':reverse_complement('TTTG')})
+        self.assertEqual(p['fragment_map'][0]['orientation'],-1)
+        self.assertEqual(project_fragments(p['assembly'],p['sequence'])['fragments'][0]['sequence'],source[0]['sequence'])
+
     def test_auto_detection_and_explicit_six_frames(self):
         for reverse in (False,True):
             snap=fixture(reverse_cds=reverse);p=prepare_assembly(snap)
@@ -155,6 +162,33 @@ class FragmentInputAPITests(unittest.TestCase):
         self.assertTrue(assemble(parts,'BsaI',circular=False)['valid'])
         self.assertEqual(self.client.get('/api/mrna/jobs/export/export?format=fragments-fasta').status_code,200)
         with TestClient(app) as anon:self.assertEqual(anon.get('/api/mrna/jobs/export/export?format=fragments-csv').status_code,401)
+
+    def test_named_build_import_excludes_backbones_and_other_users(self):
+        from test_sequence_engine import backbone
+        with store.connection() as db:
+            owner=db.execute("SELECT id FROM auth_users WHERE username='admin'").fetchone()[0]
+            vector=db.execute('INSERT INTO plasmids(name,sequence,circular) VALUES(?,?,1)',('Vector',backbone('TTTG','CGAA'))).lastrowid
+            requests=[{'name':'Named complete assembly','enzyme':'BsaI','fragment_ids':self.ids,'backbone_id':vector},
+                {'name':'Starter backbone','enzyme':'BsaI','starter_fragment_id':self.ids[0],'fragment_ids':[self.ids[1]],'circular':False},
+                {'name':'Empty donors','enzyme':'BsaI','fragment_ids':[],'starter_fragment_id':self.ids[0],'circular':False}]
+            for request in requests:db.execute('INSERT INTO build_list(user_id,request) VALUES(?,?)',(owner,json.dumps(request)))
+        response=self.client.get('/api/mrna/build-list');self.assertEqual(response.status_code,200,response.text)
+        complete,starter,empty=response.json()['items']
+        self.assertNotIn('error',complete,complete.get('error'));self.assertEqual(complete['name'],'Named complete assembly')
+        self.assertEqual(complete['sequence'],CDS)
+        self.assertEqual([f['id'] for f in complete['assembly']['fragments']],self.ids)
+        self.assertEqual(complete['assembly']['left_overhang'],'TTTG');self.assertEqual(complete['assembly']['right_overhang'],'CGAA')
+        self.assertNotIn('error',starter,starter.get('error'));self.assertEqual([f['id'] for f in starter['assembly']['fragments']],[self.ids[1]])
+        self.assertIn('no donor',empty['error'])
+        self.client.post('/api/auth/users',json={'username':'other','pin':'654321'})
+        with TestClient(app) as other:
+            other.post('/api/auth/login',json={'username':'other','pin':'654321'})
+            self.assertEqual(other.get('/api/mrna/build-list').json()['items'],[])
+        with TestClient(app) as anon:self.assertEqual(anon.get('/api/mrna/build-list').status_code,401)
+        payload=complete['assembly']|{'cds_start':8,'cds_end':55,'frame':2}
+        result=self.client.post('/api/mrna/assembly/preview',json=payload)
+        self.assertEqual(result.status_code,200,result.text);self.assertEqual(result.json()['sequence'],CDS[3:])
+        self.assertEqual(self.client.post('/api/mrna/assembly/preview',json=payload|{'frame':1}).status_code,422)
 
 
 if __name__=='__main__':unittest.main()
