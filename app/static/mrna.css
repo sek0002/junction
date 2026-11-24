@@ -34,13 +34,31 @@
 #mrna-radar-chart .radar-before,#mrna-radar-chart .radar-after{pointer-events:stroke}
 /* Compact donor assembly composer. */
 .mrna-fragment-builder{margin-bottom:14px}
-.mrna-fragment-picker{display:flex;gap:8px;align-items:center}
-.mrna-fragment-picker select{min-width:0;flex:1}
-.mrna-fragment-parts{padding:0;list-style:none;margin:10px 0;display:grid;gap:5px}
-.mrna-fragment-parts li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:7px}
-.mrna-fragment-parts li>span{min-width:0;overflow-wrap:anywhere}
-.mrna-fragment-parts li>div{display:flex;gap:4px;flex-shrink:0}
+.mrna-fragment-picker{display:grid;gap:8px;min-width:0}
+.mrna-fragment-picker>button{justify-self:start}
+.mrna-fragment-matches{border:1px solid var(--line);border-radius:8px;max-height:220px;overflow:auto;padding:5px}
+#mrna .mrna-fragment-match{display:flex;gap:8px;align-items:flex-start;padding:7px;margin:0;border-radius:5px;font-size:12px;cursor:pointer}
+.mrna-fragment-match:hover{background:var(--green-light)}
+#mrna .mrna-fragment-match input{width:15px;min-width:15px;height:15px;margin:2px 0 0;flex:none}
+.mrna-fragment-match>span{min-width:0;overflow-wrap:anywhere}
+.mrna-fragment-match small{display:block;color:var(--muted);font-size:10px}
+.mrna-fragment-match:has(input:disabled){opacity:.55}
+.mrna-fragment-list-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px;font-size:12px}
+.mrna-fragment-list-heading>button:last-child{margin-left:auto}
+.mrna-fragment-parts{padding:0;list-style:none;margin:10px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:9px}
+.mrna-fragment-parts li{display:flex;align-items:flex-start;gap:7px;padding:10px 9px;border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px;background:var(--surface,#fff);min-width:0}
+.mrna-fragment-parts li:hover,.mrna-fragment-parts li:focus-within{border-color:var(--green);box-shadow:0 1px 6px #176c5814}
+.mrna-fragment-number{font-size:10px;color:var(--muted);padding-top:4px}
+.mrna-fragment-parts .mrna-fragment-open{border:0;background:none;color:var(--ink);padding:0;text-align:left;min-width:0;flex:1}
+.mrna-fragment-open strong{display:block;font-size:12px;overflow-wrap:anywhere}
+.mrna-fragment-open small{display:block;font-size:10px;color:var(--muted);margin-top:5px;overflow-wrap:anywhere}
+.mrna-fragment-ends{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--muted);font-size:11px}
+.mrna-fragment-ends code{padding:1px 5px;background:var(--green-light);border-radius:4px;color:var(--green);font-size:10px}
+.mrna-fragment-ends b{font-size:9px;color:var(--green)}
+.mrna-fragment-parts li>div{display:flex;flex-direction:column;gap:3px;flex-shrink:0}
 .mrna-fragment-parts button{padding:3px 8px}
+#mrna-assembly-tooltip p{font-size:11px;margin:8px 0}
+#mrna-assembly-tooltip code{font-size:11px;color:var(--green)}
 .mrna-assembly-warnings{color:var(--amber,#a76a1f)}
 #mrna-assembly-error:empty{display:none}
 .mrna-record-assembly{padding:7px 9px;border-left:3px solid var(--green);font-size:12px;background:var(--soft)}

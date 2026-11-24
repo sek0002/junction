@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {exportRows,validAssembly}=require('../app/static/mrna-fragments.js');
+const {exportRows,validAssembly,mergeParts}=require('../app/static/mrna-fragments.js');
 const output={junctions_preserved:true,fragments:[{name:'Part A',sequence:'ACGT',orientation:-1}]};
 const rows=[{id:'input',strategy:'input',name:'Input',fragment_output:output},{id:'a',strategy:'CAI',name:'A',fragment_output:output},{id:'b',strategy:'CAI',name:'B',fragment_output:output},{id:'plain',strategy:'CAI',name:'Plain CDS'}];
 assert.equal(exportRows(rows).length,2);
@@ -10,4 +10,14 @@ assert.deepEqual(exportRows([{id:'x',strategy:'CAI',fragment_output:{junctions_p
 assert.deepEqual(exportRows([{id:'x',strategy:'CAI',fragment_output:{junctions_preserved:true,fragments:null}}]),[]);
 assert.equal(validAssembly({enzyme:'BsaI',frame:'<img>',cds_start:1,cds_end:9,fragments:[]}),false);
 assert.equal(validAssembly({enzyme:'BsaI',frame:-2,cds_start:5,cds_end:55,fragments:[{name:'Part A',sequence:'ACGT'}]}),true);
+const original=[{id:1,name:'A'}],incoming=[{id:2,name:'B'},{id:3,name:'C'},{id:2,name:'Duplicate B'}];
+const merged=mergeParts(original,incoming);
+assert.deepEqual(merged.map(p=>p.id),[1,2,3]);
+assert.deepEqual(original,[{id:1,name:'A'}]);
+assert.deepEqual(mergeParts(merged,[{id:4,name:'D'}]).map(p=>p.id),[1,2,3,4]);
+assert.deepEqual(mergeParts(merged,merged).map(p=>p.id),[1,2,3]);
+assert.throws(()=>mergeParts(merged,Array.from({length:33},(_,i)=>({id:i+1,name:'P'+i}))),/32 donor fragments/);
+assert.deepEqual(merged.map(p=>p.id),[1,2,3]);
+assert.deepEqual(mergeParts([], [{id:'<img>',name:'invalid'},null]),[]);
+assert.equal(mergeParts([],[{id:1,name:'A',digest:{left_overhang:'ACGT',right_overhang:'GCTG'},physical_length:400}])[0].length,400);
 console.log('mRNA donor export selection passed');
