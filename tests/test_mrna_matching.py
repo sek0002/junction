@@ -61,6 +61,13 @@ class MatchingTests(unittest.TestCase):
                        {'records':[{'name':'Plain A','sequence':'ATGGCTTAA'},{'name':'Plain B','sequence':'ATGGCCTAA'}]}):
             with self.assertRaises(ValidationError):Batch(**(batch_fixture()|change))
 
+    def test_subset_can_exclude_plain_inputs_and_reject_invalid_selection(self):
+        batch=batch_fixture();batch['records'].append({'name':'Plain','sequence':'ATGGCTTAA'})
+        good=Batch(**(batch|{'match_record_names':[' A ','B'],'include_individual_optimisations':True}))
+        self.assertEqual(good.match_record_names,['A','B'])
+        for names in (['A'],['A','missing'],['A','A'],['A','Plain']):
+            with self.assertRaises(ValidationError):Batch(**(batch|{'match_record_names':names}))
+
     def test_reverse_donors_share_a_template_and_round_trip(self):
         batch=batch_fixture();a,b=[donor_sites(r,translate) for r in batch['records']]
         self.assertEqual([s['template'] for s in a],[s['template'] for s in b])
@@ -120,6 +127,21 @@ class MatchingTests(unittest.TestCase):
             self.assertEqual(before['protein'],after['protein']);self.assertTrue(after['metrics']['protein_preserved'])
             self.assertEqual(after['cds'],result['sequences'][index]);self.assertTrue(after['fragment_output']['junctions_preserved'])
 
+    @unittest.skipUnless(Path(runtime_config()['python']).is_file(),'Optional scientific runtime')
+    def test_native_matched_and_individual_candidates_have_unique_ids(self):
+        batch=batch_fixture();batch['include_individual_optimisations']=True
+        plan=invoke({'action':'match','batch':batch},timeout=120)
+        record=batch['records'][0]
+        output=invoke({'action':'run','batch':batch,'record':record,'index':0,'matched_sequence':plan['sequences'][0],'matched_report':plan['optimization_reports'][0]})
+        self.assertFalse(output['errors']);self.assertEqual(len(output['rows']),3)
+        self.assertEqual(len({r['id'] for r in output['rows']}),3)
+        self.assertEqual([r['strategy'] for r in output['rows']],['input','CAI','Matched CAI'])
+        self.assertTrue(output['rows'][-1]['name'].endswith('Matched CAI 1'))
+        self.assertTrue(all(r['metrics']['protein_preserved'] for r in output['rows']))
+        plain=Record(name='Plain',sequence='ATGGCTTAA').model_dump();batch['include_individual_optimisations']=False
+        baseline=invoke({'action':'run','batch':batch,'record':plain,'index':2})
+        self.assertEqual(len(baseline['rows']),1);self.assertEqual(baseline['rows'][0]['strategy'],'input')
+
 
 class MatchingJobTests(unittest.TestCase):
     def setUp(self):
@@ -149,6 +171,24 @@ class MatchingJobTests(unittest.TestCase):
         self.assertEqual(item['status'],'complete');self.assertEqual([c['action'] for c in calls],['match','run','run'])
         self.assertEqual(item['result']['fragment_matches']['fragments_saved'],2)
         self.assertEqual(item['completed'],2)
+    def test_subset_is_mapped_to_global_records(self):
+        batch=batch_fixture();plain=Record(name='Plain',sequence='ATGGCTTAA').model_dump()
+        batch['records'].insert(0,plain);batch['match_record_names']=['A','B'];batch['include_individual_optimisations']=True
+        subset={**batch,'records':batch['records'][1:],'_source_indices':[1,2]}
+        plan=match_batch(subset,solve=solver(),translate=translate,metric=metric);calls=[]
+        def fake(payload,*args,**kwargs):
+            calls.append(payload)
+            if payload['action']=='match':
+                self.assertEqual([r['name'] for r in payload['batch']['records']],['A','B']);self.assertEqual(payload['batch']['_source_indices'],[1,2]);return plan
+            if payload['record']['name']=='Plain':self.assertNotIn('matched_sequence',payload)
+            else:self.assertEqual(payload['matched_sequence'],plan['sequences'][payload['index']-1])
+            return {'rows':[{'id':str(payload['index']),'strategy':'input'}],'errors':[]}
+        with patch('app.mrna.capabilities',return_value={'ready':True}),patch('app.mrna.invoke',side_effect=fake):
+            response=self.client.post('/api/mrna/jobs',json=batch);self.assertEqual(response.status_code,202,response.text);item=self.terminal(response.json()['id'])
+        self.assertEqual(item['status'],'complete');self.assertEqual(item['completed'],3)
+        self.assertEqual(item['result']['fragment_matches']['matched_input_names'],['A','B'])
+        self.assertEqual({u['input_index'] for f in item['result']['fragment_matches']['library'] for u in f['usages']},{1,2})
+
     def test_cancel_during_joint_search(self):
         entered=threading.Event();release=threading.Event()
         def wait(*args,**kwargs):entered.set();release.wait(3);raise RuntimeError('Stopped')

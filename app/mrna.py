@@ -286,11 +286,21 @@ class Batch(BaseModel):
     seed: int = Field(42, ge=0, le=2147483600)
     predict_translation: bool = False
     match_fragments: bool = False
+    match_record_names: list[str] | None = Field(None,max_length=32)
+    include_individual_optimisations: bool = False
+
+    @field_validator('match_record_names')
+    @classmethod
+    def matching_names(cls,value):
+        return [' '.join(name.split()) for name in value] if value is not None else None
 
     @model_validator(mode='after')
     def sizes(self):
-        if self.match_fragments and (self.mode!='design' or len(self.records)<2 or any(not r.assembly for r in self.records)):
-            raise ValueError('Match fragments requires design mode and at least two imported fragment assemblies.')
+        if self.match_fragments:
+            names=self.match_record_names if self.match_record_names is not None else [r.name for r in self.records]
+            chosen=[r for r in self.records if r.name in names]
+            if self.mode!='design' or len(names)!=len(set(names)) or len(chosen)!=len(names) or len(chosen)<2 or any(not r.assembly for r in chosen):
+                raise ValueError('Select at least two imported assemblies for fragment matching; selection names must be unique and belong to this batch.')
         if len({r.name for r in self.records})!=len(self.records): raise ValueError('Use unique names for all input sequences.')
         total = 0
         for r in self.records:
@@ -310,6 +320,71 @@ class Batch(BaseModel):
                 raise ValueError('Assembled transcripts must be at most 10,000 nt.')
         if total>120000: raise ValueError('Use at most 120,000 coding nucleotides per batch.')
         return self
+
+
+
+class ParameterPresetPayload(BaseModel):
+    id: str | None = Field(None,max_length=100)
+    name: str = Field(min_length=1,max_length=120)
+    settings: dict = Field(default_factory=dict)
+
+    @field_validator('name')
+    @classmethod
+    def preset_name(cls,value):
+        value=' '.join(value.split())
+        if not value:raise ValueError('Preset name is required.')
+        return value
+
+
+def initialize_presets():
+    with store.connection() as db:
+        db.executescript("""
+        CREATE TABLE IF NOT EXISTS mrna_parameter_presets(
+          id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES auth_users(id),
+          name TEXT NOT NULL,settings TEXT NOT NULL,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          archived_at TEXT);
+        CREATE UNIQUE INDEX IF NOT EXISTS mrna_parameter_presets_name
+          ON mrna_parameter_presets(user_id,name COLLATE NOCASE) WHERE archived_at IS NULL;
+        """)
+
+
+@router.get('/parameter-presets')
+def parameter_presets():
+    owner=user_id();initialize_presets()
+    with store.connection() as db:
+        rows=db.execute('SELECT id,name,settings,updated_at FROM mrna_parameter_presets WHERE user_id=? AND archived_at IS NULL ORDER BY name COLLATE NOCASE',(owner,)).fetchall()
+    return {'items':[dict(row,settings=json.loads(row['settings'])) for row in rows]}
+
+
+@router.post('/parameter-presets')
+def save_parameter_preset(payload:ParameterPresetPayload):
+    from pydantic import ValidationError
+    owner=user_id();initialize_presets()
+    try:
+        validated=Batch(**{**payload.settings,'name':'Preset','records':[{'name':'Preset validation','sequence':'ATGTAA'}],
+            'mode':'compare','match_fragments':False,'match_record_names':None,'include_individual_optimisations':False})
+    except ValidationError as error:raise HTTPException(422,str(error)) from None
+    settings=validated.model_dump(exclude={'name','records','mode','match_fragments','match_record_names','include_individual_optimisations'})
+    identifier=payload.id or str(uuid4())
+    with store.connection() as db:
+        if payload.id and not db.execute('SELECT 1 FROM mrna_parameter_presets WHERE id=? AND user_id=? AND archived_at IS NULL',(identifier,owner)).fetchone():
+            raise HTTPException(404,'Parameter preset not found.')
+        duplicate=db.execute('SELECT id FROM mrna_parameter_presets WHERE user_id=? AND name=? COLLATE NOCASE AND archived_at IS NULL',(owner,payload.name)).fetchone()
+        if duplicate and duplicate['id']!=identifier:raise HTTPException(409,'A preset with this name already exists. Select it to update it, or choose another name.')
+        if payload.id:
+            db.execute('UPDATE mrna_parameter_presets SET name=?,settings=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?',(payload.name,json.dumps(settings),identifier,owner))
+        else:
+            db.execute('INSERT INTO mrna_parameter_presets(id,user_id,name,settings) VALUES(?,?,?,?)',(identifier,owner,payload.name,json.dumps(settings)))
+    return {'id':identifier,'name':payload.name,'settings':settings}
+
+
+@router.delete('/parameter-presets/{identifier}')
+def archive_parameter_preset(identifier:str):
+    owner=user_id();initialize_presets()
+    with store.connection() as db:
+        changed=db.execute('UPDATE mrna_parameter_presets SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND archived_at IS NULL',(identifier,owner))
+        if not changed.rowcount:raise HTTPException(404,'Parameter preset not found.')
+    return {'archived':identifier}
 
 
 def stop_process(proc,force=False):
@@ -427,9 +502,15 @@ def execute(identifier, payload):
     result={'rows':[], 'errors':[], 'parameters':payload}
     try:
         update(identifier,status='running')
-        matching=None
+        matching=None;match_indices=[]
         if payload.get('match_fragments'):
-            matching=invoke({'action':'match','batch':payload},identifier)
+            names=payload.get('match_record_names')
+            match_indices=[i for i,r in enumerate(payload['records']) if names is None or r['name'] in names]
+            matching_batch={**payload,'records':[payload['records'][i] for i in match_indices],'_source_indices':match_indices}
+            matching=invoke({'action':'match','batch':matching_batch},identifier)
+            matching['report']['matched_input_names']=[payload['records'][i]['name'] for i in match_indices]
+            for fragment in matching['report'].get('library',[]):
+                for use in fragment['usages']:use['input_index']=match_indices[use['input_index']]
             result['fragment_matches']=matching['report']
             result['errors'].extend(matching.get('errors',[]))
             update(identifier,result=json.dumps(result,allow_nan=False))
@@ -437,7 +518,8 @@ def execute(identifier, payload):
             with _LOCK:
                 if identifier in _CANCELLED: break
             try:
-                extra={'matched_sequence':matching['sequences'][index], 'matched_report':matching['optimization_reports'][index]} if matching is not None else {}
+                match_index=match_indices.index(index) if index in match_indices else None
+                extra={'matched_sequence':matching['sequences'][match_index], 'matched_report':matching['optimization_reports'][match_index]} if match_index is not None else {}
                 output=invoke({'action':'run', 'batch':payload, 'record':record, 'index':index,**extra}, identifier)
                 result['rows'].extend(output['rows']); result['errors'].extend(output.get('errors',[]))
             except RuntimeError as error:

@@ -88,6 +88,8 @@ def fragment_library(records, sequences):
     library={}
     for index,(record,sequence) in enumerate(zip(records,sequences)):
         if sequence is None:continue
+        prepared=prepare_assembly(record['assembly'])
+        coordinates={f['fragment_index']:{'start':f['start']+1,'end':f['end']+4} for f in prepared['_result']['features'] if f.get('source')=='fragment'}
         for fragment_index,fragment in enumerate(project_fragments(record['assembly'],sequence)['fragments']):
             dna=fragment['sequence'];reverse=reverse_complement(dna);canonical=min(dna,reverse)
             key=hashlib.sha256(canonical.encode()).hexdigest()
@@ -96,7 +98,10 @@ def fragment_library(records, sequences):
             entry['usages'].append({'input_index':index,'input_name':record['name'],
                 'group':record['group'],'fragment_index':fragment_index,'fragment_name':fragment['name'],
                 'reverse_complement':dna!=canonical,'left_overhang':fragment['left_overhang'],
-                'right_overhang':fragment['right_overhang']})
+                'right_overhang':fragment['right_overhang'],
+                'assembled_start':coordinates[fragment_index]['start'],'assembled_end':coordinates[fragment_index]['end'],
+                'assembled_length':len(prepared['assembled_sequence']),
+                'assembly_orientation':fragment['orientation']*(-1 if dna!=canonical else 1)})
     entries=list(library.values())
     for entry in entries:entry['shared']=len({u['input_index'] for u in entry['usages']})>1
     return sorted(entries,key=lambda e:(not e['shared'],-len(e['usages']),e['name'],e['sha256']))
@@ -139,6 +144,7 @@ def match_batch(batch, *, solve=None, translate=None, metric=None, consensus=Non
     records=deepcopy(batch['records'])
     if len(records)<2 or any(not r.get('assembly') for r in records):
         raise ValueError('Match fragments requires at least two imported fragment assemblies.')
+    source_indices=batch.get('_source_indices',list(range(len(records))))
     started=time.monotonic();deadline=started+seconds;solves=0;attempted=0;cache={};exhausted=False
     params=[];sites=[];proteins=[];preserved=[]
     for i,record in enumerate(records):
@@ -181,7 +187,7 @@ def match_batch(batch, *, solve=None, translate=None, metric=None, consensus=Non
         for index,record in enumerate(records):
             if number and solves>=max_solves//2:break
             try:
-                output=checked(index,record['sequence'],preserved[index],batch['seed']+index+number*1000)
+                output=checked(index,record['sequence'],preserved[index],batch['seed']+source_indices[index]+number*1000)
                 proposals[index].append(output['sequence'])
                 if current[index] is None or rank({index:output['sequence']},[index])>rank(current,[index]):
                     current[index]=output['sequence'];reports[index]=output['report']
@@ -223,7 +229,7 @@ def match_batch(batch, *, solve=None, translate=None, metric=None, consensus=Non
             try:
                 for i in indices:
                     if trial[i]!=current[i]:
-                        output=checked(i,trial[i],shared_locks[i],batch['seed']+i)
+                        output=checked(i,trial[i],shared_locks[i],batch['seed']+source_indices[i])
                         trial[i]=output['sequence'];trial_reports[i]=output['report']
                 if any(donor_sequence(site,trial[i])!=donor for i,site in members):
                     raise ValueError('A tested donor could not be shared at every mapped boundary.')

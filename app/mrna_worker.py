@@ -139,7 +139,7 @@ def run(data):
             from DegScore import DegScore
         degclass=DegScore;versions['DegScore']='2.1'
     rows=[];errors=[]
-    def score(cds,strategy,number,report=None):
+    def score(cds,strategy,number,report=None,label_number=None):
         transcript=five+cds+three+'A'*batch['poly_a'];foldseq=cds if batch['fold_scope']=='cds' else transcript
         md=RNA.md();md.temperature=batch['temperature']
         folding=RNA.fold_compound(foldseq.replace('T','U'),md)
@@ -187,7 +187,7 @@ def run(data):
         metrics.update(quality['metrics'])
         candidate_id=f"{data['index']}-{number}"
         fragment_output=project_fragments(record['assembly'],cds) if record.get('assembly') else None
-        rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number}'),
+        rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number if label_number is None else label_number}'),
             'input_name':record['name'],'seed':(report or {}).get('matching_seed',batch['seed']+data['index']),'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
             'fold_sequence':foldseq,'fold_scope':batch['fold_scope'],'temperature':batch['temperature'],'structure':structure,'coordinates':coords,'pairs':pairs,
             'stability_profile':stability_profile,'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
@@ -195,14 +195,7 @@ def run(data):
             'fragment_output':fragment_output,'assembly':record.get('assembly'),
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)
-    if 'matched_sequence' in data:
-        designed=data['matched_sequence']
-        if designed is not None:
-            if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Matched optimisation did not preserve the encoded protein.')
-            if any(designed[a-1:b]!=sequence[a-1:b] for a,b in record['preserve_regions']):raise ValueError('Matched optimisation changed an original protected region.')
-            score(designed,'Matched '+params['objective'].upper(),1,data.get('matched_report'))
-            rows[-1]['fragment_matching']=True
-    elif batch['mode']=='design':
+    if batch['mode']=='design' and (not batch.get('match_fragments') or batch.get('include_individual_optimisations')):
         seen={sequence}
         for number in range(1,batch['candidates']+1):
             try:result=optimize_cds(sequence,params,record['preserve_regions'])
@@ -220,6 +213,13 @@ def run(data):
                 errors.append({'name':record['name'],'candidate':number,'error':str(error)});continue
             if designed in seen:rows[-1]['warnings'].append('This candidate duplicates the input or an earlier candidate; optimisation does not guarantee distinct designs.')
             seen.add(designed)
+    if 'matched_sequence' in data:
+        designed=data['matched_sequence']
+        if designed is not None:
+            if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Matched optimisation did not preserve the encoded protein.')
+            if any(designed[a-1:b]!=sequence[a-1:b] for a,b in record['preserve_regions']):raise ValueError('Matched optimisation changed an original protected region.')
+            score(designed,'Matched '+params['objective'].upper(),batch['candidates']+1 if batch.get('include_individual_optimisations') else 1,data.get('matched_report'),label_number=1)
+            rows[-1]['fragment_matching']=True
     return {'rows':rows,'errors':errors}
 
 
