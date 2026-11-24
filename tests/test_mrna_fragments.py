@@ -112,6 +112,17 @@ class FragmentMappingTests(unittest.TestCase):
         for a,b in p['preserve_regions']:self.assertEqual(before['cds'][a-1:b],after['cds'][a-1:b])
         self.assertTrue(after['fragment_output']['junctions_preserved'])
         self.assertTrue(assemble(after['fragment_output']['fragments'],'BsaI',circular=False)['valid'])
+        batch['parameters']['enable_uridine_depletion']=True
+        depleted=invoke({'action':'run','batch':batch,'record':batch['records'][0],'index':0})
+        self.assertFalse(depleted['errors'],depleted['errors'])
+        candidate=depleted['rows'][1]
+        locked={i for a,b in p['preserve_regions'] for i in range(a-1,b)}
+        for i in range(0,len(p['sequence']),3):
+            if i in locked:self.assertEqual(candidate['cds'][i:i+3],p['sequence'][i:i+3])
+            else:self.assertNotEqual(candidate['cds'][i+2],'T')
+        self.assertEqual(candidate['protein'],before['protein'])
+        self.assertTrue(candidate['fragment_output']['junctions_preserved'])
+        self.assertEqual(assemble(candidate['fragment_output']['fragments'],'BsaI',circular=False)['sequence'],candidate['fragment_output']['sequence'])
         a,b=p['preserve_regions'][0]
         batch['parameters']['avoid_sequences']=[p['sequence'][a-1:b]]
         conflict=invoke({'action':'run','batch':batch,'record':batch['records'][0],'index':0})

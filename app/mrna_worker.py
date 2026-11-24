@@ -13,9 +13,11 @@ from pathlib import Path
 try:
     from .mrna_fragments import project_fragments
     from .sequence_engine import active_enzymes
+    from .mrna_optimization import mutable_regions, optimize_cds
 except ImportError:
     from mrna_fragments import project_fragments
     from sequence_engine import active_enzymes
+    from mrna_optimization import mutable_regions, optimize_cds
 
 
 def gc_profile(sequence, window, minimum, maximum):
@@ -190,19 +192,19 @@ def run(data):
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)
     if batch['mode']=='design':
-        from mrnarchitect.optimize.engine import optimize
-        from mrnarchitect.optimize.models import OptimizationConfig
-        constraints=msgspec.convert(params,type=OptimizationConfig)
-        configs=[constraints]
-        for start,end in record['preserve_regions']:
-            configs.append(OptimizationConfig(organism=organism,objective=params['objective'],start=start,end=end,enforce_sequence=True))
         seen={sequence}
         for number in range(1,batch['candidates']+1):
-            result=optimize(Sequence(sequence),configs)
+            try:result=optimize_cds(sequence,params,record['preserve_regions'])
+            except ValueError as error:
+                errors.append({'name':record['name'],'candidate':number,'error':str(error)});continue
             if result.status!='success':errors.append({'name':record['name'],'candidate':number,'error':result.error.message,'summary':result.error.summary});continue
             designed=result.solution.sequence
             if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Optimisation did not preserve the encoded protein.')
-            try:score(designed,params['objective'].upper(),number,msgspec.to_builtins(result))
+            report=msgspec.to_builtins(result)
+            if params['enable_uridine_depletion'] and record['preserve_regions']:
+                report['uridine_depletion']={'exempt_regions':record['preserve_regions'],
+                    'applied_regions':mutable_regions(len(sequence),record['preserve_regions'])}
+            try:score(designed,params['objective'].upper(),number,report)
             except ValueError as error:
                 errors.append({'name':record['name'],'candidate':number,'error':str(error)});continue
             if designed in seen:rows[-1]['warnings'].append('This candidate duplicates the input or an earlier candidate; optimisation does not guarantee distinct designs.')
