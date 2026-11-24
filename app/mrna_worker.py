@@ -104,6 +104,10 @@ def run(data):
         from mrnarchitect.constants.sequences import EGFP, LUCIFERASE
         presets=json.loads((Path(__file__).parent/'data/mrna/elements.json').read_text())
         return {'ready':True,'versions':versions,'models':{'mRNArchitect':True,'dnachisel':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
+    if data['action']=='match':
+        try:from .mrna_matching import match_batch
+        except ImportError:from mrna_matching import match_batch
+        return match_batch(data['batch'])
     if data['action']=='quality':return design_quality(data['sequence'],data['parameters'])
     if data['action']=='stability':
         if not degscore_ready:return {'available':False,'scores':None,'message':'DegScore is not connected.'}
@@ -184,14 +188,21 @@ def run(data):
         candidate_id=f"{data['index']}-{number}"
         fragment_output=project_fragments(record['assembly'],cds) if record.get('assembly') else None
         rows.append({'id':candidate_id,'name':record['name']+(' / input' if number==0 else f' / {strategy} {number}'),
-            'input_name':record['name'],'seed':batch['seed']+data['index'],'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
+            'input_name':record['name'],'seed':(report or {}).get('matching_seed',batch['seed']+data['index']),'group':record['group'],'strategy':strategy,'cds':cds,'transcript':transcript,'protein':str(Sequence(cds).amino_acid_sequence),
             'fold_sequence':foldseq,'fold_scope':batch['fold_scope'],'temperature':batch['temperature'],'structure':structure,'coordinates':coords,'pairs':pairs,
             'stability_profile':stability_profile,'gc_profile':profile,'gc_hotspots':hotspots,'gc_window':window,'metrics':metrics,'warnings':warnings,'parameters':params,
             'model_versions':dict(versions),'sha256':hashlib.sha256(transcript.encode()).hexdigest(),'optimization':report,'design_quality':quality,'tissue_predictions':tissue_predictions,
             'fragment_output':fragment_output,'assembly':record.get('assembly'),
             'regions':{'utr5':[1,len(five)],'cds':[len(five)+1,len(five)+len(cds)],'utr3':[len(five)+len(cds)+1,len(five)+len(cds)+len(three)],'poly_a':batch['poly_a']}})
     score(sequence,'input',0)
-    if batch['mode']=='design':
+    if 'matched_sequence' in data:
+        designed=data['matched_sequence']
+        if designed is not None:
+            if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Matched optimisation did not preserve the encoded protein.')
+            if any(designed[a-1:b]!=sequence[a-1:b] for a,b in record['preserve_regions']):raise ValueError('Matched optimisation changed an original protected region.')
+            score(designed,'Matched '+params['objective'].upper(),1,data.get('matched_report'))
+            rows[-1]['fragment_matching']=True
+    elif batch['mode']=='design':
         seen={sequence}
         for number in range(1,batch['candidates']+1):
             try:result=optimize_cds(sequence,params,record['preserve_regions'])

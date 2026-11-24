@@ -285,9 +285,12 @@ class Batch(BaseModel):
     fold_scope: Literal['cds', 'transcript'] = 'cds'
     seed: int = Field(42, ge=0, le=2147483600)
     predict_translation: bool = False
+    match_fragments: bool = False
 
     @model_validator(mode='after')
     def sizes(self):
+        if self.match_fragments and (self.mode!='design' or len(self.records)<2 or any(not r.assembly for r in self.records)):
+            raise ValueError('Match fragments requires design mode and at least two imported fragment assemblies.')
         if len({r.name for r in self.records})!=len(self.records): raise ValueError('Use unique names for all input sequences.')
         total = 0
         for r in self.records:
@@ -424,11 +427,18 @@ def execute(identifier, payload):
     result={'rows':[], 'errors':[], 'parameters':payload}
     try:
         update(identifier,status='running')
+        matching=None
+        if payload.get('match_fragments'):
+            matching=invoke({'action':'match','batch':payload},identifier)
+            result['fragment_matches']=matching['report']
+            result['errors'].extend(matching.get('errors',[]))
+            update(identifier,result=json.dumps(result,allow_nan=False))
         for index, record in enumerate(payload['records']):
             with _LOCK:
                 if identifier in _CANCELLED: break
             try:
-                output=invoke({'action':'run', 'batch':payload, 'record':record, 'index':index}, identifier)
+                extra={'matched_sequence':matching['sequences'][index], 'matched_report':matching['optimization_reports'][index]} if matching is not None else {}
+                output=invoke({'action':'run', 'batch':payload, 'record':record, 'index':index,**extra}, identifier)
                 result['rows'].extend(output['rows']); result['errors'].extend(output.get('errors',[]))
             except RuntimeError as error:
                 with _LOCK:
@@ -439,7 +449,8 @@ def execute(identifier, payload):
         status='cancelled' if cancelled else 'partial' if result['rows'] and result['errors'] else 'failed' if not result['rows'] else 'complete'
         update(identifier,status=status,result=json.dumps(result,allow_nan=False),error=None if result['rows'] or cancelled else 'No sequences completed. See sequence errors.')
     except Exception:
-        update(identifier,status='failed',error='The mRNA batch could not finish. Retry the batch.')
+        with _LOCK:cancelled=identifier in _CANCELLED
+        update(identifier,status='cancelled' if cancelled else 'failed',result=json.dumps(result,allow_nan=False),error=None if cancelled else 'The mRNA batch could not finish. Retry the batch.')
     finally:
         with _LOCK: _CANCELLED.discard(identifier)
 
