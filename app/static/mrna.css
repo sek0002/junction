@@ -108,7 +108,9 @@
 .mrna-fixed-oh:before,.mrna-fixed-oh:after{content:'';position:absolute;width:8px;height:1px;background:var(--muted);top:50%}
 .mrna-fixed-oh:before{right:100%}.mrna-fixed-oh:after{left:100%}
 .mrna-fixed-oh.terminal{background:#7854a1;border-color:#7854a1;color:#fff}
-.mrna-fragment-builder{border:2px dotted var(--muted);border-radius:10px;padding:12px 14px;margin:14px 0 0;background:var(--paper)}
+.mrna-fragment-builder{border:2px dotted var(--muted);border-radius:10px;padding:12px 14px;margin:14px 0 0;background:transparent}
 .mrna-fragment-builder>summary{font-weight:600}
-.mrna-batch-input-list{border:1px solid var(--line);border-top:3px solid var(--green);border-radius:10px;margin-top:24px;padding:16px;background:var(--paper);min-width:0}
+.mrna-batch-input-list{border:1px solid var(--line);border-top:3px solid var(--green);border-radius:10px;margin-top:24px;padding:16px;background:transparent;min-width:0}
 .mrna-batch-input-list>h3{font-size:13px;margin:0 0 14px;color:var(--ink)}
+.mrna-main-card-minimise{border:0;background:none;color:var(--ink);font-size:21px;line-height:1;padding:8px;flex-shrink:0}
+.mrna-main-card-minimise:hover,.mrna-main-card-minimise:focus-visible{background:var(--green-light);border-radius:5px}
