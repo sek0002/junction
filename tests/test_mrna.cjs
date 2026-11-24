@@ -66,3 +66,15 @@ assert.deepEqual(m.gcDisplayRange(100,{start:-10,end:200}),{start:1,end:100});
 assert.deepEqual(m.gcDisplayRange(100,{start:100,end:100}),{start:99,end:100});
 assert.deepEqual(m.gcDisplayRange(100,{start:1,end:null}),{start:1,end:100});
 console.log('mRNA GC viewport bounds checks passed');
+
+// The radar reads the nearest displayed axis rather than interpolating polygon values.
+assert.equal(m.radarAxisIndex(270,82,5),0);
+assert.equal(m.radarAxisIndex(408,220,4),1);
+assert.equal(m.radarAxisIndex(270,358,4),2);
+assert.equal(m.radarAxisIndex(132,220,4),3);
+assert.equal(m.radarAxisIndex(269.999,82,5),0);
+assert.equal(m.radarAxisIndex(270,220,5),-1);
+assert.equal(m.radarAxisIndex(270,-100,5),-1);
+assert.equal(m.radarAxisIndex(NaN,220,5),-1);
+assert.equal(m.radarAxisIndex(270,82,2),-1);
+console.log('mRNA radar hover axis selection checks passed');

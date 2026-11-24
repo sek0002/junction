@@ -4,7 +4,7 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const plateLabel=id=>state.plateLabels?.[id]??(/^pSHPs/i.test(String(id||''))?(String(id).slice(5).replace(/[^a-z0-9]/gi,'').slice(0,4)||id):String(id||''));
 const spanLabel=(a,b)=>a===b?'gap after '+a:`${a+1}–${b}`;
 const fmt=(x,n=2)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:n});
-const state={workspaceContextVersion:0,worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plateWellSelection:new Set(),plateArchiveBusy:false,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
+const state={workspaceContextVersion:0,worksheetIds:{},workbenchId:null,plateSelection:new Set(),plateMaps:[],plateView:null,plateWell:null,plateWellSelection:new Set(),plateArchiveBusy:false,plasmidDrafts:new Map(),plasmidSaving:new Set(),uploadRuleOverrides:readUploadRules(),nestedAssemblies:[],nestedParent:null,nestedCassette:null,nestedDraftMode:null,nestedDraftStocks:{},nestedFragments:new Map(),fragments:[],plasmids:[],plasmidFolders:[],plasmidViews:{},recipes:[],parts:[],assemblyNameManual:false,assemblyNameRecommendation:'',result:null,assemblyResult:null,fragmentChecks:[],mapMode:'circular',selectedFeature:null,searchIndex:0,subtab:'assembly',resuspension:null,swapIndex:null,rules:null,plannerOverrides:readPlannerOverrides(),plannerStocks:{},buildList:[],activeBuildId:null,lastRemovedBuildId:null,buildSaveError:null,buildBusy:false,inventoryDrafts:new Map(),fragmentSelection:new Set(),plasmidSelection:new Set(),inventorySort:null,inventoryAutosaves:new Map()};
 let toastTimer,searchTimer,previewTimer,assemblyCheckTimer,searchCounter=0,checkCounter=0,resuspCounter=0;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),6000);}
 function busy(text){$('busy-text').textContent=text;$('busy').classList.toggle('hidden',!text);}
@@ -284,10 +284,10 @@ function renderJunctionList(){
 
 async function refresh(){
   const requestedEnzyme=$('enzyme').value;
-  const [summary,fragments,plasmids,recipes,rulesResult]=await Promise.all([api('/api/summary'),api('/api/fragments?limit=1000&enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/plasmids?enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/recipes'),api('/api/inventory/rules')]);
+  const [summary,fragments,plasmids,recipes,rulesResult,folderResult]=await Promise.all([api('/api/summary'),api('/api/fragments?limit=1000&enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/plasmids?enzyme='+encodeURIComponent(requestedEnzyme)),api('/api/recipes'),api('/api/inventory/rules'),api('/api/plasmid-folders')]);
   if(requestedEnzyme!==$('enzyme').value)return false;
   applyInventoryRules(rulesResult.rules);
-  state.plateLabels=summary.plate_labels||{};state.fragments=fragments;state.plasmids=plasmids;state.recipes=recipes;$('library-count').textContent=summary.fragments;scheduleLibraryMetrics();
+  state.plateLabels=summary.plate_labels||{};state.fragments=fragments;state.plasmids=plasmids;state.plasmidFolders=folderResult.items;state.recipes=recipes;$('library-count').textContent=summary.fragments;scheduleLibraryMetrics();
   const current=$('backbone').value;
   const examples=plasmids.filter(p=>p.circular&&p.recipe?.example_backbone&&!p.recipe?.legacy_example);
   const templates=plasmids.filter(p=>p.circular&&p.recipe?.backbone_template&&!p.recipe?.example_backbone);
@@ -559,6 +559,7 @@ function renderBuildList(){
   window.JunctionWorksheetController?.syncTitles();
   updateBuildListOutcome();updateBuildActions();
   hideBuildPreview();
+  $('save-build-list-plasmids').disabled=!state.buildList.length||state.buildBusy;
   $('build-list-count').textContent=state.buildList.length?`(${state.buildList.length})`:'';
   $('undo-build-remove').classList.toggle('hidden',!state.lastRemovedBuildId);
   document.querySelectorAll('[data-worksheet-export="build-list"]').forEach(button=>button.disabled=!state.buildList.length);
@@ -1374,33 +1375,65 @@ function createSequenceMapPreview(host,input){
   render();
   return{destroy(){if(disposed)return;disposed=true;observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener('scroll',hide,true);window.removeEventListener('resize',hide);hide();host.replaceChildren();}};
 }
+let plasmidFolderEditor=null,bulkPlasmidPreview=null;
+function plasmidListView(targetId){return state.plasmidViews[targetId]=JunctionPlasmidLibrary.normaliseView(state.plasmidViews[targetId]||{});}
+function plasmidFolderOptions(selected=null,all=false){return (all?'<option value="all">All folders</option>':'')+`<option value="${all?'unfiled':''}" ${selected==null?'selected':''}>Unfiled</option>`+state.plasmidFolders.map(f=>`<option value="${f.id}" ${String(f.id)===String(selected)?'selected':''}>${esc(f.name)}${all?' ('+f.count+')':''}</option>`).join('');}
+async function movePlasmidsToFolder(ids,folderId){
+  if(!ids.length)return;
+  try{await api('/api/plasmid-folders/assign',jsonBody({plasmid_ids:ids,folder_id:folderId?Number(folderId):null}));await refresh();renderPlasmidLibraries();window.JunctionSandbox?.schedule();toast(`Moved ${ids.length} plasmid${ids.length===1?'':'s'}`);}catch(error){toast(error.message);renderPlasmidLibraries();}
+}
+function openPlasmidFolderEditor(targetId,mode){
+  const view=plasmidListView(targetId),folder=state.plasmidFolders.find(f=>String(f.id)===view.folder);if(mode!=='create'&&!folder)return;
+  plasmidFolderEditor={targetId,mode,folder};$('plasmid-folder-title').textContent=mode==='create'?'New folder':mode==='rename'?'Rename folder':'Remove folder';$('plasmid-folder-name').value=folder?.name||'';$('plasmid-folder-name').disabled=mode==='remove';$('plasmid-folder-error').textContent='';$('plasmid-folder-note').textContent=mode==='remove'?'Plasmids in this folder will move to Unfiled. Their sequences and annotations are kept.':'';$('plasmid-folder-submit').textContent=mode==='remove'?'Remove folder':'Save folder';$('plasmid-folder-dialog').showModal();if(mode!=='remove')$('plasmid-folder-name').focus();
+}
+$('plasmid-folder-cancel').onclick=()=>$('plasmid-folder-dialog').close();
+$('plasmid-folder-form').onsubmit=async event=>{
+  event.preventDefault();const editor=plasmidFolderEditor;if(!editor)return;const button=$('plasmid-folder-submit');button.disabled=true;$('plasmid-folder-error').textContent='';
+  try{let result;if(editor.mode==='remove')result=await api('/api/plasmid-folders/'+editor.folder.id,{method:'DELETE'});else result=await api(editor.mode==='create'?'/api/plasmid-folders':'/api/plasmid-folders/'+editor.folder.id,{...jsonBody({name:$('plasmid-folder-name').value}),method:editor.mode==='create'?'POST':'PATCH'});
+    plasmidListView(editor.targetId).folder=editor.mode==='remove'?'unfiled':String(result.id);await refresh();renderPlasmidLibraries();$('plasmid-folder-dialog').close();window.JunctionSandbox?.schedule();toast(editor.mode==='remove'?'Folder removed; plasmids kept':'Folder saved');
+  }catch(error){$('plasmid-folder-error').textContent=error.message;}finally{button.disabled=false;}
+};
 function renderPlasmidLibraries(){
   finishPlasmidSelectionDrag();
   for(const targetId of ['plasmid-library','uploaded-plasmids']){
-    const root=$(targetId);root.setAttribute('aria-label','Plasmids');
-    root.innerHTML=`<div class="plasmid-selection-bar"><span data-plasmid-count role="status">0 selected</span><div class="plasmid-selection-actions"><button class="icon-button" data-plasmid-all aria-label="Select all plasmids" title="Select all">${inventoryIcon('selectAll')}</button><button class="icon-button" data-plasmid-clear aria-label="Clear plasmid selection" title="Clear selection">${inventoryIcon('clear')}</button><button class="icon-button archive-button" data-archive-plasmids aria-label="Archive selected plasmids" title="Archive selected" disabled>${inventoryIcon('trash')}</button></div></div>`+state.plasmids.map(p=>{
-      const draft=plasmidDraft(p);
-      const enzymes=Object.entries(p.backbone_options?.site_counts||{}).filter(([,count])=>count).map(([enzyme])=>enzyme).join(' · ');
-      const cassetteCount=Math.max(0,...Object.values(p.backbone_options?.cassette_counts||{}));
-      return `<article class="plasmid-item" data-plasmid="${p.id}" tabindex="0" role="group" aria-label="Plasmid ${esc(p.name)}, not selected"><span class="plasmid-selected-mark" aria-hidden="true">${inventoryIcon('check')}</span><label class="plasmid-name-field"><input data-plasmid-name aria-label="Name of ${esc(p.name)}" value="${esc(draft.name)}" maxlength="100" required autocomplete="off" title="Edit plasmid name"><span aria-hidden="true">${inventoryIcon('edit')}</span></label><div class="plasmid-card-meta"><span>${fmt(p.length,0)} bp</span><small>${esc(enzymes)}${cassetteCount>1?' · '+cassetteCount+' cassettes':''}</small></div><div class="plasmid-card-bottom"><div class="plasmid-actions"><button class="icon-button state-icon" data-topology aria-pressed="${draft.circular}" title="Topology"></button><button class="icon-button state-icon backbone-toggle" data-backbone aria-label="Backbone template for ${esc(p.name)}" aria-pressed="${draft.backbone_template}">${inventoryIcon('backbone')}</button><button class="icon-button" data-save-plasmid="${p.id}" aria-label="Save ${esc(p.name)}" title="Save">${inventoryIcon('save')}</button><button class="icon-button" data-view-plasmid="${p.id}" aria-haspopup="dialog" aria-controls="plasmid-view-dialog" aria-label="View ${esc(p.name)}" title="View saved plasmid">${inventoryIcon('view')}</button><a class="icon-button" href="/api/plasmids/${p.id}/genbank" aria-label="Download ${esc(p.name)} GenBank" title="Download saved GenBank">${inventoryIcon('download')}</a></div><small data-plasmid-status role="status"></small></div></article>`;
-    }).join('');
-    root.querySelector('[data-plasmid-all]').onclick=()=>{for(const p of state.plasmids)state.plasmidSelection.add(p.id);updatePlasmidSelection();};
-    root.querySelector('[data-plasmid-clear]').onclick=()=>{state.plasmidSelection.clear();updatePlasmidSelection();};
-    root.querySelector('[data-archive-plasmids]').onclick=()=>archiveSelection([],Array.from(state.plasmidSelection));
+    const root=$(targetId),view=plasmidListView(targetId);root.setAttribute('aria-label','Plasmids');
+    if(view.folder!=='all'&&view.folder!=='unfiled'&&!state.plasmidFolders.some(f=>String(f.id)===view.folder))view.folder='unfiled';
+    const items=JunctionPlasmidLibrary.filter(state.plasmids,view);root.dataset.filteredCount=items.length;
+    if(!root.querySelector('[data-plasmid-search]'))root.innerHTML=`<div class="plasmid-list-controls"><input type="search" data-plasmid-search aria-label="Search plasmids by name or folder" placeholder="Search name or folder"><select data-plasmid-folder-filter aria-label="Filter plasmid folder"></select><select data-plasmid-sort aria-label="Sort plasmids"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Name A–Z</option><option value="name-desc">Name Z–A</option><option value="length">Length ↑</option><option value="length-desc">Length ↓</option><option value="folder">Folder A–Z</option></select><button class="secondary compact" data-new-plasmid-folder>New folder</button><button class="icon-button" data-rename-plasmid-folder title="Rename folder" aria-label="Rename folder">${inventoryIcon('edit')}</button><button class="icon-button" data-remove-plasmid-folder title="Remove folder" aria-label="Remove folder">${inventoryIcon('close')}</button></div><div class="plasmid-selection-bar"><span data-plasmid-count role="status"></span><div class="plasmid-selection-actions"><select data-plasmid-move-target aria-label="Destination folder for selected plasmids"></select><button class="secondary compact" data-move-plasmids disabled>Move selected</button><button class="icon-button" data-plasmid-all aria-label="Select all filtered plasmids" title="Select all filtered">${inventoryIcon('selectAll')}</button><button class="icon-button" data-plasmid-clear aria-label="Clear plasmid selection" title="Clear selection">${inventoryIcon('clear')}</button><button class="icon-button archive-button" data-archive-plasmids aria-label="Archive selected plasmids" title="Archive selected" disabled>${inventoryIcon('trash')}</button></div></div><div class="plasmid-list-rows"></div>`;
+    const search=root.querySelector('[data-plasmid-search]');if(document.activeElement!==search)search.value=view.search;
+    const filter=root.querySelector('[data-plasmid-folder-filter]');filter.innerHTML=plasmidFolderOptions(null,true);filter.value=view.folder;root.querySelector('[data-plasmid-sort]').value=view.sort;
+    const move=root.querySelector('[data-plasmid-move-target]'),oldTarget=move.value;move.innerHTML=plasmidFolderOptions();move.value=state.plasmidFolders.some(f=>String(f.id)===oldTarget)?oldTarget:'';
+    for(const button of root.querySelectorAll('[data-rename-plasmid-folder],[data-remove-plasmid-folder]'))button.disabled=!state.plasmidFolders.some(f=>String(f.id)===view.folder);
+    root.querySelector('.plasmid-list-rows').innerHTML=items.map(p=>{
+      const draft=plasmidDraft(p),enzymes=Object.entries(p.backbone_options?.site_counts||{}).filter(([,count])=>count).map(([enzyme])=>enzyme).join(' · ');
+      return `<article class="plasmid-item" data-plasmid="${p.id}" tabindex="0" role="group" aria-label="Plasmid ${esc(p.name)}, not selected"><input type="checkbox" data-plasmid-select="${p.id}" aria-label="Select ${esc(p.name)}"><label class="plasmid-name-field"><input data-plasmid-name aria-label="Name of ${esc(p.name)}" value="${esc(draft.name)}" maxlength="100" required autocomplete="off" title="Edit plasmid name"><span aria-hidden="true">${inventoryIcon('edit')}</span></label><div class="plasmid-card-meta"><span>${fmt(p.length,0)} bp</span><small title="${esc(enzymes)}">${esc(enzymes)}</small></div><select data-plasmid-folder aria-label="Folder for ${esc(p.name)}" title="${esc(p.folder_name||'Unfiled')}">${plasmidFolderOptions(p.folder_id)}</select><div class="plasmid-card-bottom"><div class="plasmid-actions"><button class="icon-button state-icon" data-topology aria-pressed="${draft.circular}" title="Topology"></button><button class="icon-button state-icon backbone-toggle" data-backbone aria-label="Backbone template for ${esc(p.name)}" aria-pressed="${draft.backbone_template}">${inventoryIcon('backbone')}</button><button class="icon-button" data-save-plasmid="${p.id}" aria-label="Save ${esc(p.name)}" title="Save">${inventoryIcon('save')}</button><button class="icon-button" data-view-plasmid="${p.id}" aria-haspopup="dialog" aria-controls="plasmid-view-dialog" aria-label="View ${esc(p.name)}" title="View saved plasmid">${inventoryIcon('view')}</button><a class="icon-button" href="/api/plasmids/${p.id}/genbank" aria-label="Download ${esc(p.name)} GenBank" title="Download saved GenBank">${inventoryIcon('download')}</a></div><small data-plasmid-status role="status"></small></div></article>`;
+    }).join('')||'<p class="small muted plasmid-list-empty">No matching plasmids.</p>';
+    search.oninput=()=>{view.search=search.value;renderPlasmidLibraries();window.JunctionSandbox?.schedule();};filter.onchange=()=>{view.folder=filter.value;renderPlasmidLibraries();window.JunctionSandbox?.schedule();};root.querySelector('[data-plasmid-sort]').onchange=e=>{view.sort=e.target.value;renderPlasmidLibraries();window.JunctionSandbox?.schedule();};
+    root.querySelector('[data-new-plasmid-folder]').onclick=()=>openPlasmidFolderEditor(targetId,'create');root.querySelector('[data-rename-plasmid-folder]').onclick=()=>openPlasmidFolderEditor(targetId,'rename');root.querySelector('[data-remove-plasmid-folder]').onclick=()=>openPlasmidFolderEditor(targetId,'remove');
+    root.querySelector('[data-move-plasmids]').onclick=()=>movePlasmidsToFolder([...state.plasmidSelection],move.value);
+    root.querySelector('[data-plasmid-all]').onclick=()=>{for(const p of items)state.plasmidSelection.add(p.id);updatePlasmidSelection();};root.querySelector('[data-plasmid-clear]').onclick=()=>{state.plasmidSelection.clear();updatePlasmidSelection();};root.querySelector('[data-archive-plasmids]').onclick=()=>archiveSelection([],Array.from(state.plasmidSelection));
     root.querySelectorAll('[data-plasmid]').forEach(card=>{
-      const id=Number(card.dataset.plasmid),plasmid=state.plasmids.find(p=>p.id===id),input=card.querySelector('[data-plasmid-name]');
-      syncPlasmidCard(card,plasmid);
-      input.oninput=()=>{input.setCustomValidity('');changePlasmidDraft(plasmid,{name:input.value});};
-      input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();savePlasmidCard(id);}if(event.key==='Escape'){event.preventDefault();input.value=plasmid.name;input.setCustomValidity('');changePlasmidDraft(plasmid,{name:plasmid.name});input.blur();}};
-      card.querySelector('[data-topology]').onclick=()=>{const draft=plasmidDraft(plasmid);changePlasmidDraft(plasmid,{circular:!draft.circular,...(draft.circular?{backbone_template:false}:{})});};
-      card.querySelector('[data-backbone]').onclick=()=>{const draft=plasmidDraft(plasmid);changePlasmidDraft(plasmid,{backbone_template:!draft.backbone_template,...(!draft.backbone_template?{circular:true}:{})});};
-      card.querySelector('[data-save-plasmid]').onclick=()=>savePlasmidCard(id);
-      card.querySelector('[data-view-plasmid]').onclick=()=>viewPlasmid(id);
-    });
-    bindPlasmidSelection(root);
-  }
-  updatePlasmidSelection();
+      const id=Number(card.dataset.plasmid),plasmid=state.plasmids.find(p=>p.id===id),input=card.querySelector('[data-plasmid-name]');syncPlasmidCard(card,plasmid);
+      card.querySelector('[data-plasmid-select]').onchange=()=>togglePlasmidSelection(id);card.querySelector('[data-plasmid-folder]').onchange=e=>movePlasmidsToFolder([id],e.target.value);
+      input.oninput=()=>{input.setCustomValidity('');changePlasmidDraft(plasmid,{name:input.value});};input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();savePlasmidCard(id);}if(event.key==='Escape'){event.preventDefault();input.value=plasmid.name;input.setCustomValidity('');changePlasmidDraft(plasmid,{name:plasmid.name});input.blur();}};
+      card.querySelector('[data-topology]').onclick=()=>{const draft=plasmidDraft(plasmid);changePlasmidDraft(plasmid,{circular:!draft.circular,...(draft.circular?{backbone_template:false}:{})});};card.querySelector('[data-backbone]').onclick=()=>{const draft=plasmidDraft(plasmid);changePlasmidDraft(plasmid,{backbone_template:!draft.backbone_template,...(!draft.backbone_template?{circular:true}:{})});};card.querySelector('[data-save-plasmid]').onclick=()=>savePlasmidCard(id);card.querySelector('[data-view-plasmid]').onclick=()=>viewPlasmid(id);
+    });bindPlasmidSelection(root);
+  }updatePlasmidSelection();
 }
+function syncBulkPlasmidSelection(){const selected=$('bulk-plasmid-items').querySelectorAll('[data-bulk-build]:checked').length,eligible=$('bulk-plasmid-items').querySelectorAll('[data-bulk-build]:not(:disabled)').length;$('bulk-plasmid-save').disabled=!selected;$('bulk-plasmid-save').textContent=`Save ${selected} plasmid${selected===1?'':'s'}`;$('bulk-plasmid-all').checked=eligible>0&&selected===eligible;$('bulk-plasmid-all').indeterminate=selected>0&&selected<eligible;}
+async function openBulkPlasmidSave(){
+  try{await persistPendingBuild();const [data,folders]=await Promise.all([api('/api/build-list/plasmid-preview?context_version='+state.workspaceContextVersion),api('/api/plasmid-folders')]);state.plasmidFolders=folders.items;bulkPlasmidPreview=data;$('bulk-plasmid-error').textContent='';$('bulk-plasmid-folder').innerHTML=`<option value="auto">Worksheet folder · ${esc(data.folder_name)}</option>`+state.plasmidFolders.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')+'<option value="new">New folder…</option>';$('bulk-plasmid-folder-name').value=data.folder_name;$('bulk-plasmid-folder-name-label').hidden=true;
+    $('bulk-plasmid-items').innerHTML=data.items.map(item=>`<label class="bulk-plasmid-item"><input type="checkbox" data-bulk-build="${item.id}" ${item.eligible?'checked':'disabled'}><span><b>${esc(item.name)}</b><small>${item.eligible?fmt(item.length,0)+' bp · '+(item.circular?'Circular':'Linear'):esc(typeof item.error==='string'?item.error:[item.error?.message,...(item.error?.errors||[])].filter(Boolean).join(' '))}</small></span></label>`).join('')||'<p>No assemblies in the build list.</p>';syncBulkPlasmidSelection();$('bulk-plasmid-dialog').showModal();
+  }catch(error){toast(error.message);}
+}
+$('bulk-plasmid-folder').onchange=e=>{$('bulk-plasmid-folder-name-label').hidden=e.target.value!=='new';};$('bulk-plasmid-items').onchange=syncBulkPlasmidSelection;$('bulk-plasmid-all').onchange=e=>{for(const input of $('bulk-plasmid-items').querySelectorAll('[data-bulk-build]:not(:disabled)'))input.checked=e.target.checked;syncBulkPlasmidSelection();};$('bulk-plasmid-cancel').onclick=()=>$('bulk-plasmid-dialog').close();
+$('bulk-plasmid-form').onsubmit=async event=>{
+  event.preventDefault();if(!bulkPlasmidPreview)return;const destination=$('bulk-plasmid-folder').value,payload={build_ids:[...$('bulk-plasmid-items').querySelectorAll('[data-bulk-build]:checked')].map(n=>Number(n.dataset.bulkBuild)),context_version:bulkPlasmidPreview.context_version,fingerprint:bulkPlasmidPreview.fingerprint};
+  if(destination==='new'){payload.folder_name=$('bulk-plasmid-folder-name').value;if(!payload.folder_name.trim()){$('bulk-plasmid-error').textContent='Enter a folder name.';return;}}else if(destination!=='auto')payload.folder_id=Number(destination);
+  $('bulk-plasmid-save').disabled=true;$('bulk-plasmid-error').textContent='';
+  try{const result=await api('/api/build-list/save-plasmids',jsonBody(payload));plasmidListView('plasmid-library').folder=String(result.folder.id);await refresh();renderPlasmidLibraries();$('bulk-plasmid-dialog').close();window.JunctionSandbox?.schedule();toast(`Saved ${result.items.length} to ${result.folder.name}${result.reused?' · '+result.reused+' existing records reused':''}`);}catch(error){$('bulk-plasmid-error').textContent=error.message;}finally{syncBulkPlasmidSelection();}
+};
+
 function togglePlasmidSelection(id){state.plasmidSelection.has(id)?state.plasmidSelection.delete(id):state.plasmidSelection.add(id);updatePlasmidSelection();}
 let plasmidSelectionDrag=null,plasmidSelectionClickUntil=0;
 function finishPlasmidSelectionDrag(){
@@ -1434,7 +1467,7 @@ function bindPlasmidSelection(root){
     const card=event.target.closest('[data-plasmid]');
     if(card&&[' ','Enter'].includes(event.key)){event.preventDefault();togglePlasmidSelection(Number(card.dataset.plasmid));}
     if(event.key==='Escape'){event.preventDefault();if(plasmidSelectionDrag){state.plasmidSelection=plasmidSelectionDrag.original;finishPlasmidSelectionDrag();}else state.plasmidSelection.clear();updatePlasmidSelection();}
-    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();for(const p of state.plasmids)state.plasmidSelection.add(p.id);updatePlasmidSelection();}
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();for(const node of root.querySelectorAll('[data-plasmid]'))state.plasmidSelection.add(Number(node.dataset.plasmid));updatePlasmidSelection();}
   };
 }
 window.addEventListener('pointerup',()=>{if(plasmidSelectionDrag&&!plasmidSelectionDrag.active)finishPlasmidSelectionDrag();});
@@ -1462,8 +1495,8 @@ function updatePlasmidSelection(){
   const count=state.plasmidSelection.size;
   for(const targetId of ['plasmid-library','uploaded-plasmids']){
     const root=$(targetId);if(!root.querySelector('[data-plasmid-all]'))continue;
-    root.querySelector('[data-plasmid-count]').textContent=count+' selected';root.querySelector('[data-plasmid-clear]').disabled=!count;
-    root.querySelectorAll('[data-plasmid]').forEach(card=>{const id=Number(card.dataset.plasmid),selected=state.plasmidSelection.has(id),part=state.plasmids.find(p=>p.id===id);card.classList.toggle('is-selected',selected);card.setAttribute('aria-label',`Plasmid ${part.name}, ${selected?'selected':'not selected'}`);});
+    root.querySelector('[data-plasmid-count]').textContent=count+' selected · '+(root.dataset.filteredCount||0)+' shown';if(root.querySelector('[data-move-plasmids]'))root.querySelector('[data-move-plasmids]').disabled=!count;root.querySelector('[data-plasmid-clear]').disabled=!count;
+    root.querySelectorAll('[data-plasmid]').forEach(card=>{const id=Number(card.dataset.plasmid),selected=state.plasmidSelection.has(id),part=state.plasmids.find(p=>p.id===id);if(card.querySelector('[data-plasmid-select]'))card.querySelector('[data-plasmid-select]').checked=selected;card.classList.toggle('is-selected',selected);card.setAttribute('aria-label',`Plasmid ${part.name}, ${selected?'selected':'not selected'}`);});
     archiveIconButton(root.querySelector('[data-archive-plasmids]'),count,'plasmids');
   }
 }
@@ -2161,6 +2194,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('.nested-search-wrap'
 $('build-preview').onmouseenter=()=>clearTimeout(buildPreviewTimer);$('build-preview').onmouseleave=scheduleHideBuildPreview;
 $('export-build-genbank').onclick=()=>downloadBuildGenbanks();
 $('new-build').onclick=newBuild;
+$('save-build-list-plasmids').onclick=openBulkPlasmidSave;
 $('undo-build-remove').onclick=undoBuildRemove;
 
 const plannerInputKeys={'backbone-pmol':'backbone_pmol','insert-ratio':'insert_ratio','reaction-ul':'reaction_volume_ul','master-ul':'master_mix_volume_ul'};
@@ -2466,11 +2500,12 @@ document.addEventListener('click',event=>{
 });
 
 function sandboxSnapshot(){
-  return {version:1,workbench_id:state.workbenchId,worksheet_ids:state.worksheetIds,design:window.JunctionDesign?.snapshot(),mrna:window.JunctionMRNA?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
+  return {version:1,plasmidViews:state.plasmidViews,workbench_id:state.workbenchId,worksheet_ids:state.worksheetIds,design:window.JunctionDesign?.snapshot(),mrna:window.JunctionMRNA?.snapshot(),draft:payload(),activeBuildId:state.activeBuildId,plannerOverrides:state.plannerOverrides,uploadRuleOverrides:state.uploadRuleOverrides,
     backboneStocks:Object.fromEntries(backboneStockCache),subtab:state.subtab,view:location.hash.slice(1),
     compareView:{...compareFileView,enzyme:$('compare-enzyme').value,jobs:Object.fromEntries(compareJobs.filter(j=>j.sandboxId).map(j=>[j.sandboxId,{expanded:!!j.expanded,recordIndex:j.recordIndex,selected:compareSelection.has(j.id),path:j.path}]))}};
 }
 async function restoreSandbox(saved,runs,contextVersion=0){
+  state.plasmidViews=saved.plasmidViews&&typeof saved.plasmidViews==='object'?saved.plasmidViews:{};renderPlasmidLibraries();
   state.workspaceContextVersion=contextVersion;
   state.workbenchId=saved.workbench_id||null;state.worksheetIds=saved.worksheet_ids||{};
   window.JunctionDesign?.restore(saved.design);

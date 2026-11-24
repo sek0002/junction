@@ -163,6 +163,8 @@ def session_user(token):
 
 def write_permission(path,method,preview=False):
     if method in ('GET','HEAD','OPTIONS'):return None
+    if path=='/api/build-list/save-plasmids':return 'can_upload'
+    if path.startswith('/api/plasmid-folders'):return 'can_edit'
     if path.startswith(('/api/auth/','/api/workspace','/api/build-list','/api/workbenches','/api/worksheets','/api/mrna/')):return None
     if path=='/api/uploads/custom/parse' or path=='/api/uploads/plate' and preview:return None
     if path in ('/api/uploads/plate','/api/uploads/plasmid','/api/uploads/custom','/api/assemblies'):return 'can_upload'

@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from . import database as store
 from .auth import user_id
@@ -55,6 +55,12 @@ class Fragment(BaseModel):
 
 
 class Plasmid(BaseModel):
+    folder_name:str | None=Field(default=None,max_length=100)
+
+    @field_validator('folder_name',mode='before')
+    @classmethod
+    def clean_folder_name(cls,value):return value.strip() or None if isinstance(value,str) else value
+
     id:int=Field(gt=0)
     name:str=Field(min_length=1,max_length=1000)
     sequence:str=Field(min_length=1,max_length=5000000,pattern='^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+$')
@@ -185,7 +191,9 @@ def capture(db,include_worksheets=True,scope=None):
     fragments,plasmids=references(data)
     for kind,ids in [('fragments',fragments),('plasmids',plasmids)]:
         for identifier in sorted(ids):
-            row=db.execute(f'SELECT * FROM {kind} WHERE id=?',(identifier,)).fetchone()
+            if kind=='plasmids':
+                row=db.execute('SELECT p.*,f.name AS folder_name FROM plasmids p LEFT JOIN plasmid_folders f ON p.folder_id=f.id WHERE p.id=?',(identifier,)).fetchone()
+            else:row=db.execute('SELECT * FROM fragments WHERE id=?',(identifier,)).fetchone()
             if not row:raise HTTPException(422,f'Referenced {kind[:-1]} {identifier} is unavailable.')
             record=store.fragment_dict(row) if kind=='fragments' else store.plasmid_dict(row)
             if kind=='plasmids':record['backbone_template']=bool(record['recipe'].get('backbone_template'))
@@ -355,8 +363,8 @@ def resolve_inventory(db,data,identifier):
                 # An existing plasmid with different location/archived status is not overwritten.
                 if db.execute('SELECT 1 FROM plasmids WHERE name=? AND upper(sequence)=?',(name,sequence)).fetchone():name+=' (JUNC '+uuid4().hex[:8]+')'
                 recipe={'backbone_template':True} if item['backbone_template'] else {}
-                row_id=db.execute('INSERT INTO plasmids(name,sequence,circular,features,notes,stock_ng_ul,plate_id,well,recipe) VALUES(?,?,?,?,?,?,?,?,?)',
-                    (name,sequence,item['circular'],encode(item['features']),item['notes'],item['stock_ng_ul'],plate,well,encode(recipe))).lastrowid
+                row_id=db.execute('INSERT INTO plasmids(name,sequence,circular,features,notes,stock_ng_ul,plate_id,well,recipe,folder_id) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                    (name,sequence,item['circular'],encode(item['features']),item['notes'],item['stock_ng_ul'],plate,well,encode(recipe),store.ensure_plasmid_folder(db,item['folder_name']) if item.get('folder_name') else None)).lastrowid
             mapping[item['id']]=row_id
     return maps['fragments'],maps['plasmids']
 

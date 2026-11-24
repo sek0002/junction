@@ -1,8 +1,8 @@
 'use strict';
 (()=>{
   const selectors={
-    can_upload:'#custom-upload-import,#commit-upload,#import-plasmid,#save-assembly,#save-backbone',
-    can_edit:'#inventory-body input:not([type=checkbox]),#inventory-body [data-yield-lock],#inventory-body [data-record-reset],#reset-inventory,#apply-inventory-rules,[data-plasmid-name],[data-topology],[data-backbone],[data-save-plasmid]',
+    can_upload:'#custom-upload-import,#commit-upload,#import-plasmid,#save-assembly,#save-backbone,#save-build-list-plasmids,#bulk-plasmid-save',
+    can_edit:'#inventory-body input:not([type=checkbox]),#inventory-body [data-yield-lock],#inventory-body [data-record-reset],#reset-inventory,#apply-inventory-rules,[data-plasmid-name],[data-topology],[data-backbone],[data-save-plasmid],[data-plasmid-folder],[data-new-plasmid-folder],[data-rename-plasmid-folder],[data-remove-plasmid-folder],[data-move-plasmids],[data-plasmid-move-target],#plasmid-folder-submit',
     can_archive:'#archive-fragments,#archive-plates,#restore-bin,[data-archive-plasmids],#plate-archive-map,#plate-archive-wells,[data-plate-archive-well]',
     can_manage_rules:'#inventory-rules-form input,#inventory-rules-form button'
   };

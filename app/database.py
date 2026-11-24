@@ -93,6 +93,11 @@ def initialize():
             if 'archived_at' not in {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}:
                 db.execute(f'ALTER TABLE {table} ADD COLUMN archived_at TEXT')
 
+        db.execute('CREATE TABLE IF NOT EXISTS plasmid_folders(id INTEGER PRIMARY KEY,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
+        if 'folder_id' not in {row['name'] for row in db.execute('PRAGMA table_info(plasmids)')}:
+            db.execute('ALTER TABLE plasmids ADD COLUMN folder_id INTEGER REFERENCES plasmid_folders(id) ON DELETE SET NULL')
+        db.execute('CREATE INDEX IF NOT EXISTS plasmids_by_folder ON plasmids(folder_id)')
+
     from .auth import initialize as initialize_auth
     initialize_auth()
 
@@ -124,30 +129,31 @@ def plasmid_dict(row):
     result['recipe'] = json.loads(result['recipe'])
     result['circular'] = bool(result['circular'])
     result['length'] = len(result['sequence'])
+    result.setdefault('folder_name',None)
     return result
 
 
 def plasmids():
     with connection() as db:
-        return [plasmid_dict(r) for r in db.execute('SELECT * FROM plasmids WHERE archived_at IS NULL ORDER BY id DESC')]
+        return [plasmid_dict(r) for r in db.execute('SELECT p.*,f.name AS folder_name FROM plasmids p LEFT JOIN plasmid_folders f ON p.folder_id=f.id WHERE p.archived_at IS NULL ORDER BY p.id DESC')]
 
 
 def get_plasmid(plasmid_id):
     with connection() as db:
-        row = db.execute('SELECT * FROM plasmids WHERE id=? AND archived_at IS NULL', (plasmid_id,)).fetchone()
+        row = db.execute('SELECT p.*,f.name AS folder_name FROM plasmids p LEFT JOIN plasmid_folders f ON p.folder_id=f.id WHERE p.id=? AND p.archived_at IS NULL', (plasmid_id,)).fetchone()
         return plasmid_dict(row) if row else None
 
 
 def save_plasmid(name, sequence, features=None, recipe=None, notes='', source_id=None, circular=True,
-                backbone_enzymes=None, topology_override=False, merge_annotations=False):
+                backbone_enzymes=None, topology_override=False, merge_annotations=False, folder_id=None, db=None):
     if backbone_enzymes is not None and (not circular or not backbone_enzymes):
         raise ValueError('A backbone template requires a circular sequence and a usable Golden Gate cassette.')
-    with connection() as db:
+    with (connection() if db is None else contextlib.nullcontext(db)) as db:
         from .auth import check_plasmid_write
         check_plasmid_write(db,name,sequence)
         inserted=db.execute('''INSERT OR IGNORE INTO plasmids
-            (name,sequence,features,recipe,notes,source_id,circular) VALUES(?,?,?,?,?,?,?)''',
-            (name, sequence, json.dumps(features or []), json.dumps(recipe or {}), notes, source_id, int(circular)))
+            (name,sequence,features,recipe,notes,source_id,circular,folder_id) VALUES(?,?,?,?,?,?,?,?)''',
+            (name, sequence, json.dumps(features or []), json.dumps(recipe or {}), notes, source_id, int(circular),folder_id))
         if not inserted.rowcount:check_plasmid_write(db,name,sequence)
         saved=db.execute('SELECT id,recipe,features FROM plasmids WHERE name=? AND sequence=?', (name,sequence)).fetchone()
         if merge_annotations and features:
@@ -171,7 +177,15 @@ def save_plasmid(name, sequence, features=None, recipe=None, notes='', source_id
                 metadata.pop('backbone_enzymes',None)
             db.execute('UPDATE plasmids SET recipe=?,circular=? WHERE id=?',
                 (json.dumps(metadata),int(circular),saved['id']))
+        if folder_id is not None:db.execute('UPDATE plasmids SET folder_id=? WHERE id=?',(folder_id,saved['id']))
         return saved['id']
+
+
+def ensure_plasmid_folder(db,name):
+    name=name.strip();key=name.casefold()
+    row=db.execute('SELECT id FROM plasmid_folders WHERE name_key=?',(key,)).fetchone()
+    if row:return row['id']
+    return db.execute('INSERT INTO plasmid_folders(name,name_key) VALUES(?,?)',(name,key)).lastrowid
 
 
 def update_plasmid_settings(plasmid_id, circular, backbone_enzymes=None, name=None):

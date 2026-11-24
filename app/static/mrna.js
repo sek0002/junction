@@ -85,6 +85,12 @@
   if(start===end&&max>1){if(end<max)end++;else start--;}
   return {start,end};
  }
+ function radarAxisIndex(x,y,count){
+  if(!Number.isFinite(x)||!Number.isFinite(y)||!Number.isInteger(count)||count<3)return -1;
+  const dx=x-270,dy=y-220,distance=Math.hypot(dx,dy);if(distance<12||distance>205)return -1;
+  const angle=(Math.atan2(dy,dx)+Math.PI/2+2*Math.PI)%(2*Math.PI);
+  return Math.round(angle/(2*Math.PI/count))%count;
+ }
  function setup(win,doc){
   const $=id=>doc.getElementById('mrna-'+id), host=$('records');
   const fields=['name','organism','objective','gc-min','gc-max','window','local-min','local-max','repeat','au-run','cg-run','hairpin-stem','hairpin-window','enzymes','motifs','uridine','slip','manufacture','utr5','utr3','poly-a','fold-scope','temperature','candidates','seed','translation'];
@@ -92,7 +98,7 @@
   let knownRows=new Set();
   let records=[],results={rows:[],errors:[]},selected=new Set(),focus=null,job=null,tab='batch',timer=null,generation=0,cap=null,opening=null,sequenceId=0,sort={key:'name',direction:1},busy=false,base=1,viewbox=null,coords=[],linkedHover=null;
   const profileRequests=new Map(),profileStatus=new WeakMap(),qualityRequests=new Map(),qualityStatus=new WeakMap();
-  let gcHidden=new Set(),overlaySeries=[],overlayMax=1,gcView={start:1,end:null},gcDomain={start:1,end:1},gcReference='',radarKeys=new Set(paperRadarKeys),radarRanges=restoreRadarRanges(),radarCandidate='',arcRange=null,sequenceSelection=null,selectionAnchor=null,sectionState={};
+  let gcHidden=new Set(),overlaySeries=[],overlayMax=1,gcView={start:1,end:null},gcDomain={start:1,end:1},gcReference='',radarKeys=new Set(paperRadarKeys),radarRanges=restoreRadarRanges(),radarCandidate='',arcRange=null,sequenceSelection=null,selectionAnchor=null,sectionState={},radarView=null,radarPinned=false,radarPointer=null,radarFocusAnchor=null;
   const colors=['#338d78','#c08d41','#7e6db5','#4094bb','#b56676','#7c994b','#cc754a','#6477a1'];
   const value=id=>$(id).type==='checkbox'?$(id).checked:$(id).value;
   const n=id=>$(id).value===''?null:Number($(id).value);
@@ -223,6 +229,7 @@
   }
   const radarInputValue=(row,key)=>key==='gc'?row.metrics.gc*100:key==='homopolymer_nt'?100*row.metrics.homopolymer_nt/row.cds.length:metricValue(row,key);
   function drawRadar(){
+    radarView=null;radarPinned=false;radarFocusAnchor=null;clearRadarHover();
     const pairs=matchedPairs(results.rows),old=value('radar-pair')||radarCandidate;
     $('radar-pair').innerHTML=pairs.map(p=>`<option value="${escape(p.after.id)}">${escape(p.after.group+' · '+p.after.name)}</option>`).join('');
     radarCandidate=pairs.some(p=>p.after.id===old)?old:pairs[0]?.after.id||'';$('radar-pair').value=radarCandidate;
@@ -236,20 +243,66 @@
     const axes=requested.filter(([key])=>Number.isFinite(metricValue(pair.before,key))&&Number.isFinite(metricValue(pair.after,key))),missing=requested.filter(a=>!axes.includes(a));
     let clipped=0;for(const [key]of axes)for(const row of [pair.before,pair.after]){const v=radarInputValue(row,key),r=radarRanges[key];if(v<r.min||v>r.max)clipped++;}
     $('radar-note').textContent=`${pair.before.input_name} · ${pair.before.group}. Each axis is scaled 0–1 using its reference range. Outer edges follow the selected higher/lower/target setting. These editable hypothetical guides are independent of the selected samples.${clipped?' '+clipped+' values fall outside the ranges and are clipped at the nearest limit.':''}${missing.length?' Loading or unavailable: '+missing.map(m=>m[1]).join(', ')+'.':''}`;
-    $('radar-values').innerHTML='<table class="mrna-radar-values"><thead><tr><th>Parameter</th><th>Before</th><th>After</th><th>Δ</th></tr></thead><tbody>'+axes.map(([key,label])=>{const a=metricValue(pair.before,key),b=metricValue(pair.after,key),factor=key==='gc'?100:1;return `<tr><th>${escape(label)}</th><td>${number(a*factor,4)}</td><td>${number(b*factor,4)}</td><td>${b>a?'+':''}${number((b-a)*factor,4)}</td></tr>`;}).join('')+'</tbody></table>';
+    $('radar-values').innerHTML='<table class="mrna-radar-values"><thead><tr><th>Parameter</th><th>Before</th><th>After</th><th>Δ</th></tr></thead><tbody>'+axes.map(([key,label])=>{const a=metricValue(pair.before,key),b=metricValue(pair.after,key),factor=key==='gc'?100:1;return `<tr data-radar-value-row="${key}"><th>${escape(label)}</th><td>${number(a*factor,4)}</td><td>${number(b*factor,4)}</td><td>${b>a?'+':''}${number((b-a)*factor,4)}</td></tr>`;}).join('')+'</tbody></table>';
     if(axes.length<3){$('radar-chart').innerHTML='<p class="mrna-empty">Select at least three parameters with scores available for both sequences.</p>';return;}
+    radarView={axes,pair};
     const center=[270,220],radius=138,point=(i,r)=>[center[0]+Math.cos(-Math.PI/2+i*2*Math.PI/axes.length)*radius*r,center[1]+Math.sin(-Math.PI/2+i*2*Math.PI/axes.length)*radius*r];
-    let svg='<svg viewBox="0 0 540 450" role="img" aria-label="Matched input and optimised candidate radar comparison using fixed reference ranges">';
+    let svg='<svg viewBox="0 0 540 450" role="group" aria-label="Interactive radar comparison. Hover a point, line or axis for values; focus points and use arrow keys to navigate.">';
     for(const level of [.25,.5,.75,1])svg+=`<polygon points="${axes.map((_,i)=>point(i,level).join(',')).join(' ')}" class="radar-grid"/>`;
-    axes.forEach(([key,label],i)=>{const p=point(i,1),q=point(i,1.19);svg+=`<path class="radar-grid" d="M${center}L${p}"/><text x="${q[0]}" y="${q[1]}" text-anchor="${q[0]<255?'end':q[0]>285?'start':'middle'}">${escape(key==='manufacturability'?'Manufacturability*':key==='homopolymer_nt'?'Homopolymer':key==='mfe_density'?'MFE / nt':label)}</text>`;});
+    axes.forEach(([key,label],i)=>{const p=point(i,1),q=point(i,1.19);svg+=`<path class="radar-grid" data-radar-axis="${key}" d="M${center}L${p}"/><text data-radar-axis="${key}" x="${q[0]}" y="${q[1]}" text-anchor="${q[0]<255?'end':q[0]>285?'start':'middle'}">${escape(key==='manufacturability'?'Manufacturability*':key==='homopolymer_nt'?'Homopolymer':key==='mfe_density'?'MFE / nt':label)}</text>`;});
     for(const level of [.5,1]){const p=point(0,level);svg+=`<text class="radar-scale" x="${p[0]+7}" y="${p[1]+12}">${level}</text>`;}
     for(const [row,kind]of [[pair.before,'before'],[pair.after,'after']]){
       const points=axes.map(([key],i)=>point(i,radarFraction(radarInputValue(row,key),radarRanges[key])));
-      svg+=`<polygon class="radar-${kind}" points="${points.map(p=>p.join(',')).join(' ')}"><title>${escape(row.name)}</title></polygon>`;
-      points.forEach((p,i)=>{const [key,label]=axes[i],v=metricValue(row,key),fraction=radarFraction(radarInputValue(row,key),radarRanges[key]);svg+=`<circle class="radar-dot-${kind}" data-radar-metric="${key}" data-fraction="${fraction}" cx="${p[0]}" cy="${p[1]}" r="4"><title>${escape(row.name+' · '+label)}: ${number(key==='gc'?v*100:v,5)} · radial score ${number(fraction,3)}</title></circle>`;});
+      svg+=`<polygon class="radar-${kind}" data-radar-series="${kind}" points="${points.map(p=>p.join(',')).join(' ')}"><title>${escape(row.name)}</title></polygon>`;
+      points.forEach((p,i)=>{const [key,label]=axes[i],v=metricValue(row,key),fraction=radarFraction(radarInputValue(row,key),radarRanges[key]);svg+=`<circle class="radar-dot-${kind}" tabindex="0" role="button" aria-label="${escape((kind==='before'?'Input':'Optimised')+' · '+label)}" aria-describedby="mrna-radar-hover" data-radar-kind="${kind}" data-radar-metric="${key}" data-fraction="${fraction}" cx="${p[0]}" cy="${p[1]}" r="4"><title>${escape(row.name+' · '+label)}: ${number(key==='gc'?v*100:v,5)} · radial score ${number(fraction,3)}</title></circle>`;});
     }
-    $('radar-chart').innerHTML=svg+'</svg>';
+    $('radar-chart').innerHTML=svg+'</svg><div id="mrna-radar-hover" class="mrna-radar-tooltip" role="tooltip" hidden></div>';
   }
+  function clearRadarHover(){
+    const chart=$('radar-chart'),tooltip=chart.querySelector('.mrna-radar-tooltip');if(tooltip)tooltip.hidden=true;
+    chart.querySelectorAll('.radar-hover-axis,.radar-hover-point,.radar-hover-series').forEach(node=>node.classList.remove('radar-hover-axis','radar-hover-point','radar-hover-series'));
+    $('radar-values').querySelectorAll('.radar-hover-row').forEach(node=>node.classList.remove('radar-hover-row'));
+    delete chart.dataset.hoverAxis;
+  }
+  function showRadarHover(index,event,kind=''){
+    if(!radarView||!radarView.axes[index])return;
+    const chart=$('radar-chart'),tooltip=chart.querySelector('.mrna-radar-tooltip');if(!tooltip)return;
+    const [key,label]=radarView.axes[index],range=radarRanges[key],pair=radarView.pair,unit=key==='gc'||key==='manufacturability'?'%':key==='homopolymer_nt'||key==='length'?'nt':range.unit;
+    const raw=row=>metricValue(row,key)*(key==='gc'?100:1),format=row=>`${number(raw(row),4)}${unit?' '+unit:''}${key==='homopolymer_nt'?` (${number(radarInputValue(row,key),2)}% CDS)`:''}`;
+    const deltaUnit=key==='gc'||key==='manufacturability'?'pp':unit;
+    const a=raw(pair.before),b=raw(pair.after),score=row=>radarFraction(radarInputValue(row,key),range),outOfRange=row=>{const v=radarInputValue(row,key);return v<range.min||v>range.max;};
+    const context=key==='translation'?` · ${value('translation-cell')?value('translation-cell').replace('predicted_TE_',''):'mean across cells'}`:'';
+    tooltip.innerHTML=`<strong>${escape(label)}</strong><small>${escape(pair.before.input_name)}${escape(context)}</small><div class="mrna-radar-hover-grid"><span></span><span>Raw value</span><span>Score 0–1</span><b class="${kind==='before'?'is-current':''}">Input</b><span>${escape(format(pair.before))}</span><span>${number(score(pair.before),3)}</span><b class="${kind==='after'?'is-current':''}">Optimised</b><span>${escape(format(pair.after))}</span><span>${number(score(pair.after),3)}</span></div><p>Δ ${b>a?'+':''}${number(b-a,4)}${deltaUnit?' '+escape(deltaUnit):''}</p><small>Reference ${number(range.min,4)}–${number(range.max,4)} ${escape(range.unit)} · ${range.direction==='target'?'target '+number(range.target,4):range.direction+' outside'}${outOfRange(pair.before)||outOfRange(pair.after)?' · values outside range are clipped in the plot':''}</small>`;
+    tooltip.hidden=false;chart.dataset.hoverAxis=key;
+    for(const node of chart.querySelectorAll('[data-radar-axis]'))node.classList.toggle('radar-hover-axis',node.dataset.radarAxis===key);
+    for(const node of chart.querySelectorAll('[data-radar-metric]'))node.classList.toggle('radar-hover-point',node.dataset.radarMetric===key);
+    for(const node of chart.querySelectorAll('[data-radar-series]'))node.classList.toggle('radar-hover-series',!!kind&&node.dataset.radarSeries===kind);
+    for(const row of $('radar-values').querySelectorAll('[data-radar-value-row]'))row.classList.toggle('radar-hover-row',row.dataset.radarValueRow===key);
+    const bounds=chart.getBoundingClientRect(),anchor=event?.clientX===undefined?chart.querySelector(`[data-radar-metric="${key}"]`)?.getBoundingClientRect():null;
+    const x=event?.clientX??(anchor?anchor.x+anchor.width/2:bounds.x+bounds.width/2),y=event?.clientY??(anchor?anchor.y+anchor.height/2:bounds.y+bounds.height/2);
+    tooltip.style.left=Math.max(8,Math.min(bounds.width-tooltip.offsetWidth-8,x-bounds.left+14))+'px';
+    tooltip.style.top=Math.max(8,Math.min(bounds.height-tooltip.offsetHeight-8,y-bounds.top+14))+'px';
+  }
+  function radarHover(event){
+    if(!radarView)return;
+    const chart=$('radar-chart'),svg=chart.querySelector('svg'),hit=event.target.closest('[data-radar-metric],[data-radar-axis]');if(!svg)return;
+    let index=hit?radarView.axes.findIndex(([key])=>key===(hit.dataset.radarMetric||hit.dataset.radarAxis)):-1;
+    if(index<0){const matrix=svg.getScreenCTM();if(!matrix)return;const point=svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;const p=point.matrixTransform(matrix.inverse());index=radarAxisIndex(p.x,p.y,radarView.axes.length);}
+    if(index<0){if(!radarPinned)clearRadarHover();return;}
+    const kind=event.target.closest('[data-radar-series]')?.dataset.radarSeries||hit?.dataset.radarKind||'';showRadarHover(index,event,kind);
+  }
+  $('radar-chart').onpointermove=e=>{radarPointer={x:e.clientX,y:e.clientY};if(e.pointerType==='mouse'&&radarFocusAnchor&&Math.hypot(e.clientX-radarFocusAnchor.x,e.clientY-radarFocusAnchor.y)<3)return;radarFocusAnchor=null;if(e.pointerType==='mouse')radarPinned=false;radarHover(e);};
+  $('radar-chart').onpointerleave=()=>{if(radarPinned)return;const hit=doc.activeElement?.closest('[data-radar-metric]');if(hit&&$('radar-chart').contains(hit)&&radarView)showRadarHover(radarView.axes.findIndex(([key])=>key===hit.dataset.radarMetric),null,hit.dataset.radarKind);else clearRadarHover();};
+  $('radar-chart').onpointerup=e=>{if(e.pointerType==='touch'){radarPinned=true;radarHover(e);}};
+  $('radar-chart').addEventListener('focusin',e=>{const hit=e.target.closest('[data-radar-metric]');if(hit&&radarView){radarPinned=false;radarFocusAnchor=radarPointer?{...radarPointer}:null;showRadarHover(radarView.axes.findIndex(([key])=>key===hit.dataset.radarMetric),null,hit.dataset.radarKind);}});
+  $('radar-chart').addEventListener('focusout',e=>{if(!$('radar-chart').contains(e.relatedTarget)){radarFocusAnchor=null;radarPinned=false;clearRadarHover();}});
+  $('radar-chart').onkeydown=e=>{
+    if(e.key==='Escape'){e.preventDefault();radarPinned=false;clearRadarHover();return;}
+    const hit=e.target.closest('[data-radar-metric]');if(!hit||!radarView||!['ArrowLeft','ArrowRight'].includes(e.key))return;
+    e.preventDefault();const index=radarView.axes.findIndex(([key])=>key===hit.dataset.radarMetric),next=(index+(e.key==='ArrowRight'?1:radarView.axes.length-1))%radarView.axes.length;
+    $('radar-chart').querySelector(`[data-radar-kind="${hit.dataset.radarKind}"][data-radar-metric="${radarView.axes[next][0]}"]`)?.focus();
+  };
+  doc.addEventListener('pointerdown',e=>{if(!$('radar-chart').contains(e.target)){radarPinned=false;clearRadarHover();}});
   $('radar-pair').onchange=()=>{radarCandidate=value('radar-pair');drawRadar();save();};
   $('radar-parameters').onchange=e=>{const key=e.target.dataset.radarKey;if(!key)return;if(e.target.checked)radarKeys.add(key);else radarKeys.delete(key);drawRadar();save();};
   $('radar-paper').onclick=()=>{radarKeys=new Set(paperRadarKeys);drawRadar();save();};
@@ -436,7 +489,7 @@
   function download(content,name,type='text/plain'){const url=URL.createObjectURL(new Blob([content],{type})),a=doc.createElement('a');a.href=url;a.download=name;a.click();win.setTimeout(()=>URL.revokeObjectURL(url),1000);}
   function exportBatch(){const format=value('export-format'),rows=results.rows;if(!rows.length)return;let text,type='text/plain';if(format==='json'){text=JSON.stringify({...results,comparison_view:{translation_target:value('translation-cell')||'mean'}},null,2);type='application/json';}else if(format==='fasta')text=rows.map(r=>'>'+r.name.replace(/[\r\n]/g,' ')+'\n'+r.transcript.replace(/T/g,'U').match(/.{1,80}/g).join('\n')).join('\n')+'\n';else if(format==='dbn')text=rows.map(r=>'>'+r.name+' | '+r.fold_scope+' | '+r.metrics.mfe+' kcal/mol\n'+r.fold_sequence.replace(/T/g,'U')+'\n'+r.structure).join('\n')+'\n';else{const keys=['name','input_name','group','strategy','length','transcript_length','gc','cai','tai','mfe','mfe_density','paired_ratio','degscore','predicted_half_life','csc','homopolymer_nt','homopolymer_ratio','manufacturability','translation','translation_mean','translation_target','hamming_ratio','protein_preserved','fold_scope','temperature','sha256','cds','transcript','model_versions','parameters','seed'];text=keys.map(csvCell).join(',')+'\n'+rows.map(r=>{const flat={...r,...r.metrics,translation:translationValue(r),translation_mean:r.metrics.translation,translation_target:value('translation-cell')||'mean',model_versions:JSON.stringify(r.model_versions),parameters:JSON.stringify(r.parameters)};return keys.map(k=>csvCell(flat[k])).join(',');}).join('\n');type='text/csv';}download(text,'junction-mrna.'+format,type);}
   $('translation-cell').onchange=()=>{renderResults();save();};
-  $('export').onclick=exportBatch;$('svg-export').onclick=()=>{const svg=$('structure').querySelector('svg');if(!svg)return;const clone=svg.cloneNode(true);clone.insertAdjacentHTML('afterbegin','<style>.backbone,.pair{fill:none;stroke:#73847c;stroke-width:1;opacity:.5}.pair-continuation{stroke-dasharray:5 4}.arc-tick{stroke:#73847c;stroke-width:1}.base{stroke:#fff;stroke-width:.7}text{font:8px monospace;text-anchor:middle;dominant-baseline:central;fill:#18312e}.selected,.partner,.range-highlight,.hovered-base{stroke:#ef3e36;stroke-width:2.5}</style>');download(new XMLSerializer().serializeToString(clone),'junction-mrna-structure.svg','image/svg+xml');};
+  $('export').onclick=exportBatch;$('svg-export').onclick=()=>{const svg=$('structure').querySelector('svg');if(!svg)return;const clone=svg.cloneNode(true);clone.insertAdjacentHTML('afterbegin','<style>.backbone,.pair{fill:none;stroke:#73847c;stroke-width:1;opacity:.5}.pair-continuation{stroke-dasharray:5 4}.arc-tick{stroke:#73847c;stroke-width:1}.base{stroke:#fff;stroke-width:.7}text{font:8px monospace;text-anchor:middle;dominant-baseline:central;fill:#18312e}.selected,.partner,.range-highlight,.hovered-base{stroke:#39ff14;stroke-width:2.5}</style>');download(new XMLSerializer().serializeToString(clone),'junction-mrna-structure.svg','image/svg+xml');};
   $('add').onclick=()=>{if(records.length>=32){showError('Use up to 32 sequences per batch.');return;}add();sectionState.inputs=true;applySections();renderRecords();save();};
   function importText(text,name){const incoming=parse(text,name);if(records.length===1&&!records[0].sequence.trim())records=[];if(records.length+incoming.length>32)throw Error('Use at most 32 sequences per batch.');for(const record of incoming){let name=record.name||'Sequence';let suffix=2;while(records.some(r=>r.name===name))name=record.name+' '+suffix++;add({...record,name});}sectionState.inputs=true;applySections();renderRecords();save();}
   $('files').onchange=async e=>{showError('');try{for(const file of e.target.files){if(file.size>2*1024*1024)throw Error('Input files must be smaller than 2 MB.');importText(await file.text(),file.name);}}catch(error){showError(error.message);}e.target.value='';};$('import-paste').onclick=()=>{try{importText(value('bulk'),'pasted.fasta');$('bulk').value='';showError('');}catch(error){showError(error.message);}};
@@ -465,5 +518,5 @@
   add();renderRecords();initialiseSections();
   return {open,snapshot,restore};
  }
- return {parse,csvRows,csvCell,normalize,hamming,stabilityColor,infernoColor,contrastColor,radarFraction,radarDefaults,restoreRadarRanges,foldRange,gcWindowForBase,columnStats,zScore,zColor,matchedPairs,gcSeries,arcGeometry,gcDisplayRange,sequenceRange,selectedPositions,setup};
+ return {parse,csvRows,csvCell,normalize,hamming,stabilityColor,infernoColor,contrastColor,radarFraction,radarAxisIndex,radarDefaults,restoreRadarRanges,foldRange,gcWindowForBase,columnStats,zScore,zColor,matchedPairs,gcSeries,arcGeometry,gcDisplayRange,sequenceRange,selectedPositions,setup};
 });

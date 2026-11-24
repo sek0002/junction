@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
 from . import database as store
+from .plasmid_library import router as plasmid_library_router
 from .version import VERSION
 from .auth import AuthMiddleware, router as auth_router, user_id, check_plasmid_write
 from .workspace import router as workspace_router, begin_comparison, finish_comparison
@@ -147,6 +148,7 @@ app.include_router(design_router)
 app.include_router(custom_upload_router)
 app.include_router(mrna_router)
 app.include_router(assembly_export_router)
+app.include_router(plasmid_library_router)
 app.mount('/static',StaticFiles(directory=ROOT/'app'/'static'),name='static')
 
 
