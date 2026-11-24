@@ -124,7 +124,7 @@
   }
   function refreshCompactGC(){if(tab!=='structure'||!activeRow()||!$('gc-detail').clientWidth)return;$('gc-detail').innerHTML=gcSVG([activeRow()],true);linkedHover=null;restoreSelectionHighlight();}
   function initialiseSections(){
-    const configurations=[['inputs','.mrna-input-panel','h2'],['parameters','.mrna-options','h2'],['comparison','#mrna-compare-panel > .panel','h2'],['gc-landscape','.mrna-landscape-card','h2'],['hamming','.mrna-hamming-card','h2'],['radar','.mrna-radar-card','h2'],['structure','#mrna-structure-panel > .panel','h2'],['structure-gc','.mrna-gc-inline','strong'],['nucleotides','.mrna-sequence-section','strong'],['history','.mrna-history','h2']];
+    const configurations=[['inputs','.mrna-input-panel','h2'],['batch-input-list','.mrna-batch-input-list','h3'],['parameters','.mrna-options','h2'],['comparison','#mrna-compare-panel > .panel','h2'],['gc-landscape','.mrna-landscape-card','h2'],['hamming','.mrna-hamming-card','h2'],['radar','.mrna-radar-card','h2'],['structure','#mrna-structure-panel > .panel','h2'],['structure-gc','.mrna-gc-inline','strong'],['nucleotides','.mrna-sequence-section','strong'],['history','.mrna-history','h2']];
     for(const [key,selector,titleSelector]of configurations){
       const section=doc.querySelector('#mrna '+selector),title=section?.querySelector(titleSelector);if(!section||!title)continue;
       const header=[...section.children].find(child=>child===title||child.contains(title)),body=doc.createElement('div'),button=doc.createElement('button');body.id='mrna-section-'+key;body.className='mrna-section-body';
