@@ -113,3 +113,6 @@ for(const [key,range] of Object.entries(m.radarDefaults)){
 assert.equal(m.radarScaleBounds('translation',{min:-7,max:9,direction:'higher'},'min').min,-7);
 assert.equal(m.radarScaleBounds('translation',{min:-7,max:9,direction:'higher'},'max').max,9);
 console.log('mRNA translation range migration and parameter slider bounds passed');
+
+assert.equal(m.radarScaleBounds('gc',{min:40,max:70,target:60,direction:'target'},'target').step,.1);
+assert.equal(m.radarScaleBounds('gc',{min:40,max:70,target:61,direction:'target'},'target').step,.1);
