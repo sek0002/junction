@@ -149,3 +149,56 @@
 .mrna-radar-legend .matched span:before{border-top:2px solid #4094bb}.radar-matched{fill:#4094bb;fill-opacity:.08;stroke:#4094bb;stroke-width:2.4}.radar-dot-matched{fill:#4094bb;stroke:var(--surface,#fff);stroke-width:1.5}#mrna-radar-chart .radar-matched{pointer-events:stroke}
 
 .mrna-preset-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:0 0 10px}.mrna-preset-controls>label{flex:1;min-width:170px}.mrna-structure-compare-controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:16px}.mrna-secondary-panel .mrna-actions>label{flex:1;min-width:200px;max-width:550px}.mrna-secondary-panel .mrna-actions select{max-width:100%;width:100%}#mrna-structure-panel.is-comparing{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}#mrna-structure-panel.is-comparing>.mrna-structure-compare-controls,#mrna-structure-panel.is-comparing>details{grid-column:1/-1}#mrna-structure-panel.is-comparing>.panel{min-width:0;margin:0}#mrna-structure-panel[hidden],#mrna-secondary-panel[hidden]{display:none}#mrna-structure-panel.is-comparing .panel-heading{flex-wrap:wrap}#mrna-structure-panel.is-comparing #mrna-focus{max-width:100%;min-width:0}.mrna-secondary-pairs line{stroke:var(--line);stroke-width:1}.mrna-secondary-backbone{fill:none;stroke:var(--muted);stroke-width:.65}.mrna-secondary-panel circle{cursor:crosshair}.mrna-secondary-panel circle.is-selected{stroke:#a3ff12;stroke-width:2}.mrna-secondary-panel .mrna-structure{touch-action:none}#mrna-secondary-hotspots{max-height:95px;overflow:auto}#mrna-secondary-panel .mrna-stability-ramp{display:block;width:130px;height:7px;border-radius:5px;margin-top:6px}@media(max-width:1050px){#mrna-structure-panel.is-comparing{grid-template-columns:minmax(0,1fr)}#mrna-structure-panel.is-comparing>*{grid-column:1!important}.mrna-preset-controls{align-items:stretch}.mrna-preset-controls>label{min-width:0;flex-basis:100%}}
+
+/* Share vertical tracks across both viewers, including their collapsible sections. */
+@media (min-width:1051px) {
+  #mrna-structure-panel.is-comparing {
+    row-gap:0;
+    > .panel:not(details) {
+      display:grid;
+      grid-template-rows:subgrid;
+      grid-row:2 / span 15;
+      align-self:stretch;
+      row-gap:0;
+    }
+    > .panel.mrna-collapsed { align-self:start; }
+    > #mrna-secondary-panel { grid-column:2; }
+    > details { margin-top:18px; }
+    .panel-heading {
+      display:grid;
+      grid-template-rows:subgrid;
+      grid-row:1 / span 3;
+      align-items:start;
+      justify-content:stretch;
+      row-gap:8px;
+    }
+    .panel-heading .mrna-actions {
+      display:flex;
+      margin:0;
+      align-items:center;
+    }
+    .mrna-structure-sample { min-width:0; max-width:none; }
+    > .panel > .mrna-section-body:not([hidden]) {
+      display:grid;
+      grid-template-rows:subgrid;
+      grid-row:4 / span 12;
+      row-gap:0;
+    }
+    .mrna-arc-controls { grid-row:2; }
+    .mrna-structure { grid-row:3; }
+    .mrna-inspector { grid-row:4; align-content:start; }
+    .mrna-gc-inline, .mrna-sequence-section {
+      display:grid;
+      grid-template-rows:subgrid;
+      row-gap:0;
+    }
+    .mrna-gc-inline { grid-row:5 / span 4; }
+    .mrna-sequence-section { grid-row:9 / span 4; }
+    :is(.mrna-gc-inline,.mrna-sequence-section) > .mrna-section-body:not([hidden]) {
+      display:grid;
+      grid-template-rows:subgrid;
+      grid-row:2 / span 3;
+      row-gap:0;
+    }
+  }
+}

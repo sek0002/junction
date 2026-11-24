@@ -437,14 +437,11 @@
     $('model-details').innerHTML=`<div class="mrna-checks"><p>${escape(Object.entries(r.model_versions).map(([k,v])=>k+': '+v).join(' · '))}</p><dl>${Object.entries(r.metrics).map(([key,v])=>`<dt>${escape(key.replace(/_/g,' '))}</dt><dd>${typeof v==='boolean'?(v?'Yes':'No'):number(v,5)}</dd>`).join('')}</dl>${Object.keys(r.tissue_predictions||{}).length?`<details><summary>RiboNN cell-type predictions</summary><dl>${Object.entries(r.tissue_predictions).map(([cell,score])=>`<dt>${escape(cell.replace('predicted_TE_',''))}</dt><dd>${number(score,4)}</dd>`).join('')}</dl></details>`:''}<p>Transcript SHA-256: ${escape(r.sha256)}</p><ul>${(r.warnings||[]).map(x=>`<li>${escape(x)}</li>`).join('')}</ul><details><summary>Parameters used</summary><pre>${escape(JSON.stringify(r.parameters,null,2))}</pre></details>${r.benchmark?`<details><summary>Benchmark source</summary><pre>${escape(JSON.stringify(r.benchmark.source,null,2))}</pre></details>`:''}${r.design_quality?`<details><summary>Manufacturing checks and score definition</summary><pre>${escape(JSON.stringify(r.design_quality,null,2))}</pre></details>`:''}${r.optimization?`<details><summary>Optimisation report</summary><pre>${escape(r.optimization.solution?.constraints_summary||'')}\n${escape(r.optimization.solution?.objectives_summary||'')}</pre></details>`:''}</div>`;
     bindNativeSections();
   }
-  function drawStructure(){
-    structureComparer.render();
-    const r=activeRow();if(!r){$('structure').innerHTML='<div class="mrna-empty">Calculate a batch to explore its structure.</div>';for(const id of ['stability-legend','sequence-track','gc-detail','hotspots','model-details','gc-hover-info','base-info','fold-meta','gc-meta','sequence-count','selection-info'])$(id).replaceChildren();$('arc-controls').hidden=true;$('selection-apply').disabled=true;$('selection-clear').disabled=true;sequenceSelection=null;baseNodes=[];hoverNodes=[];linkedHover=null;return;}
-    linkedHover=null;hoverNodes=[];delete $('structure').dataset.linkStart;delete $('structure').dataset.linkEnd;
-    const arc=value('layout')==='arc',seq=r.fold_sequence.replace(/T/g,'U'),scores=scoresFor(r),[low,high]=stabilityExtent();
-    $('arc-controls').hidden=!arc;$('structure').classList.toggle('is-arc',arc);
-    arcRange=arc?arcGeometry(r,base,value('arc-size')):null;
-    coords=arc?Array.from(seq,(_,i)=>[arcRange.x(i+1),270]):r.coordinates;
+  function renderStructurePlot(r,base,layout,size,viewbox,element){
+    const arc=layout==='arc',seq=r.fold_sequence.replace(/T/g,'U'),scores=scoresFor(r),[low,high]=stabilityExtent();
+    element('arc-controls').hidden=!arc;element('structure').classList.toggle('is-arc',arc);
+    const arcRange=arc?arcGeometry(r,base,size):null;
+    const coords=arc?Array.from(seq,(_,i)=>[arcRange.x(i+1),270]):r.coordinates;
     const visible=arc?coords.slice(arcRange.start-1,arcRange.end):coords;
     const xs=visible.map(p=>p[0]),ys=visible.map(p=>p[1]);
     if(!viewbox)viewbox=arc?[...arcRange.box]:[Math.min(...xs)-20,Math.min(...ys)-20,Math.max(80,Math.max(...xs)-Math.min(...xs)+40),Math.max(80,Math.max(...ys)-Math.min(...ys)+40)];
@@ -458,14 +455,22 @@
         inner+=`<path class="pair${outside?' pair-continuation':''}" data-pair="${a},${b}" d="M${p} Q${(p[0]+q[0])/2},${270-height*2} ${q}"><title>Pair ${a}–${b}${outside?' · continues beyond this window':''}</title></path>`;
       }else{const p=coords[a-1],q=coords[b-1];inner+=`<line class="pair" data-pair="${a},${b}" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"/>`;}
     }
-    coords.forEach(([x,y],i)=>{if(arc&&(i+1<arcRange.start||i+1>arcRange.end))return;const score=scores?.[i],radius=arc&&value('arc-size')==='all'?Math.max(.6,Math.min(4.5,arcRange.step*.45)):4.5;inner+=`<circle class="base" data-base="${i+1}" ${score===undefined?'':`data-stability-score="${score}"`} cx="${x}" cy="${y}" r="${radius}" fill="${stabilityColor(score,low,high)}"><title>Nucleotide ${i+1}${score===undefined?'':` · DegScore contribution ${number(score,4)}`}</title></circle>`;});
+    coords.forEach(([x,y],i)=>{if(arc&&(i+1<arcRange.start||i+1>arcRange.end))return;const score=scores?.[i],radius=arc&&size==='all'?Math.max(.6,Math.min(4.5,arcRange.step*.45)):4.5;inner+=`<circle class="base" data-base="${i+1}" ${score===undefined?'':`data-stability-score="${score}"`} cx="${x}" cy="${y}" r="${radius}" fill="${stabilityColor(score,low,high)}"><title>Nucleotide ${i+1}${score===undefined?'':` · DegScore contribution ${number(score,4)}`}</title></circle>`;});
     if(arc){
       const step=Math.max(10,10**Math.floor(Math.log10(arcRange.width/6))),ticks=[arcRange.start];for(let p=Math.ceil((arcRange.start+1)/step)*step;p<arcRange.end-step/3;p+=step)ticks.push(p);if(arcRange.end>arcRange.start)ticks.push(arcRange.end);
       for(const p of ticks)inner+=`<path class="arc-tick" d="M${arcRange.x(p)},280V287"/><text class="arc-label" x="${arcRange.x(p)}" y="300">${p}</text>`;
-      $('arc-meta').textContent=`Nucleotides ${arcRange.start}–${arcRange.end} of ${seq.length}. ${continuations?continuations+' dashed pairs continue outside this window.':'All displayed pair endpoints are in this window.'}`;
-      $('arc-prev').disabled=arcRange.start===1;$('arc-next').disabled=arcRange.end===seq.length;
+      element('arc-meta').textContent=`Nucleotides ${arcRange.start}–${arcRange.end} of ${seq.length}. ${continuations?continuations+' dashed pairs continue outside this window.':'All displayed pair endpoints are in this window.'}`;
+      element('arc-prev').disabled=arcRange.start===1;element('arc-next').disabled=arcRange.end===seq.length;
     }
-    $('structure').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewbox.join(' ')}">${inner}</svg>`;
+    element('structure').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewbox.join(' ')}">${inner}</svg>`;
+    return {coords,arcRange,viewbox};
+  }
+  function drawStructure(){
+    structureComparer.render();
+    const r=activeRow();if(!r){$('structure').innerHTML='<div class="mrna-empty">Calculate a batch to explore its structure.</div>';for(const id of ['stability-legend','sequence-track','gc-detail','hotspots','model-details','gc-hover-info','base-info','fold-meta','gc-meta','sequence-count','selection-info'])$(id).replaceChildren();$('arc-controls').hidden=true;$('selection-apply').disabled=true;$('selection-clear').disabled=true;sequenceSelection=null;baseNodes=[];hoverNodes=[];linkedHover=null;return;}
+    linkedHover=null;hoverNodes=[];delete $('structure').dataset.linkStart;delete $('structure').dataset.linkEnd;
+    const scores=scoresFor(r),[low,high]=stabilityExtent(),seq=r.fold_sequence;
+    ({coords,arcRange,viewbox}=renderStructurePlot(r,base,value('layout'),value('arc-size'),viewbox,$));
     baseNodes=[];for(const node of $('structure').querySelectorAll('.base'))baseNodes[Number(node.dataset.base)-1]=node;
     $('stability-legend').innerHTML=scores?`<span>Lower predicted stability</span><span class="mrna-stability-ramp" aria-hidden="true"></span><span>Higher predicted stability</span><small>DegScore contribution ${number(low,3)}–${number(high,3)} · relative batch scale</small>`:escape(profileStatus.get(r)?.error||'Loading per-nucleotide stability…');
     $('fold-meta').textContent=`${r.name} · ${r.fold_scope==='cds'?'CDS':'Full transcript'} · ${seq.length.toLocaleString()} nt · ${r.temperature} °C · MFE ${number(r.metrics.mfe,2)} kcal/mol · ${number(r.metrics.paired_ratio*100,1)}% paired`;
@@ -646,7 +651,7 @@
   function importAssemblies(items){const existing=new Set(records.map(r=>r.build_id).filter(Boolean)),incoming=items.filter(x=>!x.error&&(!x.id||!existing.has(x.id)));const active=records.filter(r=>r.sequence.trim());if(active.length+incoming.length>32)throw Error('Use up to 32 mRNA inputs per batch.');records=active;for(const input of incoming){let name=input.name,suffix=2;while(records.some(r=>r.name===name))name=input.name+' '+suffix++;add({name,sequence:input.sequence,assembly:input.assembly,kind:'nucleotide',build_id:input.id||null,build_cards:input.cards||[],assembled_length:input.assembled_sequence?.length||null,assembly_warnings:input.warnings||[]});}sectionState.inputs=true;applySections();renderRecords();save();return incoming.length;}
   const buildImporter=win.JunctionMRNAFragments.createBuildImport(win,doc,{request,getRecords:()=>records,onImport:importAssemblies});
   const fragmentBuilder=win.JunctionMRNAFragments.create(win,doc,{request,post,onChange:save,onAdd:input=>{try{importAssemblies([input]);$('assembly-summary').textContent+=' Added to mRNA build list.';}catch(e){showError(e.message);}}});
-  const structureComparer=win.JunctionMRNAStructureCompare.create(win,doc,{compactGC,gcLabels,drawGCHover,bindGC,gcWindowForBase,describePosition,gcRangeLabel,getRows:displayRows,getPrimary:activeRow,extent:stabilityExtent,ensureProfile,stabilityColor,contrastColor,sequenceRange,selectedPositions,onChange:save,onLayout:()=>win.requestAnimationFrame(()=>{drawStructure();refreshCompactGC();})});
+  const structureComparer=win.JunctionMRNAStructureCompare.create(win,doc,{renderStructurePlot,compactGC,gcLabels,drawGCHover,bindGC,gcWindowForBase,describePosition,gcRangeLabel,getRows:displayRows,getPrimary:activeRow,extent:stabilityExtent,ensureProfile,stabilityColor,contrastColor,sequenceRange,selectedPositions,onChange:save,onLayout:()=>win.requestAnimationFrame(()=>{drawStructure();refreshCompactGC();})});
   const sequenceExporter=win.JunctionMRNAExport.create(win,doc,{request,post,getResults:()=>results,getReferences:()=>benchmarkRows,download,csvCell,onChange:save});
   add();renderRecords();initialiseSections();
   return {open,snapshot,restore};
