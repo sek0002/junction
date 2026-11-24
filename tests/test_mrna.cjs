@@ -78,3 +78,19 @@ assert.equal(m.radarAxisIndex(270,-100,5),-1);
 assert.equal(m.radarAxisIndex(NaN,220,5),-1);
 assert.equal(m.radarAxisIndex(270,82,2),-1);
 console.log('mRNA radar hover axis selection checks passed');
+
+// Fit only when explicitly requested; keep signed raw translation values and padding.
+assert.deepEqual(m.fitRadarRange([.63,.96]),{min:.58,max:1.01});
+assert.deepEqual(m.fitRadarRange([0,0]),{min:-.05,max:.05});
+assert.deepEqual(m.fitRadarRange([-4,-2]),{min:-4.3,max:-1.7});
+assert.equal(m.fitRadarRange([null,1]),null);
+assert.equal(m.fitRadarRange([]),null);
+console.log('mRNA optional translation axis fit checks passed');
+
+assert.equal(m.radarDefaults.predicted_half_life.max,2);
+assert.deepEqual([m.radarDefaults.translation.min,m.radarDefaults.translation.max],[0,5]);
+const migrated=m.restoreRadarRanges({translation:{min:-3,max:3,direction:'higher'},predicted_half_life:{min:0,max:24,direction:'higher'}},1);
+assert.equal(migrated.translation.max,5);assert.equal(migrated.predicted_half_life.max,2);
+assert.equal(m.restoreRadarRanges({translation:{min:-2,max:7,direction:'higher'}},1).translation.max,7);
+assert.equal(m.restoreRadarRanges({translation:{min:-3,max:3,direction:'higher'}},2).translation.max,3);
+console.log('mRNA revised model ranges migrate only legacy defaults and preserve custom bounds');

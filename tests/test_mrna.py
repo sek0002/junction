@@ -70,6 +70,9 @@ class ScientificTests(unittest.TestCase):
             self.assertEqual(len(row['stability_profile']),len(row['fold_sequence']))
             self.assertTrue(all(math.isfinite(v) for v in row['stability_profile']))
             self.assertAlmostEqual(sum(row['stability_profile']),row['metrics']['degscore'],places=5)
+            # Contract with the upstream DegScore chemical-degradation calibration, in hours.
+            rate=.002170959651184987*row['metrics']['degscore']+.05220886935630193
+            self.assertAlmostEqual(row['metrics']['predicted_half_life'],math.log(2)/rate,places=10)
             self.assertAlmostEqual(row['metrics']['mfe_density'],row['metrics']['mfe']/len(row['fold_sequence']),places=5)
             self.assertAlmostEqual(row['metrics']['gc'],sum(x in 'GC' for x in row['cds'])/len(row['cds']))
         with open(runtime_config()['csc']) as f:weights={r['codon']:float(r['293T_ORFome']) for r in csv.DictReader(f)}

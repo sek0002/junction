@@ -350,7 +350,8 @@ def capabilities_cached(python, source, degscore, command):
 @router.get('/capabilities')
 def capabilities():
     c=runtime_config()
-    return capabilities_cached(c['python'],c['source'],c['degscore'],c['ribonn_command'])
+    return {**capabilities_cached(c['python'],c['source'],c['degscore'],c['ribonn_command']),
+            'utrs': json.loads((Path(__file__).parent / 'data/mrna/utrs.json').read_text())}
 
 
 class StabilityRequest(BaseModel):

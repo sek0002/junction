@@ -1,0 +1,148 @@
+{
+  "utr5": [
+    {
+      "id": "human-alpha-globin-native-utr5",
+      "name": "Human α-globin (HBA1) · native",
+      "sequence": "ACTCTTCTGGTCCCCACAGACTCAGAGAGAACCCACC",
+      "accession": "NM_000558.5",
+      "region": [
+        1,
+        37
+      ],
+      "source": "https://www.ncbi.nlm.nih.gov/nuccore/NM_000558.5",
+      "retrieved": "2026-11-24",
+      "sha256": "ba31757fbab6962ff3e55aeb18fcf2b10b31bb3e80f008f3aff4acf0d6bd54d9"
+    },
+    {
+      "id": "mouse-alpha-globin-native-utr5",
+      "name": "Mouse α-globin (Hba-a1) · native",
+      "sequence": "GACACTTCTGATTCTGACAGACTCAGGAAGAAACC",
+      "accession": "NM_008218.2",
+      "region": [
+        1,
+        35
+      ],
+      "source": "https://www.ncbi.nlm.nih.gov/nuccore/NM_008218.2",
+      "retrieved": "2026-11-24",
+      "sha256": "636abaefb53febf16fc8a92096a40a44cbcc78625372e2b9c9809b5f250b1dfd"
+    },
+    {
+      "id": "paper-utr5-0",
+      "name": "Human α-globin 5′ UTR + Kozak · paper",
+      "sequence": "ACTCTTCTGGTCCCCACAGACTCAGAGAGAACCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-1",
+      "name": "Albumin 5′ UTR · paper",
+      "sequence": "CTAGCTTTTCTCTTCTGTCAACCCCACACGCCTTTGGCACACCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-2",
+      "name": "SCGB1A1 5′ UTR · paper",
+      "sequence": "ATACTAGCCCACCAGACTCAGAGACGGAACCAGAGACGGGCCAGAGCATCCCCCTCCTCCACCCCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-3",
+      "name": "Beta Actin 5′ UTR · paper",
+      "sequence": "CCCGCGAGCACAGAGCCTCGCCTTTGCCGATCCGCCGCCCGTCCACACCCGCCGCCAGCTCACCCCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-4",
+      "name": "Minimal 5′ UTR · paper",
+      "sequence": "GAGACTCCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-5",
+      "name": "NELL2 5′ UTR · paper",
+      "sequence": "TCTTCAGTTCCCAATATTGTCGCGAAAACGCGGTTCTTTGCTGCCCTGGAGGAAGAGACTTGCATTTTG",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-6",
+      "name": "ANKRD49 5′ UTR · paper",
+      "sequence": "TCAGATCTTGATGAACAAAGCAGTCATAATTCATCTCTAGAAAGATTTATATCCTGGCATTTGAAATGCTTTTTATTTAGAATAGTAGTAAAAA",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-7",
+      "name": "ZFAND6 5′ UTR · paper",
+      "sequence": "GAAGAGAGAAATTTAAAATTAAAAATTTTCCATATTTCTATCACAAATATTGGTAATTTGACAACATGTAATTTGATTGTCGTCTTAATAAAATTTA",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-8",
+      "name": "Human α-globin 5′ UTR + Kozak · AGG leader · paper",
+      "sequence": "AGGACTCTTCTGGTCCCCACAGACTCAGAGAGAACCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr5-12",
+      "name": "miR122 5′ UTR · paper",
+      "sequence": "CAAACACCATTGTCACACTCCAAGGACTCTTCTGGTCCCCACAGACTCAGAGAGAACCCGCCACC",
+      "source": "mRNArchitect supplementary Table S4"
+    }
+  ],
+  "utr3": [
+    {
+      "id": "human-alpha-globin-native-utr3",
+      "name": "Human α-globin (HBA1) · native",
+      "sequence": "GCTGGAGCCTCGGTGGCCATGCTTCTTGCCCCTTGGGCCTCCCCCCAGCCCCTCCTCCCCTTCCTGCACCCGTACCCCCGTGGTCTTTGAATAAAGTCTGAGTGGGCGGCA",
+      "accession": "NM_000558.5",
+      "region": [
+        467,
+        577
+      ],
+      "source": "https://www.ncbi.nlm.nih.gov/nuccore/NM_000558.5",
+      "retrieved": "2026-11-24",
+      "sha256": "4a6b9969c6415cd78e6b8a6d39bea6a08011679f4b5a02333dd8bfd29a814f42"
+    },
+    {
+      "id": "mouse-alpha-globin-native-utr3",
+      "name": "Mouse α-globin (Hba-a1) · native",
+      "sequence": "GCTGCCTTCTGCGGGGCTTGCCTTCTGGCCATGCCCTTCTTCTCTCCCTTGCACCTGTACCTCTTGGTCTTTGAATAAAGCCTGAGTAGGAAG",
+      "accession": "NM_008218.2",
+      "region": [
+        465,
+        557
+      ],
+      "source": "https://www.ncbi.nlm.nih.gov/nuccore/NM_008218.2",
+      "retrieved": "2026-11-24",
+      "sha256": "a24a535851e783b43d98c14940f195be56bb16f8319b5c9233be9e12a003f57f"
+    },
+    {
+      "id": "paper-utr3-0",
+      "name": "Mouse α-globin 3′ UTR · cloning linker · paper",
+      "sequence": "CTCGAGCTGCCTTCTGCGGGGCTTGCCTTCTGGCCATGCCCTTCTTCTCTCCCTTGCACCTGTACCTCTTGGTCTTTGAATAAAGCCTGAGTAGGAAG",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr3-8",
+      "name": "SCGB1A1 3′ UTR · paper",
+      "sequence": "CATTTAGAAGCTGAAGATCCCCAACTGCTCCAGCCTCTGCCGCTGCCATGCTTTGAGTCCACGCCCACCAGCCTTGCTCTCTTCAATAAACCACAAGCATCTCA",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr3-9",
+      "name": "α globin + ARE 3′ UTR · paper",
+      "sequence": "ATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTACTCGAGCTGCCTTCTGCGGGGCTTGCCTTCTGGCCATGCCCTTCTTCTCTCCCTTGCACCTGTACCTCTTGGTCTTTGAATAAAGCCTGAGTAGGAAG",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr3-10",
+      "name": "1 x miR122 3′ UTR · paper",
+      "sequence": "CTCGAGCTGCCTTCTGCGGGGCTTGCCTTCTGGCCATGCCCTTCTTCTCTCCCTTGCACCTGTACCTCCAAACACCATTGTCACACTCCATTGGTCTTTGAATAAAGCCTGAGTAGGAAG",
+      "source": "mRNArchitect supplementary Table S4"
+    },
+    {
+      "id": "paper-utr3-11",
+      "name": "2 x miR122 3′ UTR · paper",
+      "sequence": "CTCGAGCTGCCTTCTGCGGGGCTTGCCTTCTGGCCATGCCCTTCTTCTCTCCCCAAACACCATTGTCACACTCCATTGCACCTGTACCTCCAAACACCATTGTCACACTCCATTGGTCTTTGAATAAAGCCTGAGTAGGAAG",
+      "source": "mRNArchitect supplementary Table S4"
+    }
+  ]
+}
