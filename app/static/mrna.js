@@ -134,7 +134,7 @@
     for(const {key,button,body,section}of sectionBindings){const open=sectionState[key]??true;body.hidden=!open;button.setAttribute('aria-expanded',String(open));section.classList.toggle('mrna-collapsed',!open);}
     for(const details of doc.querySelectorAll('#mrna details[data-mrna-remember]')){const key=details.dataset.mrnaRemember,open=sectionState[key]??sectionDefaults[key];if(details.open!==open)details.open=open;}
   }
-  function refreshCompactGC(){if(tab!=='structure'||!activeRow()||!$('gc-detail').clientWidth)return;$('gc-detail').innerHTML=gcSVG([activeRow()],true);linkedHover=null;restoreSelectionHighlight();}
+  function refreshCompactGC(){structureComparer.refreshGC();if(tab!=='structure'||!activeRow()||!$('gc-detail').clientWidth)return;compactGC(activeRow(),$('gc-detail'),base);linkedHover=null;restoreSelectionHighlight();}
   function initialiseSections(){
     const configurations=[['inputs','.mrna-input-panel','h2'],['batch-input-list','.mrna-batch-input-list','h3'],['parameters','.mrna-options','h2'],['comparison','#mrna-compare-panel > .panel','h2'],['gc-landscape','.mrna-landscape-card','h2'],['hamming','.mrna-hamming-card','h2'],['radar','.mrna-radar-card','h2'],['matched-fragments','.mrna-match-results-card','h2'],['matched-library','.mrna-matched-library-card','h2'],['structure','#mrna-structure-panel > .panel','h2'],['structure-secondary','#mrna-secondary-panel','h2'],['structure-secondary-gc','#mrna-secondary-panel .mrna-gc-inline','strong'],['secondary-nucleotides','#mrna-secondary-panel .mrna-sequence-section','strong'],['structure-gc','.mrna-gc-inline','strong'],['nucleotides','.mrna-sequence-section','strong'],['sequence-exports','.mrna-sequence-export-card','h2'],['metric-exports','.mrna-metric-export-card','h2'],['fragment-exports','.mrna-fragment-export-card','h2']];
     for(const [key,selector,titleSelector]of configurations){
@@ -173,7 +173,7 @@
   async function applyRecordCDS(record,button){if(!record?.assembly)return;button.disabled=true;showError('');try{const frame=record.assembly_frame??record.assembly.frame;const data=await request('/api/mrna/assembly/preview',post({...record.assembly,frame:frame==='auto'?'auto':Number(frame),cds_start:record.assembly_start===''?null:Number(record.assembly_start??record.assembly.cds_start),cds_end:record.assembly_end===''?null:Number(record.assembly_end??record.assembly.cds_end)}));record.sequence=data.sequence;record.assembly=data.assembly;record.assembly_warnings=data.warnings;record.assembly_frame=data.frame;record.assembly_start=data.cds_start;record.assembly_end=data.cds_end;record.cds_pending=false;renderRecords();save();}catch(e){showError(e.message);}finally{button.disabled=false;}}
   function parameters(){return {organism:value('organism'),objective:value('objective'),gc_global_min:n('gc-min')/100,gc_global_max:n('gc-max')/100,gc_window_min:n('local-min')/100,gc_window_max:n('local-max')/100,gc_window_size:n('window'),avoid_repeat_length:n('repeat'),avoid_poly_a:n('au-run'),avoid_poly_t:n('au-run'),avoid_poly_c:n('cg-run'),avoid_poly_g:n('cg-run'),hairpin_stem_size:n('hairpin-stem'),hairpin_window:n('hairpin-window'),enable_uridine_depletion:value('uridine'),avoid_ribosome_slip:value('slip'),avoid_manufacture_restriction_sites:value('manufacture'),avoid_restriction_sites:value('enzymes').split(/[,;\s]+/).filter(Boolean),avoid_sequences:value('motifs').split(/[,;\s]+/).filter(Boolean)};}
   function payload(mode){if(records.some(r=>r.cds_pending))throw Error('Apply the edited CDS frame / bounds before running the batch.');const common=parameters(),matching=mode==='design'&&value('match-fragments');return {name:parameterPresets.find(p=>p.id===presetSelection)?.name||'mRNA design batch',mode,match_fragments:matching,match_record_names:matching?records.filter(r=>r.assembly&&r.match_selected!==false).map(r=>r.name):null,include_individual_optimisations:matching&&value('match-individual'),parameters:common,candidates:n('candidates'),five_prime_utr:value('utr5'),three_prime_utr:value('utr3'),poly_a:n('poly-a'),fold_scope:value('fold-scope'),temperature:n('temperature'),seed:n('seed'),predict_translation:value('translation'),records:records.map(r=>{let ranges=[];if(r.preserve.trim())ranges=r.preserve.split(',').map(x=>{const match=x.trim().match(/^(\d+)\s*-\s*(\d+)$/);if(!match)throw Error('Preserved regions must look like 1-60, 301-360.');return [Number(match[1]),Number(match[2])];});return {name:r.name,sequence:r.sequence,kind:r.kind,group:r.group,preserve_regions:ranges,assembly:r.assembly||null,five_prime_utr:r.custom_utrs?r.utr5:null,three_prime_utr:r.custom_utrs?r.utr3:null,parameters:r.override?{...common,...(r.preset_parameters||{}),organism:r.organism||common.organism,objective:r.objective||common.objective,...(r.gc_min!==''?{gc_global_min:Number(r.gc_min)/100}:{}),...(r.gc_max!==''?{gc_global_max:Number(r.gc_max)/100}:{})}:null};})};}
-  function switchTab(next){tab=['batch','compare','structure','export'].includes(next)?next:'batch';for(const t of ['batch','compare','structure','export']){$(t+'-panel').hidden=t!==tab;$(t+'-tab').classList.toggle('active',t===tab);$(t+'-tab').setAttribute('aria-selected',String(t===tab));}if(tab==='structure')drawStructure();if(tab==='export')sequenceExporter.render();save();}
+  function switchTab(next){tab=['batch','compare','structure','export'].includes(next)?next:'batch';for(const t of ['batch','compare','structure','export']){$(t+'-panel').hidden=t!==tab;$(t+'-tab').classList.toggle('active',t===tab);$(t+'-tab').setAttribute('aria-selected',String(t===tab));}if(tab==='structure'){drawStructure();structureComparer.refreshGC();}if(tab==='export')sequenceExporter.render();save();}
   doc.querySelectorAll('[data-mrna-tab]').forEach((button,index,list)=>{button.onclick=()=>switchTab(button.dataset.mrnaTab);button.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();const target=list[(index+(e.key==='ArrowRight'?1:list.length-1))%list.length];target.focus();target.click();}};});
   function syncMatchControls(){const matching=value('match-fragments'),count=records.filter(r=>r.assembly&&r.match_selected!==false&&!r.cds_pending).length;$('match-fragments').disabled=busy;$('match-individual').disabled=busy||!matching;for(const check of host.querySelectorAll('[data-match-assembly]'))check.disabled=busy||!matching;$('match-selection-note').textContent=matching?`${count} assemblies selected for matching. Unselected inputs keep their input scores${value('match-individual')?' and receive individual optimisations.':'.'}`:'Matching uses selected imported assemblies; individual optimisation applies to the whole batch.';$('run').textContent=matching?(value('match-individual')?'Design matched + individual':'Design matched fragments'):'Design multiplex set';$('run').disabled=busy||!cap?.ready||matching&&count<2;}
   function setBusy(on){busy=on;syncMatchControls();$('analyse').disabled=on||!cap?.ready;$('cancel').classList.toggle('hidden',!on);}
@@ -190,8 +190,24 @@
   }
   const activeRow=()=>displayRows().find(r=>r.id===focus)||(benchmarkLoading&&focus?.startsWith('benchmark:')?null:displayRows()[0]);
   const translationValue=row=>value('translation-cell')?row.tissue_predictions?.[value('translation-cell')]??null:row.metrics.translation;
-  function renderResults(){refreshBenchmarks();if(!displayRows().some(r=>r.id===focus)&&!(benchmarkLoading&&focus?.startsWith('benchmark:')))focus=displayRows()[0]?.id||null;const oldCell=value('translation-cell'),cells=[...new Set(displayRows().flatMap(r=>Object.keys(r.tissue_predictions||{})))].sort();$('translation-cell').innerHTML='<option value="">Translation: mean across cells</option>'+cells.map(cell=>`<option value="${escape(cell)}">${escape(cell.replace('predicted_TE_',''))}</option>`).join('');$('translation-cell').value=cells.includes(oldCell)?oldCell:'';$('translation-cell').hidden=!cells.length;const stats=Object.fromEntries(metricSpecs.map(([key])=>[key,columnStats(displayRows().filter(r=>selected.has(r.id)),r=>metricValue(r,key))]));let rows=[...displayRows()];rows.sort((a,b)=>{const x=sort.key==='name'?a.name:sort.key==='translation'?translationValue(a):a.metrics[sort.key],y=sort.key==='name'?b.name:sort.key==='translation'?translationValue(b):b.metrics[sort.key];if(x==null)return y==null?0:1;if(y==null)return -1;return (typeof x==='string'?x.localeCompare(y):x-y)*sort.direction;});$('z-note').textContent=`${selected.size} selected sequences · each numeric column is standardised independently; deselected rows are uncoloured. Colours clip at ±2; constant columns have z = 0.`;$('result-count').textContent=rows.length;$('export').disabled=!rows.length;$('results').innerHTML=rows.length?rows.map(r=>{const m=r.metrics;return `<tr data-reference="${Boolean(r.benchmark)}" class="${r.benchmark?'mrna-benchmark-row ':''}${r.id===focus?'mrna-focused':''}"><td><input type="checkbox" data-result="${escape(r.id)}" ${selected.has(r.id)?'checked':''} aria-label="Select ${escape(r.name)}"></td><td><button data-explore="${escape(r.id)}">${escape(r.name)}</button><small>${escape(r.group)}${r.warnings?.length?' · '+r.warnings.length+' notes':''}</small></td><td>${r.benchmark?(r.benchmark.builtin?'Built-in':'Benchmark')+' · '+(r.parameters.organism==='mus-musculus'?'mouse':'human'):escape(r.strategy)}</td>${metricSpecs.map(([key])=>metricCell(r,key,stats[key])).join('')}<td>${r.benchmark?'Reference':m.protein_preserved?'Preserved':'Changed'}</td></tr>`;}).join(''):'<tr><td colspan="16" class="mrna-empty">Compare or design a batch to see its metrics.</td></tr>';$('focus').innerHTML=displayRows().map(r=>`<option value="${escape(r.id)}">${escape(r.name)}</option>`).join('');$('focus').value=focus||'';$('sequence-errors').innerHTML=(results.errors||[]).map(x=>`<p class="mrna-error"><strong>${escape(x.name)}</strong>: ${escape(x.error)}</p>`).join('');$('select-all').checked=rows.length>0&&rows.every(r=>selected.has(r.id));drawComparison();renderMatches();if(tab==='structure')drawStructure();if(tab==='export')sequenceExporter.render();}
-  function gcSVG(rows,detail=false){if(!rows.length)return '<p class="small muted">Select calculated sequences to show their GC profiles.</p>';const w=detail?Math.max(300,$('gc-detail').clientWidth||650):650,h=detail?110:210,left=42,right=18,top=detail?12:14,bottom=detail?22:32,max=Math.max(...rows.map(r=>r.cds.length)),x=p=>left+(p-1)/Math.max(1,max-1)*(w-left-right),y=v=>top+(1-v)*(h-top-bottom),p=rows[0].parameters;let html=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Sliding-window GC content across coding sequences"><rect x="${left}" y="${top}" width="${w-left-right}" height="${y(p.gc_window_max)-top}" fill="#d6a05a" opacity=".10"/><rect x="${left}" y="${y(p.gc_window_min)}" width="${w-left-right}" height="${h-bottom-y(p.gc_window_min)}" fill="#6398b6" opacity=".10"/>`;for(const v of (detail?[0,.5,1]:[0,.25,.5,.75,1]))html+=`<path class="grid" d="M${left},${y(v)}H${w-right}"/><text x="${left-8}" y="${y(v)+3}" text-anchor="end">${v*100}%</text>`;for(const p of [1,Math.round(max/2),max])html+=`<text x="${x(p)}" y="${h-10}" text-anchor="middle">${p} nt</text>`;rows.forEach((r,i)=>{const points=r.gc_profile.filter((_,j)=>j%Math.max(1,Math.floor(r.gc_profile.length/1200))===0).map(([start,gc])=>`${x(start+(r.gc_window-1)/2)},${y(gc)}`).join(' ');html+=`<polyline points="${points}" fill="none" stroke="${rowColor(r)}" stroke-width="${detail?2.3:1.8}"><title>${escape(r.name)} · ${r.gc_window} nt windows</title></polyline>`;});if(detail)html+='<g data-gc-hover="true" pointer-events="none"></g>';if(detail&&activeRow()){const r=activeRow(),cdsPos=base-(r.fold_scope==='transcript'?r.regions.cds[0]-1:0);if(cdsPos>=1&&cdsPos<=r.cds.length)html+=`<path class="gc-selection-cursor" d="M${x(cdsPos)},${top}V${h-bottom}" stroke="var(--green)" stroke-dasharray="4 3"/>`;}return html+'</svg>';}
+  function renderResults(){refreshBenchmarks();if(!displayRows().some(r=>r.id===focus)&&!(benchmarkLoading&&focus?.startsWith('benchmark:')))focus=displayRows()[0]?.id||null;const oldCell=value('translation-cell'),cells=[...new Set(displayRows().flatMap(r=>Object.keys(r.tissue_predictions||{})))].sort();$('translation-cell').innerHTML='<option value="">Translation: mean across cells</option>'+cells.map(cell=>`<option value="${escape(cell)}">${escape(cell.replace('predicted_TE_',''))}</option>`).join('');$('translation-cell').value=cells.includes(oldCell)?oldCell:'';$('translation-cell').hidden=!cells.length;const stats=Object.fromEntries(metricSpecs.map(([key])=>[key,columnStats(displayRows().filter(r=>selected.has(r.id)),r=>metricValue(r,key))]));let rows=[...displayRows()];rows.sort((a,b)=>{const x=sort.key==='name'?a.name:sort.key==='translation'?translationValue(a):a.metrics[sort.key],y=sort.key==='name'?b.name:sort.key==='translation'?translationValue(b):b.metrics[sort.key];if(x==null)return y==null?0:1;if(y==null)return -1;return (typeof x==='string'?x.localeCompare(y):x-y)*sort.direction;});$('z-note').textContent=`${selected.size} selected sequences · each numeric column is standardised independently; deselected rows are uncoloured. Colours clip at ±2; constant columns have z = 0.`;$('result-count').textContent=rows.length;$('export').disabled=!rows.length;$('results').innerHTML=rows.length?rows.map(r=>{const m=r.metrics;return `<tr data-reference="${Boolean(r.benchmark)}" class="${r.benchmark?'mrna-benchmark-row ':''}${r.id===focus?'mrna-focused':''}"><td><input type="checkbox" data-result="${escape(r.id)}" ${selected.has(r.id)?'checked':''} aria-label="Select ${escape(r.name)}"></td><td><button data-explore="${escape(r.id)}">${escape(r.name)}</button><small>${escape(r.group)}${r.warnings?.length?' · '+r.warnings.length+' notes':''}</small></td><td>${r.benchmark?(r.benchmark.builtin?'Built-in':'Benchmark')+' · '+(r.parameters.organism==='mus-musculus'?'mouse':'human'):escape(r.strategy)}</td>${metricSpecs.map(([key])=>metricCell(r,key,stats[key])).join('')}<td>${r.benchmark?'Reference':m.protein_preserved?'Preserved':'Changed'}</td></tr>`;}).join(''):'<tr><td colspan="16" class="mrna-empty">Compare or design a batch to see its metrics.</td></tr>';$('focus').innerHTML=displayRows().map(r=>`<option value="${escape(r.id)}">${escape(r.name)}</option>`).join('');$('focus').value=focus||'';$('sequence-errors').innerHTML=(results.errors||[]).map(x=>`<p class="mrna-error"><strong>${escape(x.name)}</strong>: ${escape(x.error)}</p>`).join('');$('select-all').checked=rows.length>0&&rows.every(r=>selected.has(r.id));drawComparison();renderMatches();if(tab==='structure'){drawStructure();structureComparer.refreshGC();}if(tab==='export')sequenceExporter.render();}
+  function compactGC(row, chart, position){
+    const width=Math.max(300,chart.clientWidth||650), last=row.cds.length;
+    const x=nt=>42+(nt-1)/Math.max(1,last-1)*(width-60), y=fraction=>12+(1-fraction)*76;
+    const {gc_window_min:low,gc_window_max:high}=row.parameters;
+    const points=row.gc_profile.filter((_,i)=>i%Math.max(1,Math.floor(row.gc_profile.length/1200))===0)
+      .map(([start,gc])=>x(start+(row.gc_window-1)/2)+','+y(gc)).join(' ');
+    const cursor=position-(row.fold_scope==='transcript'?row.regions.cds[0]-1:0);
+    chart.innerHTML=`<svg viewBox="0 0 ${width} 110" role="img" aria-label="Sliding-window GC content across coding sequences">
+      <rect x="42" y="12" width="${width-60}" height="${y(high)-12}" fill="#d6a05a" opacity=".10"/>
+      <rect x="42" y="${y(low)}" width="${width-60}" height="${88-y(low)}" fill="#6398b6" opacity=".10"/>
+      ${[0,.5,1].map(v=>`<path class="grid" d="M42,${y(v)}H${width-18}"/><text x="34" y="${y(v)+3}" text-anchor="end">${v*100}%</text>`).join('')}
+      ${[1,Math.round(last/2),last].map(nt=>`<text x="${x(nt)}" y="100" text-anchor="middle">${nt} nt</text>`).join('')}
+      <polyline points="${points}" fill="none" stroke="${rowColor(row)}" stroke-width="2.3"><title>${escape(row.name)} · ${row.gc_window} nt windows</title></polyline>
+      <g data-gc-hover="true" pointer-events="none"></g>
+      ${cursor>=1&&cursor<=last?`<path class="gc-selection-cursor" d="M${x(cursor)},12V88" stroke="var(--green)" stroke-dasharray="4 3"/>`:''}</svg>`;
+  }
+
   const metricValue=(row,key)=>key==='translation'?translationValue(row):row.metrics[key];
   function metricCell(row,key,stats){
     const v=metricValue(row,key),z=selected.has(row.id)?zScore(v,stats):null,heat=value('heatmap'),digits=key==='length'?0:key==='gc'||key==='hamming_ratio'?1:key==='csc'?4:['mfe','predicted_half_life'].includes(key)?2:3;
@@ -454,9 +470,12 @@
     $('stability-legend').innerHTML=scores?`<span>Lower predicted stability</span><span class="mrna-stability-ramp" aria-hidden="true"></span><span>Higher predicted stability</span><small>DegScore contribution ${number(low,3)}–${number(high,3)} · relative batch scale</small>`:escape(profileStatus.get(r)?.error||'Loading per-nucleotide stability…');
     $('fold-meta').textContent=`${r.name} · ${r.fold_scope==='cds'?'CDS':'Full transcript'} · ${seq.length.toLocaleString()} nt · ${r.temperature} °C · MFE ${number(r.metrics.mfe,2)} kcal/mol · ${number(r.metrics.paired_ratio*100,1)}% paired`;
     $('position').max=seq.length;
-    $('gc-meta').textContent=`CDS coordinates · ${r.gc_window} nt window · ${number(r.parameters.gc_window_min*100,0)}–${number(r.parameters.gc_window_max*100,0)}% target`;
-    $('hotspots').innerHTML=r.gc_hotspots.length?r.gc_hotspots.map(h=>`<button data-hotspot="${h.start}" data-hotspot-end="${h.end}">${h.kind==='high'?'High':'Low'} GC · ${h.start}–${h.end} · ${number(h.peak*100,1)}%</button>`).join(''):'<span class="small muted">All windows meet the selected GC bounds.</span>';
+    gcLabels(r,$('gc-meta'),$('hotspots'));
     drawDetails(r);inspect(base,false);if(!scores)ensureProfile(r);
+  }
+  function gcLabels(r,meta,chips){
+    meta.textContent=`CDS coordinates · ${r.gc_window} nt window · ${number(r.parameters.gc_window_min*100,0)}–${number(r.parameters.gc_window_max*100,0)}% target`;
+    chips.innerHTML=r.gc_hotspots.length?r.gc_hotspots.map(h=>`<button data-hotspot="${h.start}" data-hotspot-end="${h.end}">${h.kind==='high'?'High':'Low'} GC · ${h.start}–${h.end} · ${number(h.peak*100,1)}%</button>`).join(''):'<span class="small muted">All windows meet the selected GC bounds.</span>';
   }
   function describePosition(r,position){const pair=r.pairs.find(p=>p.includes(position)),partner=pair?(pair[0]===position?pair[1]:pair[0]):null,score=scoresFor(r)?.[position-1];return `Nucleotide ${position} · ${r.fold_sequence[position-1].replace('T','U')} · ${partner?'paired with '+partner:'unpaired'}${score===undefined?'':` · DegScore contribution ${number(score,4)}`}`;}
   function currentSequenceSelection(row=activeRow()){
@@ -493,13 +512,14 @@
   function restoreSelectionHighlight(){
     const r=activeRow(),range=currentSequenceSelection(r);if(range)highlightRange(range,'selection',Math.round((range.fold_start+range.fold_end)/2));
   }
-  function drawGCHover(r,range){
-    const overlay=$('gc-detail').querySelector('[data-gc-hover]');if(!overlay)return;
-    const selection=$('gc-detail').querySelector('.gc-selection-cursor');if(selection)selection.style.display=range?'none':'';
+  function drawGCHover(r,range,chart=$('gc-detail')){
+    const overlay=chart.querySelector('[data-gc-hover]');if(!overlay)return;
+    const selection=chart.querySelector('.gc-selection-cursor');if(selection)selection.style.display=range?'none':'';
     if(!range||range.start==null){overlay.replaceChildren();return;}
-    const width=$('gc-detail').querySelector('svg').viewBox.baseVal.width;const x=p=>42+(p-1)/Math.max(1,r.cds.length-1)*(width-60),left=x(range.start),right=x(range.end);
+    const width=chart.querySelector('svg').viewBox.baseVal.width;const x=p=>42+(p-1)/Math.max(1,r.cds.length-1)*(width-60),left=x(range.start),right=x(range.end);
     overlay.innerHTML=`<rect class="mrna-gc-range" x="${left}" y="12" width="${Math.max(2,right-left)}" height="76"/><path d="M${x((range.start+range.end)/2)},12V88" class="mrna-gc-crosshair"/>`;
   }
+  function gcRangeLabel(range,source){return range?.start!=null?`${source==='selection'?'Selected':'Linked'} CDS ${range.start}–${range.end}${Number.isFinite(range.gc)?` · ${number(range.gc*100,1)}% GC`:''} · structure ${range.fold_start}–${range.fold_end}`:'This region is outside the CDS GC profile.';}
   function highlightRange(range,source,position){
     const r=activeRow();if(!r)return;
     position=Math.max(1,Math.min(r.fold_sequence.length,Math.round(position)));
@@ -511,7 +531,7 @@
     $('structure').dataset.linkStart=range?.fold_start??position;$('structure').dataset.linkEnd=range?.fold_end??position;
     if(source!=='selection')$('base-info').textContent=describePosition(r,position);
     drawGCHover(r,range);
-    $('gc-hover-info').textContent=range?.start!=null?`${source==='selection'?'Selected':'Linked'} CDS ${range.start}–${range.end}${Number.isFinite(range.gc)?` · ${number(range.gc*100,1)}% GC`:''} · structure ${range.fold_start}–${range.fold_end}`:'This region is outside the CDS GC profile.';
+    $('gc-hover-info').textContent=gcRangeLabel(range,source);
     for(const chip of $('hotspots').querySelectorAll('[data-hotspot]'))chip.classList.toggle('linked',!!range&&range.start<=Number(chip.dataset.hotspotEnd)&&range.end>=Number(chip.dataset.hotspot));
   }
   function clearHover(){
@@ -527,7 +547,7 @@
     const pair=r.pairs.find(p=>p.includes(base)),partner=pair?(pair[0]===base?pair[1]:pair[0]):null;
     for(const node of baseNodes.filter(Boolean)){node.classList.toggle('selected',Number(node.dataset.base)===base);node.classList.toggle('partner',Number(node.dataset.base)===partner);}
     for(const node of $('structure').querySelectorAll('.pair'))node.classList.toggle('selected',node.dataset.pair.split(',').map(Number).includes(base));
-    $('position').value=base;$('base-info').textContent=describePosition(r,base);renderTrack(r,base);$('gc-detail').innerHTML=gcSVG([r],true);
+    $('position').value=base;$('base-info').textContent=describePosition(r,base);renderTrack(r,base);compactGC(r,$('gc-detail'),base);
     $('gc-hover-info').textContent='Select a sequence range to keep it highlighted, or hover the GC and structure views.';linkedHover=null;restoreSelectionHighlight();
     if(center&&value('layout')==='arc'&&arcRange&&(base<arcRange.start||base>arcRange.end)){viewbox=null;drawStructure();return;}
     if(center&&value('layout')!=='arc'&&coords[base-1]){const [x,y]=coords[base-1];viewbox[0]=x-viewbox[2]/2;viewbox[1]=y-viewbox[3]/2;applyViewbox();}
@@ -558,21 +578,39 @@
   $('selection-apply').onclick=()=>{if(!$('selection-start').reportValidity()||!$('selection-end').reportValidity())return;selectionAnchor=Number(value('selection-start'));selectSequence(value('selection-start'),value('selection-end'),true);};
   for(const id of ['selection-start','selection-end'])$(id).onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('selection-apply').click();}};
   $('selection-clear').onclick=()=>{sequenceSelection=null;selectionAnchor=null;win.getSelection()?.removeAllRanges();const r=activeRow();if(r)renderTrack(r,base);clearHover();save();};
-  function hoverHotspot(event){const hit=event.target.closest('[data-hotspot]'),r=activeRow();if(hit&&r){const range=foldRange(r,Number(hit.dataset.hotspot),Number(hit.dataset.hotspotEnd));highlightRange(range,'hotspot',Math.round((range.fold_start+range.fold_end)/2));}}
-  $('hotspots').onpointerover=hoverHotspot;$('hotspots').onfocusin=hoverHotspot;$('hotspots').onpointerleave=()=>{if(linkedHover?.source==='hotspot')clearHover();};$('hotspots').onfocusout=()=>{if(linkedHover?.source==='hotspot')clearHover();};
-  $('hotspots').onclick=e=>{const hit=e.target.closest('[data-hotspot]'),r=activeRow();if(hit&&r){const range=foldRange(r,Number(hit.dataset.hotspot),Number(hit.dataset.hotspotEnd));selectionAnchor=range.fold_start;selectSequence(range.fold_start,range.fold_end,true);}};
-  function gcPointerWindow(event){
-    const r=activeRow(),svg=$('gc-detail').querySelector('svg');if(!r||!svg)return null;
-    const pt=svg.createSVGPoint();pt.x=event.clientX;pt.y=event.clientY;const matrix=svg.getScreenCTM();if(!matrix)return null;const local=pt.matrixTransform(matrix.inverse());
-    const right=svg.viewBox.baseVal.width-18;
-    if(local.x<42||local.x>right||local.y<12||local.y>88)return null;
-    const center=1+(local.x-42)/(right-42)*(r.cds.length-1),position=Math.max(1,Math.min(r.cds.length,Math.round(center))),offset=r.fold_scope==='transcript'?r.regions.cds[0]-1:0;
-    return gcWindowForBase(r,position+offset);
+  function bindGC(chart,chips,getRow,onHover,onLeave,onSelect,onInspect){
+    function hotspot(event){
+      const hit=event.target.closest('[data-hotspot]'), row=getRow();
+      return hit&&row?foldRange(row,Number(hit.dataset.hotspot),Number(hit.dataset.hotspotEnd)):null;
+    }
+    function preview(event){
+      const range=hotspot(event);
+      if(range)onHover(range,'hotspot',Math.round((range.fold_start+range.fold_end)/2));
+    }
+    chips.onpointerover=preview;
+    chips.addEventListener('focusin',preview);
+    chips.onpointerleave=()=>onLeave('hotspot');
+    chips.addEventListener('focusout',()=>onLeave('hotspot'));
+    chips.onclick=event=>{const range=hotspot(event);if(range)onSelect(range);};
+    function windowAt(event){
+      const row=getRow(),svg=chart.querySelector('svg'),matrix=svg?.getScreenCTM();
+      if(!row||!matrix)return null;
+      const point=svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
+      const {x,y}=point.matrixTransform(matrix.inverse()),right=svg.viewBox.baseVal.width-18;
+      if(x<42||x>right||y<12||y>88)return null;
+      const position=Math.round(1+(x-42)/(right-42)*(row.cds.length-1));
+      return gcWindowForBase(row,foldRange(row,position,position).fold_start);
+    }
+    chart.onpointermove=event=>{const range=windowAt(event);if(range)onHover(range,'gc',range.focus);else onLeave('gc');};
+    chart.onpointerleave=()=>onLeave('gc');
+    chart.onclick=event=>{const range=windowAt(event);if(range)onInspect(range.focus);};
   }
-  $('gc-detail').onpointermove=e=>{const range=gcPointerWindow(e);if(range)highlightRange(range,'gc',range.focus);else if(linkedHover?.source==='gc')clearHover();};
-  $('gc-detail').onpointerleave=()=>{if(linkedHover?.source==='gc')clearHover();};
-  win.addEventListener('resize',()=>{if(tab!=='structure'||!activeRow())return;$('gc-detail').innerHTML=gcSVG([activeRow()],true);linkedHover=null;restoreSelectionHighlight();});
-  $('gc-detail').onclick=e=>{const range=gcPointerWindow(e);if(range)inspect(range.focus,true);};
+  bindGC($('gc-detail'),$('hotspots'),activeRow,highlightRange,
+    source=>{if(linkedHover?.source===source)clearHover();},
+    range=>{selectionAnchor=range.fold_start;selectSequence(range.fold_start,range.fold_end,true);},
+    position=>inspect(position,true));
+  win.addEventListener('resize',refreshCompactGC);
+
   function download(content,name,type='text/plain'){const url=URL.createObjectURL(new Blob([content],{type})),a=doc.createElement('a');a.href=url;a.download=name;a.click();win.setTimeout(()=>URL.revokeObjectURL(url),1000);}
   function exportBatch(){const rows=win.JunctionMRNAExport.metricRecords(displayRows(),value('translation-cell')||'mean');if(!rows.length)return;const format=value('export-format');if(format==='json')download(JSON.stringify({rows},null,2),'junction-mrna-metrics.json','application/json');else{const keys=Object.keys(rows[0]);const text=keys.map(csvCell).join(',')+'\n'+rows.map(row=>keys.map(key=>csvCell(typeof row[key]==='object'?JSON.stringify(row[key]):row[key])).join(',')).join('\n')+'\n';download(text,'junction-mrna-metrics.csv','text/csv');}}
   $('translation-cell').onchange=()=>{renderResults();save();};
@@ -608,7 +646,7 @@
   function importAssemblies(items){const existing=new Set(records.map(r=>r.build_id).filter(Boolean)),incoming=items.filter(x=>!x.error&&(!x.id||!existing.has(x.id)));const active=records.filter(r=>r.sequence.trim());if(active.length+incoming.length>32)throw Error('Use up to 32 mRNA inputs per batch.');records=active;for(const input of incoming){let name=input.name,suffix=2;while(records.some(r=>r.name===name))name=input.name+' '+suffix++;add({name,sequence:input.sequence,assembly:input.assembly,kind:'nucleotide',build_id:input.id||null,build_cards:input.cards||[],assembled_length:input.assembled_sequence?.length||null,assembly_warnings:input.warnings||[]});}sectionState.inputs=true;applySections();renderRecords();save();return incoming.length;}
   const buildImporter=win.JunctionMRNAFragments.createBuildImport(win,doc,{request,getRecords:()=>records,onImport:importAssemblies});
   const fragmentBuilder=win.JunctionMRNAFragments.create(win,doc,{request,post,onChange:save,onAdd:input=>{try{importAssemblies([input]);$('assembly-summary').textContent+=' Added to mRNA build list.';}catch(e){showError(e.message);}}});
-  const structureComparer=win.JunctionMRNAStructureCompare.create(win,doc,{getRows:displayRows,getPrimary:activeRow,extent:stabilityExtent,ensureProfile,stabilityColor,contrastColor,sequenceRange,selectedPositions,onChange:save,onLayout:()=>win.requestAnimationFrame(()=>{drawStructure();refreshCompactGC();})});
+  const structureComparer=win.JunctionMRNAStructureCompare.create(win,doc,{compactGC,gcLabels,drawGCHover,bindGC,gcWindowForBase,describePosition,gcRangeLabel,getRows:displayRows,getPrimary:activeRow,extent:stabilityExtent,ensureProfile,stabilityColor,contrastColor,sequenceRange,selectedPositions,onChange:save,onLayout:()=>win.requestAnimationFrame(()=>{drawStructure();refreshCompactGC();})});
   const sequenceExporter=win.JunctionMRNAExport.create(win,doc,{request,post,getResults:()=>results,getReferences:()=>benchmarkRows,download,csvCell,onChange:save});
   add();renderRecords();initialiseSections();
   return {open,snapshot,restore};
