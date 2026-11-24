@@ -86,3 +86,25 @@
 .mrna-fixed-fragment:hover,.mrna-fixed-fragment:focus{border-color:var(--green)}
 .mrna-chain-arrow{align-self:center;color:var(--muted);font-size:12px}
 .mrna-cds-details{margin:10px 0;font-size:11px}
+/* Build-list summaries reveal their fixed donor chain on click. */
+#mrna-records{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px}
+#mrna-records>.mrna-record{width:100%;flex:1 1 100%}
+#mrna-records>.mrna-assembly-record{flex:1 1 240px;width:auto;padding:0;border-radius:8px;overflow:hidden}
+#mrna-records>.mrna-assembly-record.is-expanded{flex-basis:100%;border-color:var(--green)}
+.mrna-main-card-heading{display:flex;align-items:flex-start;gap:5px;min-width:0}
+.mrna-main-card-toggle{border:0;background:none;color:var(--ink);text-align:left;padding:12px 10px;min-width:0;flex:1;cursor:pointer}
+.mrna-main-card-toggle strong{display:block;font-size:12px;overflow-wrap:anywhere;line-height:1.45}
+.mrna-main-card-toggle small{display:block;font-size:10px;color:var(--muted);margin:8px 0 2px}
+.mrna-main-card-pass{font-size:10px;color:var(--green)}
+.mrna-main-card-remove{border:0;background:none;color:var(--red);font-size:21px;line-height:1;padding:8px;flex-shrink:0}
+.mrna-main-card-toggle:hover,.mrna-main-card-toggle:focus-visible{background:var(--green-light)}
+.mrna-main-card-body{border-top:1px solid var(--line);padding:14px;min-width:0}
+.mrna-main-card-body>.mrna-record-heading>label:nth-child(2){display:none}
+.mrna-main-card-body>.mrna-record-heading{grid-template-columns:minmax(0,1fr)}
+.mrna-fixed-chain{gap:0;align-items:center}
+.mrna-fixed-fragment{flex:0 0 145px;min-height:70px;border:1px solid var(--line);border-radius:8px;padding:12px}
+.mrna-fixed-fragment small{margin:6px 0 0}
+.mrna-fixed-oh{display:flex;align-items:center;flex-shrink:0;font:600 10px monospace;color:var(--green);padding:3px 7px;background:var(--green-light);border:1px solid var(--line);border-radius:4px;margin:0 8px;position:relative}
+.mrna-fixed-oh:before,.mrna-fixed-oh:after{content:'';position:absolute;width:8px;height:1px;background:var(--muted);top:50%}
+.mrna-fixed-oh:before{right:100%}.mrna-fixed-oh:after{left:100%}
+.mrna-fixed-oh.terminal{background:#7854a1;border-color:#7854a1;color:#fff}
