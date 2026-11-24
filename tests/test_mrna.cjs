@@ -94,3 +94,9 @@ assert.equal(migrated.translation.max,5);assert.equal(migrated.predicted_half_li
 assert.equal(m.restoreRadarRanges({translation:{min:-2,max:7,direction:'higher'}},1).translation.max,7);
 assert.equal(m.restoreRadarRanges({translation:{min:-3,max:3,direction:'higher'}},2).translation.max,3);
 console.log('mRNA revised model ranges migrate only legacy defaults and preserve custom bounds');
+
+const reference={...after,id:'benchmark:fixture',name:'Reference fixture',strategy:'benchmark',benchmark:{id:'fixture'}};
+assert.equal(m.matchedPairs([row,after,reference]).length,1);
+assert.equal(m.hamming(reference.cds,reference.cds),0);
+assert.equal(m.hamming(reference.cds,row.cds+'ATG'),null);
+console.log('mRNA references remain separate from optimisation pairs');

@@ -371,6 +371,20 @@ class StabilityRequest(BaseModel):
         return self
 
 
+class BenchmarkContext(BaseModel):
+    parameters: Parameters = Field(default_factory=Parameters)
+    fold_scope: Literal['cds','transcript'] = 'cds'
+    temperature: float = Field(37, ge=4, le=60)
+
+
+@router.post('/benchmarks/score')
+def score_benchmarks(payload:BenchmarkContext):
+    from .mrna_benchmarks import score
+    owner=user_id()
+    try:return score(owner,payload)
+    except RuntimeError as error:raise HTTPException(503,str(error)) from None
+
+
 @router.post('/stability')
 def stability(payload:StabilityRequest):
     user_id()

@@ -20,3 +20,11 @@ assert.equal(values.find(r=>r.metric==='protein_preserved').delta,null);
 assert.deepEqual(e.stageRows([...pairs,...pairs],'both').map(r=>r.id),['0','1','2']);
 for(const row of metrics)for(const key of ['cds','transcript','protein','assembly','fragment_output','fold_sequence','structure'])assert.equal(key in row,false);
 console.log('mRNA matched-stage, CDS/UTR/protein, full-construct and metrics-only export checks passed');
+
+const reference={...before,id:'benchmark:fixture',name:'Reference fixture',strategy:'benchmark',benchmark:{source:{label:'Fixture'}},metrics:{gc:.55,cai:.8}};
+assert.equal(e.groups([before,after,reference]).length,1);
+const withReference=e.pairedMetrics([{before:{...before,metrics:{gc:.4}},after:{...after,metrics:{gc:.6}}}],[reference]);
+assert.ok(Math.abs(withReference[0].benchmark-55)<1e-10);assert.equal(withReference[0].benchmark_name,reference.name);
+assert.equal(e.metricRecords([reference])[0].reference,true);
+assert.equal(e.sequenceRecords(e.groups([before,after,reference]),{kind:'cds',stage:'after'}).length,1);
+console.log('mRNA reference metrics export without creating optimised reference sequences');
