@@ -111,12 +111,19 @@ def reparent_on_save(db,data,identifier):
 def list_worksheets(scope:Scope,archived:bool=False):
     with store.connection() as db:
         migrate_recovered(db)
-        rows=db.execute('SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope=? AND (archived_at IS NOT NULL)=? ORDER BY updated_at DESC,id',(user_id(),parent(db),scope,archived)).fetchall()
-        active=current(db,scope)
-        # A draft can be incomplete while the user is editing. Listing worksheets
-        # only needs to know if it exists, without validating it for export.
-        has_content=has_working_content(db,scope)
-    return {'items':[summary(row) for row in rows],'current':summary(active) if active else None,'has_content':has_content}
+        workspace=wb.working(db)
+        owner=(user_id(),workspace.get('workbench_id'),scope)
+        columns=wb.SUMMARY_COLUMNS+',scope'
+        query=f'SELECT {columns} FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope=?'
+        rows=db.execute(query+' AND (archived_at IS NOT NULL)=? ORDER BY updated_at DESC,id',(*owner,archived))
+        items=[summary(row) for row in rows]
+        identifier=workspace.get('worksheet_ids',{}).get(scope)
+        active=next((item for item in items if item['id']==identifier),None) if not archived else None
+        if archived and identifier:
+            row=db.execute(query+' AND id=? AND archived_at IS NULL',(*owner,identifier)).fetchone()
+            if row:active=summary(row)
+        has_content=has_working_content(db,scope,workspace)
+    return {'items':items,'current':active,'has_content':has_content}
 
 
 @router.post('')
@@ -135,10 +142,13 @@ def bootstrap_legacy_designs():
     """Retain older multi-design sandboxes as individual selectable worksheets."""
     with store.connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        if db.execute("SELECT 1 FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope='design' AND archived_at IS NULL",(user_id(),parent(db))).fetchone():return {'migrated':0}
-        data=wb.capture(db,include_worksheets=False);designs=data['workspace'].get('design',{});count=0;selected=None
-        for design in designs.get('designs',[]):
-            if not design.get('entries') and design.get('name')=='New design':continue
+        workspace=wb.working(db)
+        if db.execute("SELECT 1 FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope='design' AND archived_at IS NULL",(user_id(),workspace.get('workbench_id'))).fetchone():return {'migrated':0}
+        designs=workspace.get('design',{})
+        pending=[design for design in designs.get('designs',[]) if design.get('entries') or design.get('name')!='New design']
+        if not pending:return {'migrated':0}
+        data=wb.capture(db,include_worksheets=False);count=0;selected=None
+        for design in pending:
             copy=json.loads(wb.encode(data));copy['workspace']['design']={'designs':[design],'activeId':design['id']}
             row=save_record(db,design['name'],'','design',subset(copy,'design'));count+=1
             if design['id']==designs.get('activeId'):selected=row['id']
@@ -231,12 +241,12 @@ def meaningful(data,scope):
     return any(item.get('entries') or item.get('backbone_id') or item.get('table_rows') or item.get('name') not in (None,'','New design') for item in (workspace.get('design') or {}).get('designs',[]))
 
 
-def has_working_content(db,scope):
+def has_working_content(db,scope,workspace):
     if scope=='compare':
         return db.execute('SELECT 1 FROM comparison_runs WHERE user_id=? AND removed_at IS NULL LIMIT 1',(user_id(),)).fetchone() is not None
     if scope=='build' and db.execute('SELECT 1 FROM build_list WHERE user_id=? AND removed_at IS NULL LIMIT 1',(user_id(),)).fetchone():
         return True
-    return meaningful({'workspace':wb.working(db),'builds':[]},scope)
+    return meaningful({'workspace':workspace,'builds':[]},scope)
 
 
 def save_draft(db,scope,data):

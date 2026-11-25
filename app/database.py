@@ -260,8 +260,11 @@ def plate_records(include_archived=False):
     with connection() as db:
         plates=[dict(row) for row in db.execute('SELECT * FROM plates'+('' if include_archived else ' WHERE archived_at IS NULL')+' ORDER BY plate_id')]
         entries=[dict(row) for row in db.execute('SELECT fragments.plate_id,well,fragments.archived_at,imports.filename FROM fragments LEFT JOIN imports ON imports.id=fragments.source_id')]
+    by_plate = {}
+    for entry in entries:
+        by_plate.setdefault(entry['plate_id'], []).append(entry)
     for plate in plates:
-        parts=[row for row in entries if row['plate_id']==plate['plate_id']]
+        parts=by_plate.get(plate['plate_id'], [])
         plate.update(detect_layout([row['well'] for row in parts]))
         plate['occupied_wells']=len(parts)
         plate['active_wells']=0 if plate['archived_at'] else sum(not row['archived_at'] for row in parts)

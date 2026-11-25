@@ -259,7 +259,12 @@ function applyRecommendedAssemblyName(){
 }
 function payload(){const value=$('backbone').value;return{name:$('assembly-name').value||'New assembly',name_mode:state.assemblyNameManual?'manual':'auto',enzyme:$('enzyme').value,fragment_ids:state.parts.map(p=>p.id),starter_fragment_id:null,backbone_id:value.startsWith('p:')?Number(value.slice(2)):null,slot_id:value?$('slot').value||null:null,circular:value?true:null,nested_assemblies:selectedNested(),settings:settings()};}
 let libraryMetricsTimer=null,libraryMetricsRevision=0;
-function scheduleLibraryMetrics(){clearTimeout(libraryMetricsTimer);libraryMetricsTimer=setTimeout(refreshLibraryMetrics,120);}
+function scheduleLibraryMetrics(){
+  // Startup explicitly loads the counts once after restoring worksheet state.
+  if(!window.JunctionSandbox?.ready)return;
+  clearTimeout(libraryMetricsTimer);
+  libraryMetricsTimer=setTimeout(refreshLibraryMetrics,120);
+}
 async function refreshLibraryMetrics(){
   const revision=++libraryMetricsRevision;
   try{const metrics=await api('/api/library/metrics?enzyme='+encodeURIComponent($('enzyme').value));if(revision!==libraryMetricsRevision)return;state.libraryMetrics=metrics;
@@ -2513,7 +2518,6 @@ async function restoreSandbox(saved,runs,contextVersion=0){
   const draft=saved.draft;
   if(draft){
     state.assemblyNameManual=true;
-    $('enzyme').value=['BsaI','BsmBI','BsmBI + BsaI'].includes(draft.enzyme)?draft.enzyme:'BsaI';await refresh();
     $('assembly-name').value=draft.name||'New assembly';$('backbone').value=draft.backbone_id?'p:'+draft.backbone_id:'';
     const ids=draft.fragment_ids||[];state.parts=ids.map(id=>state.fragments.find(f=>f.id===id)).filter(Boolean);
     state.nestedAssemblies=(draft.nested_assemblies||[]).filter(g=>state.parts.some(p=>p.id===g.parent_fragment_id));
@@ -2571,6 +2575,8 @@ showView(JunctionHome.resolveView(location.hash.slice(1)));
     splash.status('Checking your account…');await JunctionAccount.ready;
     splash.status('Loading your instance…');const [workspace,runs]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons')]);
     sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
+    const draft=workspace.data.draft;
+    if(draft)$('enzyme').value=['BsaI','BsmBI','BsmBI + BsaI'].includes(draft.enzyme)?draft.enzyme:'BsaI';
     splash.status('Loading fragments, backbones and rules…');await refresh();
     splash.status('Restoring build plans…');await loadBuildList();
     splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items,workspace.context_version||0);

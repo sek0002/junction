@@ -227,6 +227,9 @@ def owned(db,identifier):
     return row
 
 
+SUMMARY_COLUMNS = 'id,name,notes,created_at,updated_at,metadata'
+
+
 def summary(row):
     return {key:row[key] for key in ('id','name','notes','created_at','updated_at')}|{'metadata':json.loads(row['metadata'])}
 
@@ -260,9 +263,10 @@ def current_record(db):
 @router.get('')
 def list_workbenches():
     with store.connection() as db:
-        rows=db.execute('SELECT * FROM saved_workbenches WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user_id(),)).fetchall()
-        current=current_record(db)
-    return {'items':[summary(row) for row in rows],'current':summary(current) if current else None}
+        rows=db.execute(f'SELECT {SUMMARY_COLUMNS} FROM saved_workbenches WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user_id(),))
+        items=[summary(row) for row in rows]
+        identifier=working(db).get('workbench_id')
+    return {'items':items,'current':next((item for item in items if item['id']==identifier),None)}
 
 
 @router.post('')

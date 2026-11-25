@@ -183,19 +183,30 @@ def health():
 
 @app.get('/api/summary')
 def summary():
-    fragments = store.fragments()
-    return {'fragments':len(fragments),'plates':len({p['plate_id'] for p in fragments}),
-        'plasmids':len(store.plasmids()),'known_stocks':sum(p['stock_ng_ul'] is not None for p in fragments),
-        'plate_ids':sorted({p['plate_id'] for p in fragments}),
-        'plate_labels':plate_aliases(p['plate_id'] for p in store.plate_records(include_archived=True))}
+    with store.connection() as db:
+        counts = db.execute(
+            'SELECT plate_id, count(*) AS total, count(stock_ng_ul) AS known '
+            'FROM fragments WHERE ' + store.ACTIVE_FRAGMENTS + ' GROUP BY plate_id ORDER BY plate_id'
+        ).fetchall()
+        plasmids = db.execute('SELECT count(*) FROM plasmids WHERE archived_at IS NULL').fetchone()[0]
+        labels = plate_aliases(row['plate_id'] for row in db.execute('SELECT plate_id FROM plates'))
+    return {'fragments':sum(row['total'] for row in counts), 'plates':len(counts),
+            'plasmids':plasmids, 'known_stocks':sum(row['known'] for row in counts),
+            'plate_ids':[row['plate_id'] for row in counts], 'plate_labels':labels}
+
 
 
 @app.get('/api/library/metrics')
 def library_metrics(enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI'):
     from .sequence_engine import reverse_complement as revcomp
     from . import worksheets
-    fragments=store.fragments();backbones=[p for p in store.plasmids() if p['circular'] and
-        (p['recipe'].get('example_backbone') or p['recipe'].get('backbone_template')) and not p['recipe'].get('legacy_example')]
+    with store.connection() as db:
+        fragments=db.execute('SELECT name,sequence FROM fragments WHERE '+store.ACTIVE_FRAGMENTS).fetchall()
+        backbones=[]
+        for row in db.execute('SELECT name,sequence,recipe FROM plasmids WHERE circular AND archived_at IS NULL'):
+            recipe=json.loads(row['recipe'])
+            if (recipe.get('example_backbone') or recipe.get('backbone_template')) and not recipe.get('legacy_example'):
+                backbones.append(row)
     junctions={}
     selected_enzyme=enzyme
     def add(overhang,enzyme,name,kind,errors=()):
@@ -215,10 +226,13 @@ def library_metrics(enzyme:Literal['BsaI','BsmBI','BsmBI + BsaI']='BsaI'):
             for slot in find_backbone_slots(backbone['sequence'],enzyme):
                 for side in ('left','right'):add(slot.get(side+'_overhang'),slot.get(side+'_boundary_enzyme',slot.get('enzyme',enzyme)),backbone['name'],'backbones',slot.get('errors',[]) if enzyme==selected_enzyme else ())
     with store.connection() as db:
-        workspace=worksheets.wb.working(db);records=worksheets.registry(db,live=False)
-    designs={d.get('id') for d in workspace.get('design',{}).get('designs',[])}
-    for record in records:
-        if record['scope']=='design':designs.update(d.get('id') for d in record['snapshot']['workspace'].get('design',{}).get('designs',[]))
+        workspace=worksheets.wb.working(db)
+        designs={d.get('id') for d in workspace.get('design',{}).get('designs',[])}
+        rows=db.execute("SELECT payload FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? "
+                        "AND scope='design' AND archived_at IS NULL",(user_id(),workspace.get('workbench_id')))
+        for row in rows:
+            saved=json.loads(row['payload'])['workspace']
+            designs.update(d.get('id') for d in saved.get('design',{}).get('designs',[]))
     rows=[]
     for _,item in sorted(junctions.items()):
         row={key:sorted(value) if isinstance(value,set) else value for key,value in item.items() if key!='problems'}
