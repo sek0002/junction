@@ -8,7 +8,7 @@
  function mergeParts(parts,additions){const merged=[],ids=new Set();for(const p of [...parts,...additions]){if(!p||!Number.isInteger(p.id)||p.id<1||typeof p.name!=='string'||ids.has(p.id))continue;ids.add(p.id);merged.push(partInfo(p));}if(merged.length>32)throw Error('Use up to 32 donor fragments. Remove some selections before adding.');return merged;}
  function create(win,doc,{request,post,onAdd,onChange=()=>{}}){
   const $=id=>doc.getElementById('mrna-assembly-'+id);
-  let parts=[],pending=new Map(),matches=[],preview=null,searchVersion=0,previewVersion=0,timer=null,loading=false;
+  let parts=[],pending=new Map(),matches=[],preview=null,searchVersion=0,previewVersion=0,timer=null,previewTimer=null,resolvedEnds=[];
   const details=new Map(),tip=$('tooltip');let tipAnchor=null,tipIndex=null;
   const rc=s=>String(s||'').split('').reverse().map(c=>({A:'T',T:'A',G:'C',C:'G'}[c]||c)).join('');
   function hideTooltip(){tipAnchor=null;tip.classList.add('hidden');}
@@ -41,9 +41,11 @@
     const [part]=parts.splice(from,1);
     parts.splice(to,0,part);
     invalidate(true);
+    win.clearTimeout(timer);
+    searchVersion++;
     matches=[];
     render();
-    search();
+    previewTimer=win.setTimeout(build,120);
     onChange();
     if(focusHandle)list.children[to].querySelector('[data-reorder]').focus();
     $('order-status').textContent=part.name+' moved to position '+(to+1)+' of '+parts.length+'.';
@@ -99,11 +101,14 @@
     const card=handle.closest('[data-part-id]');
     movePart(Number(card.dataset.partId),Number(card.dataset.partPreview)+step,true);
   });
-  function endLabels(p,index){const info=details.get($('enzyme').value+':'+p.id),orientation=preview?.fragment_map?.[index]?.orientation??p.orientation??1,left=info?.digest?.left_overhang||p.left,right=info?.digest?.right_overhang||p.right,source=info?1:p.orientation??1;return orientation!==source?[rc(right),rc(left)]:[left,right];}
+  function endLabels(p,index){
+    const end=resolvedEnds[index];
+    if(end?.id===p.id)return [end.left_overhang,end.right_overhang];
+    const info=details.get($('enzyme').value+':'+p.id),orientation=preview?.fragment_map?.[index]?.orientation??p.orientation??1,left=info?.digest?.left_overhang||p.left,right=info?.digest?.right_overhang||p.right,source=info?1:p.orientation??1;return orientation!==source?[rc(right),rc(left)]:[left,right];}
   function tooltipContent(index){
    if(index===null)return `<b>${escape($('name').value||'Fragment assembly')}</b><small>${escape($('enzyme').value)} · ${parts.length} fragments in ligation order</small><ol>${parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li><div><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small></div><code>5′ ${escape(left||'…')}<br>3′ ${escape(right||'…')}</code></li>`;}).join('')}</ol>${preview?`<small>CDS ${preview.cds_start}–${preview.cds_end} · frame ${preview.frame>0?'+':''}${preview.frame} · ${preview.sequence.length} nt</small>`:'<small>Preview assembly to resolve orientations and CDS.</small>'}`;
-   const p=parts[index];if(!p)return '';const info=details.get($('enzyme').value+':'+p.id),dna=info?.construct_sequence||info?.sequence||'',gc=dna?100*(dna.match(/[GC]/g)||[]).length/dna.length:null,[left,right]=endLabels(p,index),mapped=preview?.fragment_map?.[index];
-   return `<b>${escape(p.name)}</b><small>Fragment ${index+1} of ${parts.length} · ${escape($('enzyme').value)}</small><p>${dna.length||p.length||'—'} bp · GC ${gc===null?'…':gc.toFixed(1)+'%'} · ${mapped?(mapped.orientation<0?'Reverse complement':'Forward'):'Orientation resolved in preview'}</p><code>5′ ${escape(left||'…')} → 3′ ${escape(right||'…')}</code>${mapped?`<p>Assembly bp ${mapped.start}–${mapped.end}<br>Selected CDS ${preview.cds_start}–${preview.cds_end} · frame ${preview.frame>0?'+':''}${preview.frame}</p>`:''}${info?.digest?.errors?.length?`<small>${escape(info.digest.errors.join(' '))}</small>`:''}`;
+   const p=parts[index];if(!p)return '';const info=details.get($('enzyme').value+':'+p.id),dna=info?.construct_sequence||info?.sequence||'',gc=dna?100*(dna.match(/[GC]/g)||[]).length/dna.length:null,[left,right]=endLabels(p,index),mapped=preview?.fragment_map?.[index],orientation=resolvedEnds[index]?.orientation??mapped?.orientation;
+   return `<b>${escape(p.name)}</b><small>Fragment ${index+1} of ${parts.length} · ${escape($('enzyme').value)}</small><p>${dna.length||p.length||'—'} bp · GC ${gc===null?'…':gc.toFixed(1)+'%'} · ${orientation?(orientation<0?'Reverse complement':'Forward'):'Orientation resolved in preview'}</p><code>5′ ${escape(left||'…')} → 3′ ${escape(right||'…')}</code>${mapped?`<p>Assembly bp ${mapped.start}–${mapped.end}<br>Selected CDS ${preview.cds_start}–${preview.cds_end} · frame ${preview.frame>0?'+':''}${preview.frame}</p>`:''}${info?.digest?.errors?.length?`<small>${escape(info.digest.errors.join(' '))}</small>`:''}`;
   }
   function positionTooltip(){if(!tipAnchor?.isConnected){hideTooltip();return;}const r=tipAnchor.getBoundingClientRect(),b=tip.getBoundingClientRect();tip.style.left=Math.max(12,Math.min(r.left,win.innerWidth-b.width-12))+'px';tip.style.top=Math.max(12,Math.min(r.bottom+8+b.height<=win.innerHeight-12?r.bottom+8:r.top-b.height-8,win.innerHeight-b.height-12))+'px';}
   function showTooltip(anchor,index){tipAnchor=anchor;tipIndex=index;tip.innerHTML=tooltipContent(index);tip.classList.remove('hidden');positionTooltip();const part=parts[index];if(index===null||!part)return;const key=$('enzyme').value+':'+part.id;if(details.has(key))return;request('/api/fragments/'+part.id+'?enzyme='+encodeURIComponent($('enzyme').value)).then(info=>{details.set(key,info);if(tipAnchor===anchor&&tipIndex===index&&anchor.isConnected){tip.innerHTML=tooltipContent(index);positionTooltip();}}).catch(()=>{});}
@@ -114,17 +119,40 @@
   $('parts').addEventListener('click',e=>{const button=e.target.closest('[data-preview-toggle]');if(button){const card=button.closest('[data-part-preview]');showTooltip(card,Number(card.dataset.partPreview));}});
   $('count').onmouseenter=()=>$('parts').children.length&&showTooltip($('count'),null);$('count').onmouseleave=hideTooltip;$('count').onfocus=$('count').onmouseenter;$('count').onblur=hideTooltip;$('count').onclick=$('count').onmouseenter;$('count').onkeydown=e=>{if(e.key==='Escape')hideTooltip();};
   win.addEventListener('scroll',hideTooltip,{passive:true,capture:true});win.addEventListener('resize',hideTooltip,{passive:true});doc.addEventListener('pointerdown',e=>{if(!e.target.closest('[data-part-preview],#mrna-assembly-count'))hideTooltip();});
-  function invalidate(clearBounds=false){hideTooltip();preview=null;previewVersion++;$('add').disabled=true;$('preview').hidden=true;$('error').textContent='';if(clearBounds){$('start').value='';$('end').value='';}}
+  function invalidate(clearBounds=false){win.clearTimeout(previewTimer);hideTooltip();preview=null;resolvedEnds=[];previewVersion++;$('build').disabled=false;refreshEnds();$('add').disabled=true;$('preview').hidden=true;$('error').textContent='';if(clearBounds){$('start').value='';$('end').value='';}}
   function renderMatches(){
    $('matches').innerHTML=matches.length?matches.map(p=>`<button type="button" class="mrna-fragment-option" data-fragment="${p.id}" ${parts.some(x=>x.id===p.id)?'disabled':''}><span><strong>${escape(p.name)}</strong><small>${Number(p.physical_length||p.length||0).toLocaleString()} bp · ${escape(p.digest?.left_overhang)} → ${escape(p.digest?.right_overhang)}</small></span><span>Add</span></button>`).join(''):'<p class="small muted">No matching compatible fragments.</p>';
   }
+  function refreshEnds(){
+    for(const card of list.children){
+      const index=Number(card.dataset.partPreview),part=parts[index];
+      if(!part||Number(card.dataset.partId)!==part.id)continue;
+      const [left,right]=endLabels(part,index),prev=resolvedEnds[index-1],next=resolvedEnds[index+1];
+      const mismatchLeft=Boolean(left&&prev?.right_overhang&&prev.right_overhang!==left);
+      const mismatchRight=Boolean(right&&next?.left_overhang&&next.left_overhang!==right);
+      for(const [side,label,bad] of [['left',left,mismatchLeft],['right',right,mismatchRight]]){
+        const chip=card.querySelector('[data-end="'+side+'"]');
+        chip.textContent=label||(side==='left'?'5′':'3′');
+        chip.classList.toggle('incompatible',bad);
+      }
+      card.querySelector('[data-rc]').hidden=resolvedEnds[index]?.orientation!==-1;
+      const message=card.querySelector('[data-junction-error]');
+      message.hidden=!mismatchLeft;
+      message.textContent=mismatchLeft?prev.right_overhang+' ≠ '+left:'';
+      message.title=mismatchLeft?parts[index-1].name+' → '+part.name+' · incompatible overhangs':'';
+    }
+    if(tipAnchor?.isConnected){
+      tip.innerHTML=tooltipContent(tipIndex);
+      positionTooltip();
+    }
+  }
   function render(){
-   finishDrag();hideTooltip();$('parts').innerHTML=parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li data-part-preview="${i}" data-part-id="${p.id}" draggable="${parts.length>1}"><button type="button" class="mrna-fragment-grip" data-reorder aria-label="Reorder ${escape(p.name)}, position ${i+1} of ${parts.length}. Use arrow keys to move." title="Drag to reorder, or use the arrow keys" ${parts.length<2?'disabled':''}><span aria-hidden="true">⠿</span> ${i+1}</button><button class="mrna-fragment-open" type="button" data-preview-toggle aria-describedby="mrna-assembly-tooltip"><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small><span class="mrna-fragment-ends"><code>${escape(left||'5′')}</code> → <code>${escape(right||'3′')}</code>${preview?.fragment_map?.[i]?.orientation<0?'<b>RC</b>':''}</span></button><div><button type="button" data-remove="${i}" aria-label="Remove ${escape(p.name)}">×</button></div></li>`;}).join('');
+   finishDrag();hideTooltip();$('parts').innerHTML=parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li data-part-preview="${i}" data-part-id="${p.id}" draggable="${parts.length>1}"><button type="button" class="mrna-fragment-grip" data-reorder aria-label="Reorder ${escape(p.name)}, position ${i+1} of ${parts.length}. Use arrow keys to move." title="Drag to reorder, or use the arrow keys" ${parts.length<2?'disabled':''}><span aria-hidden="true">⠿</span> ${i+1}</button><button class="mrna-fragment-open" type="button" data-preview-toggle aria-describedby="mrna-assembly-tooltip"><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small><span class="mrna-fragment-ends"><code data-end="left">${escape(left||'5′')}</code> → <code data-end="right">${escape(right||'3′')}</code><b data-rc hidden>RC</b></span><small data-junction-error hidden></small></button><div><button type="button" data-remove="${i}" aria-label="Remove ${escape(p.name)}">×</button></div></li>`;}).join('');
    $('empty').hidden=parts.length>0;
    $('count').textContent=`${parts.length} / 32 fragments`;$('clear').disabled=!parts.length;const last=parts[parts.length-1];$('next').textContent=last?endLabels(last,parts.length-1)[1]||'Any overhang':'Any overhang';
    renderMatches();
   }
-  async function search(){const token=++searchVersion,last=parts[parts.length-1],right=last?endLabels(last,parts.length-1)[1]:'';$('next').textContent=right||'Any overhang';try{const rows=await request('/api/fragments?limit=100&enzyme='+encodeURIComponent($('enzyme').value)+'&q='+encodeURIComponent($('search').value)+($('compatible').checked&&right?'&left='+encodeURIComponent(right):''));if(token!==searchVersion)return;matches=rows;renderMatches();}catch(e){if(token===searchVersion)$('error').textContent=e.message;}}
+  async function search(){const token=++searchVersion,last=parts[parts.length-1],right=last?endLabels(last,parts.length-1)[1]:'';$('next').textContent=right||'Any overhang';try{const rows=await request('/api/fragments?limit=100&enzyme='+encodeURIComponent($('enzyme').value)+'&q='+encodeURIComponent($('search').value)+($('compatible').checked&&right?'&left='+encodeURIComponent(right):''));if(token!==searchVersion)return;matches=rows;renderMatches();}catch(e){if(token===searchVersion&&!$('error').textContent)$('error').textContent=e.message;}}
   $('search').oninput=()=>{clearTimeout(timer);searchVersion++;$('matches').hidden=false;timer=win.setTimeout(search,180);onChange();};
   $('search').onfocus=()=>{$('matches').hidden=false;search();};
   $('compatible').onchange=()=>{search();onChange();};
@@ -139,13 +167,23 @@
   $('frame').onchange=()=>{invalidate(true);onChange();};
   $('enzyme').onchange=()=>{invalidate(true);search();onChange();};
   async function build(){
-   if(loading)return;const token=++previewVersion;loading=true;$('build').disabled=true;$('error').textContent='';$('add').disabled=true;
-   try{const data=await request('/api/mrna/assemble',post({fragment_ids:parts.map(p=>p.id),enzyme:$('enzyme').value,frame:$('frame').value==='auto'?'auto':Number($('frame').value),cds_start:$('start').value?Number($('start').value):null,cds_end:$('end').value?Number($('end').value):null}));if(token!==previewVersion)return;preview=data;
+   win.clearTimeout(previewTimer);const token=++previewVersion;$('build').disabled=true;$('error').textContent='';$('add').disabled=true;
+   try{const data=await request('/api/mrna/assemble',post({fragment_ids:parts.map(p=>p.id),enzyme:$('enzyme').value,frame:$('frame').value==='auto'?'auto':Number($('frame').value),cds_start:$('start').value?Number($('start').value):null,cds_end:$('end').value?Number($('end').value):null}));if(token!==previewVersion)return;preview=data;resolvedEnds=data.fragment_ends||[];
     $('start').value=data.cds_start;$('end').value=data.cds_end;
     $('orfs').innerHTML=data.candidates.map((c,i)=>`<option value="${i}" ${c.start===data.cds_start&&c.end===data.cds_end&&c.frame===data.frame?'selected':''}>${c.complete?'Complete ORF':'Partial ORF'} · frame ${c.frame>0?'+':''}${c.frame} · ${c.start}–${c.end} · ${c.length} nt</option>`).join('');
     $('summary').textContent=`${parts.length} fragments → ${data.assembled_sequence.length.toLocaleString()} bp DNA · CDS ${data.cds_start}–${data.cds_end} · frame ${data.frame>0?'+':''}${data.frame} · ${data.sequence.length.toLocaleString()} nt. Protected CDS codons: ${data.preserve_regions.map(r=>r.join('–')).join(', ')||'overhangs lie outside CDS'}.`;
-    $('warnings').textContent='';$('dna').value=data.assembled_sequence;$('preview').hidden=false;$('add').disabled=false;render();onChange();
-   }catch(e){if(token===previewVersion){preview=null;$('preview').hidden=true;$('error').textContent=e.message;}}finally{loading=false;$('build').disabled=false;}
+    $('warnings').textContent='';$('dna').value=data.assembled_sequence;$('preview').hidden=false;$('add').disabled=false;refreshEnds();search();onChange();
+   }catch(e){
+     if(token!==previewVersion)return;
+     preview=null;
+     resolvedEnds=e.responseData?.fragment_ends||[];
+     $('preview').hidden=true;
+     $('error').textContent=e.message;
+     refreshEnds();
+     search();
+   }finally{
+     if(token===previewVersion)$('build').disabled=false;
+   }
   }
   $('build').onclick=build;
   $('orfs').onchange=()=>{const c=preview?.candidates[Number($('orfs').value)];if(!c)return;$('frame').value=String(c.frame);$('start').value=c.start;$('end').value=c.end;invalidate();build();};

@@ -164,6 +164,24 @@ class FragmentInputAPITests(unittest.TestCase):
             self.assertIn(self.client.post('/api/mrna/assemble',json=request|patch).status_code,(404,422))
         self.assertEqual(store.get_fragment(self.ids[0])['sequence'],fixture()['fragments'][0]['sequence'])
 
+    def test_preview_returns_oriented_ends_for_valid_and_invalid_junctions(self):
+        request = {'fragment_ids': self.ids, 'enzyme': 'BsaI'}
+        for valid in (True, False):
+            with self.subTest(valid=valid):
+                second = fixture(reverse_donor=True)['fragments'][1]['sequence'] if valid else donor('AAAA', 'GCTTAA', 'CGAA')
+                with store.connection() as db:
+                    db.execute('UPDATE fragments SET sequence=? WHERE id=?', (second, self.ids[1]))
+                response = self.client.post('/api/mrna/assemble', json=request)
+                self.assertEqual(response.status_code, 200 if valid else 422, response.text)
+                result = response.json()
+                first, last = result['fragment_ends']
+                self.assertEqual([first['id'], last['id']], self.ids)
+                self.assertEqual(first['right_overhang'] == last['left_overhang'], valid)
+                if valid:
+                    self.assertEqual(last['orientation'], -1)
+                else:
+                    self.assertIn('Assembly is invalid', result['detail'])
+
     def test_private_donor_exports_use_saved_snapshot(self):
         p=prepare_assembly(fixture());designed=synonym(p)
         row={'name':'=candidate','strategy':'CAI','assembly':p['assembly'],'cds':designed}

@@ -14,11 +14,11 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator, field_validator
 from . import database as store
 from .auth import user_id
-from .mrna_fragments import prepare_assembly, project_fragments
+from .mrna_fragments import InvalidAssembly, fragment_ends, prepare_assembly, project_fragments
 
 ROOT = Path(__file__).resolve().parents[1]
 router = APIRouter(prefix='/api/mrna', tags=['mRNA'])
@@ -245,8 +245,10 @@ def assemble_input(payload:AssembleInput):
     try:
         snapshot=FragmentAssembly(fragments=fragments,**payload.model_dump(exclude={'fragment_ids'})).model_dump()
         result=prepare_assembly(snapshot)
+    except InvalidAssembly as error:
+        return JSONResponse(status_code=422, content={'detail':str(error), 'fragment_ends':error.fragment_ends})
     except ValueError as error:raise HTTPException(422,str(error)) from None
-    result.pop('_result')
+    result['fragment_ends'] = fragment_ends(result.pop('_result'))
     return result
 
 

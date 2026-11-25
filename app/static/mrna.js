@@ -117,7 +117,7 @@
   const showError=message=>{$('error').textContent=message||'';$('error').hidden=!message;};
   const number=(x,d=3)=>x===null||x===undefined?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:d});
   const save=()=>win.JunctionSandbox?.schedule();
-  async function request(url,options={}){const response=await win.fetch(url,options);let data;try{data=await response.json();}catch{throw Error('The server returned an invalid response.');}if(!response.ok){const detail=data.detail;throw Error(typeof detail==='string'?detail:Array.isArray(detail)?detail.map(x=>x.msg).join(' '):'The request failed.');}return data;}
+  async function request(url,options={}){const response=await win.fetch(url,options);let data;try{data=await response.json();}catch{throw Error('The server returned an invalid response.');}if(!response.ok){const detail=data.detail;const error=Error(typeof detail==='string'?detail:Array.isArray(detail)?detail.map(x=>x.msg).join(' '):'The request failed.');error.responseData=data;throw error;}return data;}
   const post=data=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   const sectionDefaults={},sectionBindings=[];
   function bindNativeSections(){

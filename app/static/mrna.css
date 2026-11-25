@@ -236,3 +236,10 @@
 .mrna-fragment-parts .drag-source { opacity:.55; }
 .mrna-fragment-parts .drop-target { outline:2px dashed var(--green); outline-offset:1px; }
 .mrna-order-status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+
+.mrna-fragment-ends code.incompatible, .mrna-fragment-open [data-junction-error] {
+  color:var(--red);
+  font-weight:700;
+}
+.mrna-fragment-ends code.incompatible { outline:1px solid currentColor; }
+.mrna-fragment-open [data-junction-error][hidden], .mrna-fragment-ends [data-rc][hidden] { display:none; }

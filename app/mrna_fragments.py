@@ -45,6 +45,17 @@ def detect_cds(sequence, frame='auto'):
     return candidates[:60]
 
 
+def fragment_ends(result):
+    return [{key: edge[key] for key in ('id', 'orientation', 'left_overhang', 'right_overhang')}
+            for edge in result['fragments']]
+
+
+class InvalidAssembly(ValueError):
+    def __init__(self, result):
+        super().__init__('Assembly is invalid: '+' '.join(result['errors']))
+        self.fragment_ends = fragment_ends(result)
+
+
 def prepare_assembly(snapshot):
     fragments = snapshot['fragments']
     if not fragments or len(fragments) > 32:
@@ -54,7 +65,7 @@ def prepare_assembly(snapshot):
     result = assemble(fragments, snapshot['enzyme'], circular=False,
         left_overhang=snapshot.get('left_overhang'),right_overhang=snapshot.get('right_overhang'))
     if not result['valid']:
-        raise ValueError('Assembly is invalid: '+' '.join(result['errors']))
+        raise InvalidAssembly(result)
     if any(snapshot.get(side+'_overhang') and snapshot[side+'_overhang']!=result[side+'_overhang'] for side in ('left','right')):
         raise ValueError('The donor chain no longer matches its fixed Build list overhangs.')
     dna = result['sequence']
