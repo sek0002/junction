@@ -1,5 +1,6 @@
 """Private working state. The shared sequence library is never copied or filtered."""
 import json
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -13,19 +14,46 @@ from .exports import parse_sequence_file
 router=APIRouter()
 
 
+WORKSHEET_KEYS = {
+    'build': {'draft', 'activeBuildId', 'plannerOverrides', 'backboneStocks', 'subtab'},
+    'design': {'design'}, 'compare': {'compareView'}, 'mrna': {'mrna'},
+}
+SHELL_KEYS = {'workbench_id', 'worksheet_ids', 'plasmidViews', 'uploadRuleOverrides', 'plannerOverrides'}
+
+
 class Workspace(BaseModel):
     data:dict=Field(default_factory=dict)
     context_version:int | None=Field(default=None,ge=0)
+    partial:bool=False
+
+
+def projected_workspace(db,keys,*,shell=False):
+    """Read only the requested JSON properties from an existing workspace."""
+    fields=[f"json_quote(json_extract(data, '$.{key}')) AS {key}" for key in sorted(keys)]
+    if shell:
+        fields.extend(["json_extract(data,'$.draft.enzyme') AS enzyme",
+                       "json_extract(data,'$.draft.name') AS assembly_name"])
+    row=db.execute('SELECT context_version,'+', '.join(fields)+
+                   ' FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
+    result={'context_version':row['context_version'] if row else 0,
+            'data':{key:json.loads(row[key]) for key in keys if row and row[key]!='null'}}
+    if shell and row:
+        result.update(enzyme=row['enzyme'],assembly_name=row['assembly_name'])
+    return result
 
 
 @router.get('/api/workspace')
-def workspace():
+def workspace(scope:Literal['shell','build','design','compare','mrna'] | None=None):
     with store.connection() as db:
+        if scope is not None:
+            return projected_workspace(db,SHELL_KEYS if scope=='shell' else WORKSHEET_KEYS[scope],shell=scope=='shell')
         row=db.execute('SELECT data,updated_at,context_version FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
     return {'data':json.loads(row['data']) if row else {},'updated_at':row['updated_at'] if row else None,'context_version':row['context_version'] if row else 0}
 
 
 def write_workspace(db,payload):
+    if payload.partial and payload.context_version is None:
+        raise HTTPException(422,'A partial workspace save needs an instance version.')
     incoming=payload.data
     current=db.execute('SELECT data,context_version FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
     saved=json.loads(current['data']) if current else {}
@@ -38,7 +66,7 @@ def write_workspace(db,payload):
         if payload.context_version != (current['context_version'] if current else 0):
             raise HTTPException(409,'Worksheet or Workbench changed while this page was open. Reload Junction before saving; the stale save was not applied.')
         # Only explicit worksheet/workbench actions may change these pointers.
-        incoming=dict(payload.data)
+        incoming=(saved | payload.data) if payload.partial else dict(payload.data)
         for key in ('workbench_id','worksheet_ids'):
             incoming.pop(key,None)
             if key in saved:incoming[key]=saved[key]
@@ -54,7 +82,7 @@ def save_workspace(payload:Workspace):
         db.execute('BEGIN IMMEDIATE')
         write_workspace(db,payload)
         from .worksheets import autosave
-        autosave(db)
+        autosave(db,changed=payload.data if payload.partial else None)
     return {'saved':True}
 
 

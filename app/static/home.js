@@ -33,7 +33,7 @@
         if(restore)worksheetToast.classList.remove('visible');
         else{worksheetStatus.textContent='Worksheet loaded';closing=win.setTimeout(()=>worksheetToast.classList.remove('visible'),2000);}
       }else if(immediate||reduced.matches)intro.hidden=true;
-      else closing=win.setTimeout(()=>{intro.hidden=true;},350);
+      else closing=win.setTimeout(()=>{intro.hidden=true;},140);
       home.classList.add('jhome-revealed');
       if(focus){
         const target=restore&&previousFocus?.isConnected?previousFocus:home.classList.contains('active')?heading:doc.querySelector('.view.active h1');
@@ -62,7 +62,7 @@
       setStatus(message);consumeWelcome(win);
       if(compact){finish({focus:true,immediate:true});return;}
       skip.hidden=false;skip.disabled=false;
-      const remaining=reduced.matches||switchingInstance?0:Math.max(0,1300-(clock()-started));
+      const remaining=reduced.matches||switchingInstance?0:Math.max(0,320-(clock()-started));
       if(!remaining)finish({focus:true,immediate:reduced.matches});
       else timer=win.setTimeout(()=>finish({focus:true}),remaining);
     }
@@ -81,9 +81,10 @@
       if(event.key==='Tab'){event.preventDefault();(failed?retryButton:loading?intro:skip).focus();}
     });
     for(const card of home.querySelectorAll('[data-home-view]')){
-      card.addEventListener('click',event=>{
+      card.addEventListener('click',async event=>{
         if(event.defaultPrevented||event.button>0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
-        event.preventDefault();navigate(card.dataset.homeView);
+        event.preventDefault();const opened=await navigate(card.dataset.homeView);
+        if(opened===false||!doc.getElementById(card.dataset.homeView)?.classList.contains('active'))return;
         if(card.dataset.homeView!=='profile'){const title=doc.querySelector('.view.active h1');title?.setAttribute('tabindex','-1');title?.focus({preventScroll:true});}
         win.scrollTo({top:0,behavior:'auto'});
       });

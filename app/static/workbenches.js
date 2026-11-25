@@ -4,7 +4,7 @@
   const icon=type=>'<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">'+icons[type]+'</svg>';
   function setup(win,doc,{api,flush,setCurrent,pause,resume,recommendedName,stats,download,notify}){
     const $=id=>doc.getElementById(id),list=$('workbench-list'),saveDialog=$('workbench-save-dialog'),newDialog=$('workbench-new-dialog');
-    let items=[],current=null,locked=false,afterSaveNew=false,loadRevision=0;
+    let counts={builds:0,designs:0,comparisons:0},items=[],current=null,locked=false,afterSaveNew=false,loadRevision=0;
     const element=(tag,text,className)=>{const n=doc.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;};
     const date=value=>value?new Date(value).toLocaleString():'';
     const request=(url,body)=>api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
@@ -34,14 +34,14 @@
     }
     async function load(){
       const revision=++loadRevision;
-      try{const result=await api('/api/workbenches');if(revision!==loadRevision)return;items=result.items;context(result.current);render();}
+      try{const result=await api('/api/workbenches');if(revision!==loadRevision)return;items=result.items;counts=result.counts;context(result.current);render();}
       catch(error){$('workbench-page-status').textContent=error.message;}
     }
     async function openSave({thenNew=false}={}){
       menu(false);afterSaveNew=thenNew;
       try{
         await flush();await load();$('workbench-save-name').value=current?.name||recommendedName()||'Workbench';$('workbench-save-notes').value=current?.notes||'';
-        $('workbench-save-meta').textContent=stats();$('workbench-save-error').textContent='';saveDialog.showModal();$('workbench-save-name').focus();
+        $('workbench-save-meta').textContent=stats(counts);$('workbench-save-error').textContent='';saveDialog.showModal();$('workbench-save-name').focus();
       }catch(error){notify(error.message);}
     }
     function reload(view='home'){

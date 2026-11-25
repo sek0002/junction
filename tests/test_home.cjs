@@ -48,16 +48,16 @@ test('progress updates are text and loading cannot be skipped or escaped',()=>{
   assert.equal(p.nodes['home-intro'].hidden,false);assert.ok(p.backgrounds.every(n=>n.inert));
 });
 test('ready completes only the remaining animation, releases controls and focuses the heading',()=>{
-  const p=page();p.elapsed(600);p.controller.ready();
+  const p=page();p.elapsed(120);p.controller.ready();
   assert.equal(p.controller.isLoading,false);assert.equal(p.nodes['home-intro-status'].textContent,'Ready');
-  assert.equal(p.nodes['home-intro-skip'].hidden,false);p.run(700);
+  assert.equal(p.nodes['home-intro-skip'].hidden,false);p.run(200);
   assert.ok(p.backgrounds.every(n=>!n.inert));assert.equal(p.nodes['home-heading'].focused,1);
-  p.run(350);assert.equal(p.nodes['home-intro'].hidden,true);assert.equal(p.timers.size,0);
+  p.run(140);assert.equal(p.nodes['home-intro'].hidden,true);assert.equal(p.timers.size,0);
 });
 test('a slow restore has no additional entrance delay',()=>{
   const p=page();p.elapsed(3000);p.controller.ready();
   assert.ok(p.backgrounds.every(n=>!n.inert));assert.equal(p.nodes['home-heading'].focused,1);
-  assert.deepEqual([...p.timers.values()].map(t=>t.ms),[350]);
+  assert.deepEqual([...p.timers.values()].map(t=>t.ms),[140]);
 });
 test('Skip and Escape dismiss remaining animation after restoration completes',()=>{
   for(const escape of [false,true]){
@@ -65,7 +65,7 @@ test('Skip and Escape dismiss remaining animation after restoration completes',(
     if(escape)p.nodes['home-intro'].handlers.keydown({key:'Escape',preventDefault(){}});
     else p.nodes['home-intro-skip'].handlers.click();
     assert.equal(p.nodes['home-heading'].focused,1);assert.ok(p.backgrounds.every(n=>!n.inert));
-    assert.ok(![...p.timers.values()].some(t=>t.ms===1300));
+    assert.ok(![...p.timers.values()].some(t=>t.ms===320));
   }
 });
 test('deep links stay covered while restoring and focus their tool when ready',()=>{
@@ -95,12 +95,12 @@ test('starting another load cancels a pending fade from the previous load',()=>{
   const p=page();p.elapsed(1500);p.controller.ready();assert.equal(p.timers.size,1);
   p.controller.start('Loading another instance…');assert.equal(p.timers.size,0);
   assert.equal(p.nodes['home-intro'].hidden,false);assert.equal(p.nodes['home-intro'].classList.contains('home-intro-done'),false);
-  assert.ok(p.backgrounds.every(n=>n.inert));p.controller.ready();p.run(1300);p.run(350);
+  assert.ok(p.backgrounds.every(n=>n.inert));p.controller.ready();p.run(320);p.run(140);
   assert.equal(p.nodes['home-intro'].hidden,true);
 });
 test('dialog callbacks wait for restoration to finish',()=>{
   const p=page();let calls=0;p.controller.onReady(()=>calls++);assert.equal(calls,0);
-  p.controller.ready();assert.equal(calls,0);p.run(1300);assert.equal(calls,1);
+  p.controller.ready();assert.equal(calls,0);p.run(320);assert.equal(calls,1);
   p.controller.onReady(()=>calls++);assert.equal(calls,2);
 });
 test('cards route to tools and Workbench while modified clicks retain native behavior',()=>{

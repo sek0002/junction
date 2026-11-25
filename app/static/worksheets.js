@@ -33,7 +33,7 @@
     }
     function setScope(view){scope=scopes[view]?view:null;
       for(const action of ['save','share','new']){$('worksheet-'+action).disabled=!scope;$('worksheet-'+action).title=(scope?scopes[scope]+' worksheet':'Open Assembly, Design, Compare or mRNA')+' · '+action;}
-      if(scope&&win.JunctionSandbox?.ready)load(scope).catch(error=>notify(error.message));
+
     }
     function menuClose(){if($('workbench-menu-toggle').getAttribute('aria-expanded')==='true')$('workbench-menu-toggle').click();}
     function lock(value){locked=value;Object.keys(scopes).forEach(render);doc.querySelectorAll('[data-worksheet-save],[data-worksheet-new],[data-worksheet-share]').forEach(button=>button.disabled=value);$('worksheet-save-submit').disabled=value;}
@@ -118,7 +118,7 @@
     function syncTitles(){for(const[kind,input]of [['build','assembly-name'],['design','design-name']])$(kind+'-card-title').textContent=$(input).value||(kind==='build'?'New assembly':'New design');}
     doc.addEventListener('input',syncTitles);doc.addEventListener('change',syncTitles);
     for(const dialog of [$('worksheet-save-dialog'),$('worksheet-new-dialog')])dialog.addEventListener('cancel',event=>{if(locked)event.preventDefault();});
-    syncTitles();setScope(win.location.hash.slice(1));return{setScope,loadAll,share,syncTitles,records,active};
+    syncTitles();setScope(win.location.hash.slice(1));return{setScope,load,loadAll,share,syncTitles,records,active};
   }
   root.JunctionWorksheets={setup};
 })(window);

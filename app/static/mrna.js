@@ -726,7 +726,7 @@
   const structureComparer=win.JunctionMRNAStructureCompare.create(win,doc,{renderStructurePlot,compactGC,gcLabels,drawGCHover,bindGC,gcWindowForBase,describePosition,gcRangeLabel,getRows:displayRows,getPrimary:activeRow,extent:stabilityExtent,ensureProfile,stabilityColor,contrastColor,sequenceRange,selectedPositions,onChange:save,onLayout:()=>win.requestAnimationFrame(()=>{drawStructure();refreshCompactGC();})});
   const sequenceExporter=win.JunctionMRNAExport.create(win,doc,{request,post,getResults:()=>results,getReferences:()=>benchmarkRows,download,csvCell,onChange:save});
   add();renderRecords();initialiseSections();
-  return {open,snapshot,restore};
+  return {open,snapshot,restore,refreshCompactGC};
  }
  return {parse,csvRows,csvCell,normalize,hamming,stabilityColor,infernoColor,contrastColor,radarFraction,radarAxisIndex,radarDefaults,restoreRadarRanges,radarScaleBounds,foldRange,gcWindowForBase,columnStats,zScore,zColor,matchedPairs,gcSeries,arcGeometry,gcDisplayRange,sequenceRange,selectedPositions,fitRadarRange,setup};
 });

@@ -30,18 +30,18 @@ body.home-active>footer{display:none}
 [data-theme="dark"] .jhome-card:hover h2{color:var(--accent)}
 .jhome-revealed .jhome-hero{animation:jhome-rise .8s both}
 .jhome-revealed .jhome-card{animation:jhome-rise .65s calc(.12s + var(--order)*.065s) backwards}
-.home-intro{position:fixed;inset:0;background:var(--paper);color:var(--ink);z-index:110;display:grid;place-items:center;transition:opacity .35s,visibility .35s;overflow:hidden}
+.home-intro{position:fixed;inset:0;background:var(--paper);color:var(--ink);z-index:110;display:grid;place-items:center;transition:opacity .14s,visibility .14s;overflow:hidden}
 .home-intro[hidden]{display:none}
 .home-intro-done{opacity:0;visibility:hidden;pointer-events:none}
 .home-intro .skip{position:absolute;top:34px;right:40px;display:flex;gap:12px;align-items:center;color:var(--muted);font-size:11px;border:0;background:transparent}
 .home-intro .splash-center{position:relative;display:flex;flex-direction:column;align-items:center}
 .home-intro .intro-wordmark{display:flex;align-items:baseline;gap:1px;font-size:56px;letter-spacing:-2.4px;line-height:1.1}
-.home-intro .intro-wordmark b{font-weight:550}.home-intro .intro-wordmark{animation:jhome-type .9s .35s both}
+.home-intro .intro-wordmark b{font-weight:550}.home-intro .intro-wordmark{animation:jhome-type .20s both}
 .home-intro .intro-mark{height:1em;width:.63em;transform:translateY(.12em);overflow:visible;z-index:1}
-.home-intro .j-part{transform-box:fill-box;transform-origin:center;animation-duration:1.1s;animation-fill-mode:both;animation-timing-function:cubic-bezier(.2,.75,.2,1)}
-.home-intro .j-top{animation-name:jhome-top}.home-intro .j-base{animation-name:jhome-base;animation-delay:.1s}.home-intro .j-join{animation-name:jhome-join;animation-delay:.24s}
-.home-intro .splash-type{display:flex;flex-direction:column;align-items:center;margin-top:20px;animation:jhome-type .9s .35s both;color:var(--muted);font-size:13px;letter-spacing:1px}
-.home-intro .intro-orbit{position:absolute;width:208px;height:208px;border:1px solid var(--line);border-radius:50%;top:-38px;opacity:.55;animation:jhome-orbit 1.3s both}
+.home-intro .j-part{transform-box:fill-box;transform-origin:center;animation-duration:.24s;animation-fill-mode:both;animation-timing-function:cubic-bezier(.2,.75,.2,1)}
+.home-intro .j-top{animation-name:jhome-top}.home-intro .j-base{animation-name:jhome-base;animation-delay:.1s}.home-intro .j-join{animation-name:jhome-join;animation-delay:.04s}
+.home-intro .splash-type{display:flex;flex-direction:column;align-items:center;margin-top:20px;animation:jhome-type .20s both;color:var(--muted);font-size:13px;letter-spacing:1px}
+.home-intro .intro-orbit{position:absolute;width:208px;height:208px;border:1px solid var(--line);border-radius:50%;top:-38px;opacity:.55;animation:jhome-orbit .28s both}
 .home-intro .intro-orbit:after{content:'';position:absolute;inset:14px;border:1px dashed var(--line);border-radius:50%}
 .home-intro .intro-orbit i{position:absolute;background:#d9b95d;height:5px;width:5px;border-radius:50%;left:50%;top:-3px}.home-intro .intro-orbit i:nth-child(2){background:#7ead91;left:7%;top:73%}.home-intro .intro-orbit i:nth-child(3){background:#aec6ae;left:91%;top:73%}
 @keyframes jhome-top{from{opacity:0;transform:translate(45px,-62px) rotate(10deg)}45%{opacity:1}to{opacity:1;transform:translate(0,0)}}
@@ -82,3 +82,7 @@ body.home-active>footer{display:none}
 .worksheet-load-toast button{border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font-size:11px;padding:3px 8px}
 .worksheet-load-toast button[hidden]{display:none}
 @media(prefers-reduced-motion:reduce){.worksheet-load-toast .spinner{animation:none}}
+
+.view.active.loading-view{display:none}
+#tab-loading{margin:2rem auto;text-align:center;color:var(--muted)}
+#tab-loading button{margin-left:.6rem}

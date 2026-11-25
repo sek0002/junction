@@ -9,13 +9,12 @@ from pydantic import BaseModel, Field
 
 from . import database as store
 from .auth import user_id
-from .workspace import Workspace, write_workspace
+from .workspace import WORKSHEET_KEYS, Workspace, projected_workspace, write_workspace
 from . import workbenches as wb
 
 router=APIRouter(prefix='/api/worksheets')
 Scope=Literal['build','design','compare','mrna']
-KEYS={'build':{'draft','activeBuildId','plannerOverrides','backboneStocks','subtab'},
-      'design':{'design'},'compare':{'compareView'},'mrna':{'mrna'}}
+KEYS=WORKSHEET_KEYS
 FORMAT='junction-worksheet'
 
 
@@ -30,7 +29,9 @@ class New(BaseModel):
     discard_unsaved:bool=False
 
 
-def parent(db):return wb.working(db).get('workbench_id')
+def parent(db):
+    row=db.execute("SELECT json_extract(data,'$.workbench_id') FROM user_workspaces WHERE user_id=?",(user_id(),)).fetchone()
+    return row[0] if row else None
 
 
 def current(db,scope,workspace=None):
@@ -141,7 +142,7 @@ def worksheet_overview():
 def list_worksheets(scope:Scope,archived:bool=False):
     with store.connection() as db:
         migrate_recovered(db)
-        workspace=wb.working(db)
+        workspace=projected_workspace(db,KEYS[scope] | {'workbench_id','worksheet_ids'})['data']
         rows=db.execute(f'SELECT {wb.SUMMARY_COLUMNS},scope FROM saved_worksheets '
                         'WHERE user_id=? AND workbench_id IS ? AND scope=? AND (archived_at IS NOT NULL)=? '
                         'ORDER BY updated_at DESC,id',(user_id(),workspace.get('workbench_id'),scope,archived))
@@ -166,7 +167,7 @@ def save_worksheet(payload:Save):
                 raise HTTPException(409,'The active worksheet changed. Reload Junction before saving.')
         data=capture(db,payload.scope,workspace)
         if payload.workspace is not None:
-            preserve_scopes(db,workspace,skip=payload.scope)
+            preserve_scopes(db,workspace,skip=payload.scope,changed=payload.workspace.data if payload.workspace.partial else None)
             if not identifier:save_draft(db,payload.scope,data,workspace)
         row=save_record(db,payload.name,payload.notes,payload.scope,data,payload.id)
         if identifier!=row['id']:
@@ -184,7 +185,7 @@ def bootstrap_legacy_designs():
     """Retain older multi-design sandboxes as individual selectable worksheets."""
     with store.connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        workspace=wb.working(db)
+        workspace=projected_workspace(db,{'workbench_id','design'})['data']
         if db.execute("SELECT 1 FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope='design' AND archived_at IS NULL",(user_id(),workspace.get('workbench_id'))).fetchone():return {'migrated':0}
         designs=workspace.get('design',{})
         pending=[design for design in designs.get('designs',[]) if design.get('entries') or design.get('name')!='New design']
@@ -316,14 +317,15 @@ def preserve(db,scope,workspace=None):
     else:save_draft(db,scope,data,workspace)
 
 
-def autosave(db):
+def autosave(db,changed=None):
     migrate_recovered(db)
-    preserve_scopes(db,wb.working(db))
+    if changed is None or any(not keys.isdisjoint(changed) for keys in KEYS.values()):
+        preserve_scopes(db,wb.working(db),changed=changed)
 
 
-def preserve_scopes(db,workspace,skip=None):
+def preserve_scopes(db,workspace,skip=None,changed=None):
     for scope in KEYS:
-        if scope==skip:continue
+        if scope==skip or (changed is not None and KEYS[scope].isdisjoint(changed)):continue
         try:preserve(db,scope,workspace)
         except HTTPException as error:
             # Incomplete fields (e.g. a two-base overhang being typed) still

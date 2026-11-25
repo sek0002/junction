@@ -268,8 +268,13 @@ def list_workbenches():
     with store.connection() as db:
         rows=db.execute(f'SELECT {SUMMARY_COLUMNS} FROM saved_workbenches WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user_id(),))
         items=[summary(row) for row in rows]
-        identifier=working(db).get('workbench_id')
-    return {'items':items,'current':next((item for item in items if item['id']==identifier),None)}
+        workspace=db.execute("SELECT json_extract(data,'$.workbench_id'),json_array_length(data,'$.design.designs') "
+                             "FROM user_workspaces WHERE user_id=?",(user_id(),)).fetchone()
+        identifier=workspace[0] if workspace else None
+        counts={'designs':(workspace[1] or 0) if workspace else 0}
+        for key,table in [('builds','build_list'),('comparisons','comparison_runs')]:
+            counts[key]=db.execute(f'SELECT COUNT(*) FROM {table} WHERE user_id=? AND removed_at IS NULL',(user_id(),)).fetchone()[0]
+    return {'items':items,'current':next((item for item in items if item['id']==identifier),None),'counts':counts}
 
 
 @router.post('')

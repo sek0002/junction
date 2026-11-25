@@ -44,6 +44,23 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.bob.get('/api/workspace').json()['data'],bob)
         self.assertEqual(self.admin.get('/api/workspace').json()['data'],{})
 
+    def test_lazy_worksheet_reads_and_partial_saves_preserve_unopened_drafts(self):
+        data={'mrna':{'draft':{'records':[{'name':'Stored input','sequence':'ATG'}]}},
+              'draft':self.build,'compareView':{'search':'before'},'extension':{'legacy':True}}
+        self.assertEqual(self.alice.put('/api/workspace',json={'data':data}).status_code,200)
+        shell=self.alice.get('/api/workspace?scope=shell').json()
+        self.assertEqual(shell['assembly_name'],self.build['name'])
+        self.assertFalse({'mrna','draft','compareView'} & shell['data'].keys())
+        self.assertEqual(self.alice.get('/api/workspace?scope=compare').json()['data'],{'compareView':data['compareView']})
+        self.assertEqual(self.bob.get('/api/workspace?scope=mrna').json()['data'],{})
+        patch={'partial':True,'context_version':shell['context_version'],'data':{'compareView':{'search':'after'}}}
+        self.assertEqual(self.alice.put('/api/workspace',json=patch).status_code,200)
+        expected=data | patch['data']
+        self.assertEqual(self.alice.get('/api/workspace').json()['data'],expected)
+        self.assertEqual(self.alice.put('/api/workspace',json=patch | {'context_version':None}).status_code,422)
+        self.assertEqual(self.alice.put('/api/workspace',json=patch | {'context_version':99}).status_code,409)
+        self.assertEqual(self.alice.get('/api/workspace').json()['data'],expected)
+
     def test_saved_comparisons_gain_adjusted_percentages_without_overwriting_true_results(self):
         reference='GCCG'+'A'*20+'CGGC'
         aligned_query='GCCG'+'-'*20+'CGGC'

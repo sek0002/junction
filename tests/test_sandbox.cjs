@@ -60,3 +60,16 @@ test('save waits for autosave, skips duplicate writes, and persists a queued und
   release();await Promise.all([autosave,duplicate,undo]);
   assert.deepEqual(writes,['B','A']);
 });
+
+test('loading a second worksheet during a save preserves its baseline and sends only later edits',async()=>{
+  const data={view:'home'},writes=[];let release;
+  const sandbox=create({partial:true,context:()=>5,capture:()=>structuredClone(data),request:async(url,body)=>{
+    writes.push(body);if(writes.length===1)await new Promise(resolve=>release=resolve);
+  }});
+  sandbox.start(data);data.view='compare';const first=sandbox.flush();await pause();
+  data.compareView={search:'original'};sandbox.adopt({compareView:data.compareView});
+  release();await first;assert.equal(sandbox.pendingBody(),null);
+  data.compareView.search='edited';await sandbox.flush();
+  assert.deepEqual(writes.map(body=>body.data),[{view:'compare'},{compareView:{search:'edited'}}]);
+  assert(writes.every(body=>body.partial&&body.context_version===5));
+});
