@@ -94,7 +94,18 @@ class Parameters(BaseModel):
         return self
 
 
+class PlateSource(BaseModel):
+    sequence: str = Field(min_length=1, max_length=40000, pattern=r'^[ACGT]+$')
+    plate_id: str
+    well: str
+
+
+def plate_source(fragment):
+    return {key: fragment[key] for key in ('sequence', 'plate_id', 'well')}
+
+
 class AssemblyFragment(BaseModel):
+    plate_source: PlateSource | None = None
     id: int | None = None
     name: str = Field(min_length=1, max_length=1000)
     sequence: str = Field(min_length=1, max_length=40000)
@@ -146,7 +157,7 @@ def importable_build_list():
                 if physical:
                     if physical.count(source['sequence'])!=1:raise ValueError('The physical donor has an ambiguous insert location.')
                     sequence=physical.replace(source['sequence'],sequence,1)
-                fragments.append({'id':source['id'],'name':source['name'],'sequence':sequence})
+                fragments.append({'id':source['id'],'name':source['name'],'sequence':sequence,'plate_source':plate_source(source)})
             first=next(f for f in result['features'] if f.get('source')=='fragment' and f.get('fragment_id')==edges[0]['id'])
             shift=first['start']
             nested=[(f['start']-shift+1,f['end']-shift) for f in result['features'] if f.get('source')=='nested_fusion' and f['start']>=shift]
@@ -230,7 +241,7 @@ def assemble_input(payload:AssembleInput):
         fragment=store.get_fragment(identifier)
         if not fragment:raise HTTPException(404,f'Fragment {identifier} is unavailable.')
         fragments.append({'id':fragment['id'],'name':fragment['name'],
-            'sequence':fragment.get('construct_sequence') or fragment['sequence']})
+            'sequence':fragment.get('construct_sequence') or fragment['sequence'], 'plate_source':plate_source(fragment)})
     try:
         snapshot=FragmentAssembly(fragments=fragments,**payload.model_dump(exclude={'fragment_ids'})).model_dump()
         result=prepare_assembly(snapshot)

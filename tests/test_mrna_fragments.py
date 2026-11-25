@@ -155,6 +155,8 @@ class FragmentInputAPITests(unittest.TestCase):
         reply=self.client.post('/api/mrna/assemble',json=request);self.assertEqual(reply.status_code,200,reply.text)
         self.assertEqual(reply.json()['sequence'],CDS);self.assertEqual(reply.json()['frame'],2)
         self.assertEqual(reply.json()['assembly']['fragments'][0]['sequence'],physical)
+        self.assertEqual(reply.json()['assembly']['fragments'][0]['plate_source'], {
+            'sequence': fixture()['fragments'][0]['sequence'], 'plate_id': 'MRNA', 'well': '0'})
         exported=project_fragments(reply.json()['assembly'],synonym(reply.json()))
         self.assertTrue(exported['fragments'][0]['sequence'].startswith('AAAA'))
         self.assertTrue(exported['fragments'][0]['sequence'].endswith('CCCC'))
@@ -190,6 +192,8 @@ class FragmentInputAPITests(unittest.TestCase):
         complete,starter,empty=response.json()['items']
         self.assertNotIn('error',complete,complete.get('error'));self.assertEqual(complete['name'],'Named complete assembly')
         self.assertEqual(complete['sequence'],CDS)
+        self.assertEqual([f['plate_source']['sequence'] for f in complete['assembly']['fragments']],
+                         [part['sequence'] for part in fixture()['fragments']])
         self.assertEqual([f['id'] for f in complete['assembly']['fragments']],self.ids)
         self.assertEqual(complete['assembly']['left_overhang'],'TTTG');self.assertEqual(complete['assembly']['right_overhang'],'CGAA')
         self.assertNotIn('error',starter,starter.get('error'));self.assertEqual([f['id'] for f in starter['assembly']['fragments']],[self.ids[1]])

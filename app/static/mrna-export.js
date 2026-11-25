@@ -29,32 +29,41 @@
    $('fragment-rows').innerHTML=rows.slice(page*100,page*100+100).map(f=>`<tr><td><strong>${escape(f.pair.before.input_name)}</strong><small>${escape(f.pair.after?.name||'Input only')}</small></td><td>${escape(f.name)}</td><td>${f.before_sequence.length} / ${f.after_sequence.length}</td><td>${f.changed_nt}</td><td><code>${escape(f.left_overhang)} → ${escape(f.right_overhang)}</code></td><td>${(f.cds_regions||[]).map(r=>r.join('–')).join(', ')||'Outside CDS'}</td><td>${f.non_cds_preserved?'Preserved':'Unavailable'}</td><td><textarea readonly rows="3" spellcheck="false" aria-label="Original donor DNA for ${escape(f.name)}">${escape(f.before_sequence)}</textarea></td><td><textarea readonly rows="3" spellcheck="false" aria-label="Optimised donor DNA for ${escape(f.name)}">${escape(f.after_sequence)}</textarea></td></tr>`).join('')||'<tr><td colspan="9" class="mrna-empty">Fragment comparisons appear for results created from imported or manually assembled donor constructs.</td></tr>';$('fragment-download').disabled=!rows.length;
   }
   function libraryRows(){const q=$('library-search').value.trim().toLowerCase();const saved=getResults().fragment_matches?.library;return (Array.isArray(saved)?saved:[]).filter(f=>f&&typeof f.name==='string'&&typeof f.id==='string'&&typeof f.sequence==='string'&&/^[ACGT]+$/.test(f.sequence)&&Array.isArray(f.usages)&&f.usages.every(u=>u&&typeof u.input_name==='string'&&typeof u.fragment_name==='string')).filter(f=>(!$('library-shared').checked||f.shared)&&[f.name,f.id,...f.usages.map(u=>u.input_name+' '+u.fragment_name)].join(' ').toLowerCase().includes(q));}
-  const targetRanges=new WeakMap();
+  const plateCache=new Map();
   let libraryGeneration=0,downloadRows=[];
-  async function fragmentOnly(donor,result){
-    let sequence;
-    for(const usage of donor.usages){
-      const record=result.parameters?.records?.find(r=>r.name===usage.input_name)
-        ||result.rows?.find(r=>r.input_name===usage.input_name&&r.assembly);
-      const assembly=record?.assembly,index=usage.fragment_index;
-      if(!assembly?.fragments?.[index])throw Error('Saved assembly boundaries are unavailable for '+donor.name+'.');
-      if(!targetRanges.has(assembly)){
-        const pending=request('/api/mrna/assembly/preview',post(assembly)).then(data=>data.donor_target_ranges);
-        targetRanges.set(assembly,pending);
-        pending.catch(()=>targetRanges.delete(assembly));
+
+  async function originalPlateRows(donors,result){
+    const rows=new Map();
+    for(const donor of donors){
+      if(!donor.usages.length)throw Error('No original plate source recorded for '+donor.name+'.');
+      for(const usage of donor.usages){
+        const record=result.parameters?.records?.find(r=>r.name===usage.input_name&&r.assembly)
+          ||result.rows?.find(r=>r.input_name===usage.input_name&&r.assembly);
+        const fragment=record?.assembly?.fragments?.[usage.fragment_index];
+        const unavailable='Original plate fragment unavailable for '+usage.input_name+' / '+usage.fragment_name+'.';
+        if(!Number.isInteger(fragment?.id)||fragment.name!==usage.fragment_name)throw Error(unavailable);
+        let source=fragment.plate_source;
+        if(!source){
+          if(!plateCache.has(fragment.id)){
+            const pending=request('/api/fragments/'+fragment.id+'/details');
+            plateCache.set(fragment.id,pending);
+            pending.catch(()=>plateCache.delete(fragment.id));
+          }
+          try{source=await plateCache.get(fragment.id);}catch{throw Error(unavailable);}
+          if(source.id!==fragment.id||source.name!==fragment.name)throw Error(unavailable);
+        }
+        if(typeof source.sequence!=='string'||!/^[ACGT]+$/.test(source.sequence)||!source.plate_id||!source.well)
+          throw Error(unavailable);
+        const key=JSON.stringify([fragment.id,source.sequence]);
+        if(!rows.has(key)){
+          rows.set(key,{id:fragment.id,name:fragment.name,sequence:source.sequence,length:source.sequence.length,
+            plate_id:source.plate_id,well:source.well,usages:[]});
+        }
+        rows.get(key).usages.push({input_name:usage.input_name,fragment_name:usage.fragment_name,
+          fragment_index:usage.fragment_index,matched_donor_id:donor.id});
       }
-      const bounds=(await targetRanges.get(assembly))?.[index],length=donor.sequence.length;
-      if(!bounds||!bounds.every(Number.isInteger)||bounds[0]<0||bounds[1]>length||
-          bounds[0]>=bounds[1]||assembly.fragments[index].sequence.length!==length)
-        throw Error('Could not verify fragment boundaries for '+donor.name+'.');
-      const [start,end]=bounds;
-      const target=usage.reverse_complement?donor.sequence.slice(length-end,length-start):donor.sequence.slice(start,end);
-      if(sequence!==undefined&&sequence!==target)throw Error(donor.name+' has different insert boundaries across assemblies.');
-      sequence=target;
     }
-    if(!sequence)throw Error('No insert found for '+donor.name+'.');
-    const {sha256,...source}=donor;
-    return {...source,donor_sha256:sha256,sequence,length:sequence.length};
+    return [...rows.values()];
   }
   async function drawLibrary(){
     const result=getResults(),report=result.fragment_matches,token=++libraryGeneration;
@@ -66,18 +75,19 @@
     let rows=libraryRows();
     if(only){
       $('library-rows').replaceChildren();
-      $('library-status').textContent='Reading fragment boundaries…';
-      try{rows=await Promise.all(rows.map(f=>fragmentOnly(f,result)));}
+      $('library-status').textContent='Reading original plate fragments…';
+      try{rows=await originalPlateRows(rows,result);}
       catch(error){if(token===libraryGeneration)$('library-status').textContent=error.message;return;}
       if(token!==libraryGeneration)return;
     }
     downloadRows=rows;
-    $('library-status').textContent=`${rows.length} unique donor designs · ${only?'insert DNA between the two overhangs':'full donor DNA'}. RC denotes reverse-complement use relative to the supplied donor.${rows.length>100?' Showing the first 100; exports include all filtered donors.':''}`;
+    const description=only?'original plate fragments · recorded Insert sequence, in plate orientation':'unique matched donors · full optimised donor DNA';
+    $('library-status').textContent=`${rows.length} ${description}.${rows.length>100?' Showing the first 100. Downloads include all filtered rows.':''}`;
     $('library-download').disabled=!rows.length;
-    $('library-rows').innerHTML=rows.slice(0,100).map(f=>`<tr><td><strong>${escape(f.name)}</strong><small>${escape(f.id)}${f.shared?' · shared':''}</small></td><td>${numberLength(f.sequence.length)} nt</td><td>${[...new Set(f.usages.map(u=>u.input_name))].map(escape).join('<br>')}</td><td>${f.usages.map(u=>escape(u.fragment_name)+(u.reverse_complement?' · RC':' · forward')+' · '+escape(u.left_overhang)+' → '+escape(u.right_overhang)).join('<br>')}</td><td><details><summary>Sequence</summary><textarea readonly rows="3" spellcheck="false" aria-label="Library DNA for ${escape(f.name)}">${escape(f.sequence)}</textarea></details></td></tr>`).join('')||'<tr><td colspan="5" class="mrna-empty">No shared fragments in this view. Clear the shared-only filter to export every designed donor.</td></tr>';}
+    $('library-rows').innerHTML=rows.slice(0,100).map(f=>`<tr><td><strong>${escape(f.name)}</strong><small>${only?escape(f.plate_id)+' · '+escape(f.well):escape(f.id)}${f.shared?' · shared':''}</small></td><td>${numberLength(f.sequence.length)} nt</td><td>${[...new Set(f.usages.map(u=>u.input_name))].map(escape).join('<br>')}</td><td>${only?'Original plate strand':f.usages.map(u=>escape(u.fragment_name)+(u.reverse_complement?' · RC':' · forward')+' · '+escape(u.left_overhang)+' → '+escape(u.right_overhang)).join('<br>')}</td><td><details><summary>Sequence</summary><textarea readonly rows="3" spellcheck="false" aria-label="Library DNA for ${escape(f.name)}">${escape(f.sequence)}</textarea></details></td></tr>`).join('')||'<tr><td colspan="5" class="mrna-empty">No shared fragments in this view. Clear the shared-only filter to export every designed donor.</td></tr>';}
   const numberLength=n=>n.toLocaleString();
   $('library-search').oninput=()=>{drawLibrary();onChange();};$('library-target').onchange=$('library-shared').onchange=()=>{drawLibrary();onChange();};$('library-format').onchange=onChange;
-  $('library-download').onclick=()=>{try{const only=$('library-target').checked;const records=downloadRows.map(f=>({...f,name:f.name+' | '+f.id,type:only?'fragment insert':'donor',stage:'matched',constructs:[...new Set(f.usages.map(u=>u.input_name))]}));write(records,$('library-format').value,only?'junction-mrna-matched-fragment-inserts':'junction-mrna-matched-fragments');$('library-status').textContent=`Exported ${records.length} unique donors.`;}catch(e){$('library-status').textContent=e.message;}};
+  $('library-download').onclick=()=>{try{const only=$('library-target').checked;const records=downloadRows.map(f=>({...f,name:f.name+' | '+(only?f.plate_id+' '+f.well:f.id),type:only?'plate fragment':'donor',stage:only?'original':'matched',constructs:[...new Set(f.usages.map(u=>u.input_name))]}));write(records,$('library-format').value,only?'junction-mrna-original-plate-fragments':'junction-mrna-matched-fragments');$('library-status').textContent=`Exported ${records.length} ${only?'original plate fragments':'matched donors'}.`;}catch(e){$('library-status').textContent=e.message;}};
   async function render(){drawLibrary();const token=++generation,rows=getResults().rows||[];pairs=groups(rows);const current=$('pair').dataset.saved??$('pair').value;delete $('pair').dataset.saved;$('pair').innerHTML='<option value="">All matched inputs / candidates</option>'+pairs.map(p=>`<option value="${escape(p.key)}">${escape(p.after?.name||p.before.name+' · input only')}</option>`).join('');$('pair').value=pairs.some(p=>p.key===current)?current:'';$('sequence-download').disabled=true;$('complete').disabled=!rows.length;$('sequence-status').textContent=rows.length?'Preparing matched sequences…':'Run or load an mRNA batch to export its sequences.';projections=new Map();drawFragments();drawMetrics();if(!rows.length)return;const prepared=await prepare(chosen(),token);if(!prepared)return;projections=prepared;drawFragments();$('sequence-download').disabled=false;const missing=chosen().filter(p=>!(p.after||p.before).assembly&&!p.before.assembly).length;$('sequence-status').textContent=`${chosen().length} matched input/candidate sets.${missing?' '+missing+' have plain CDS inputs; full donor constructs are unavailable for those sets.':''}${prepared.errors.length?' '+prepared.errors.join(' '):''}`;}
   function write(records,format,name){if(!records.length)throw Error('No sequences are available for this stage and sequence type.');let text,type='text/plain',extension=format;if(format==='json'){text=JSON.stringify(records,null,2);type='application/json';}else if(format==='csv'){const keys=[...new Set(records.flatMap(r=>Object.keys(r)))];text=keys.map(csvCell).join(',')+'\n'+records.map(r=>keys.map(k=>csvCell(typeof r[k]==='object'?JSON.stringify(r[k]):r[k])).join(',')).join('\n')+'\n';type='text/csv';}else if(format==='dbn'){if(records.some(r=>!r.structure))throw Error('Choose Folded sequence & structure for dot-bracket export.');text=records.map(r=>'>'+[r.name,r.stage].join(' | ').replace(/[\r\n]/g,' ')+'\n'+r.sequence+'\n'+r.structure).join('\n')+'\n';}else{text=records.map(r=>'>'+[r.name,r.stage,r.type].join(' | ').replace(/[\r\n]/g,' ')+'\n'+r.sequence.match(/.{1,80}/g).join('\n')).join('\n')+'\n';extension='fasta';}download(text,name+'.'+extension,type);}
   $('sequence-download').onclick=()=>{try{const records=sequenceRecords(chosen(),{stage:$('stage').value,kind:$('kind').value,mode:$('alphabet').value},projections);write(records,$('filetype').value,'junction-mrna-'+$('kind').value);$('sequence-status').textContent=`Exported ${records.length} sequences.`;}catch(e){$('sequence-status').textContent=e.message;}};
