@@ -634,7 +634,8 @@ function showBuildPreview(button){
   const tooltip=$('build-preview');tooltip.innerHTML=`<b>${esc(request.name)}</b><small>${esc(request.enzyme)} · ${parts.length} inputs</small><ol>${parts.map(part=>`<li><div><strong>${esc(part.name||'Unavailable fragment')}</strong>${part.is_backbone?'<span class="preview-backbone">Backbone</span>':''}<small>${esc([plateLabel(part.plate_id),part.well].filter(Boolean).join(' / '))}${part.physical_length||part.length?' · '+fmt(part.physical_length||part.length,0)+' bp':''}</small></div>${part.digest?`<code>5′ ${overhangHtml(part.digest.left_overhang)}<br>3′ ${overhangHtml(part.digest.right_overhang)}</code>`:''}</li>${(request.nested_assemblies||[]).filter(g=>g.parent_fragment_id===part.id).map(g=>`<li class="preview-nested"><small>${esc(g.mode==='separate'?'Separate first':'Together')} · ${g.fragment_ids.map(id=>esc(item.plan?.nested_assemblies?.flatMap(n=>n.children).find(c=>c.id===id)?.name||'Fragment '+id)).join(' · ')}</small></li>`).join('')}`).join('')}</ol>`;
   tooltip.classList.remove('hidden');const rect=button.getBoundingClientRect(),box=tooltip.getBoundingClientRect();tooltip.style.left=Math.max(12,Math.min(rect.left,window.innerWidth-box.width-12))+'px';tooltip.style.top=Math.max(12,Math.min(rect.bottom+8+box.height<=window.innerHeight-12?rect.bottom+8:rect.top-box.height-8,window.innerHeight-box.height-12))+'px';
 }
-async function loadBuildList(){const data=await api('/api/build-list');state.buildList=data.items;state.exportSnapshot=data.export;state.lastRemovedBuildId=data.last_removed_id;if(!activeBuild())state.activeBuildId=null;renderBuildList();}
+async function loadBuildList(){applyBuildList(await api('/api/build-list'));}
+function applyBuildList(data){state.buildList=data.items;state.exportSnapshot=data.export;state.lastRemovedBuildId=data.last_removed_id;if(!activeBuild())state.activeBuildId=null;renderBuildList();}
 function replaceBuild(item){window.JunctionSandbox?.schedule();const index=state.buildList.findIndex(entry=>entry.id===item.id);if(index<0)state.buildList.push(item);else state.buildList[index]=item;state.buildList.sort((a,b)=>a.id-b.id);renderBuildList();}
 async function addCurrentBuild(){
   if(state.buildBusy)return;state.buildBusy=true;
@@ -2544,17 +2545,24 @@ window.JunctionSandbox=Object.assign(sandbox,{preferences:{}});
 for(const event of ['input','change','click'])document.addEventListener(event,()=>sandbox.schedule());
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')sandbox.flush().catch(error=>toast(error.message));});
 window.addEventListener('pagehide',()=>{if(sandbox.ready)fetch('/api/workspace',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(sandbox.body()),keepalive:true}).catch(()=>{});});
+async function finishPlanEdits(){
+  if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');
+  flushPlanInputs();
+  await persistPendingBuild();
+  await Promise.all([...planEditOperations]);
+}
+async function flushWorkspaceEdits(){await finishPlanEdits();await sandbox.flush();}
 window.JunctionWorkbenchController=JunctionWorkbenches.setup(window,document,{
   api,download:fileDownload,notify:toast,
   setCurrent:id=>{state.workbenchId=id;},
   recommendedName:()=>{const name=$('assembly-name').value.trim();return name&&name!=='New assembly'?name:'Workbench '+new Date().toLocaleDateString();},
   stats:()=>`${state.buildList.length} builds · ${window.JunctionDesign?.snapshot()?.designs?.length||0} designs · ${compareJobs.length} comparison files · v${document.querySelector('.brand-version').textContent.replace(/^v/,'')}`,
-  flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
+  flush:flushWorkspaceEdits,
   pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching workbenches.');return sandbox.stop();},
   resume:()=>sandbox.start()
 });
 window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
-  api,flush:async()=>{if(!sandbox.ready)throw Error('Wait for your sandbox to finish loading.');flushPlanInputs();await persistPendingBuild();await Promise.all([...planEditOperations]);await sandbox.flush();},
+  api,flush:flushWorkspaceEdits,
   pause:()=>{if(compareWorker)throw Error('Wait for comparisons to finish before switching worksheets.');return sandbox.stop();},resume:()=>sandbox.start(),
   reload:view=>location.replace('/?worksheet='+Date.now()+'#'+view),download:fileDownload,notify:toast,
   nameFor:scope=>{
@@ -2562,6 +2570,11 @@ window.JunctionWorksheetController=JunctionWorksheets.setup(window,document,{
     if(scope==='build')return $('assembly-name').value;
     return scope==='mrna'?'mRNA worksheet':'Compare worksheet';
   },
+  saveWorksheet:async target=>{
+    await finishPlanEdits();
+    return sandbox.write(workspace=>api('/api/worksheets',jsonBody({...target,workspace})));
+  },
+  context:()=>state.workspaceContextVersion,
   setCurrent:(scope,id)=>{state.worksheetIds[scope]=id;},changed:scheduleLibraryMetrics
 });
 $('junction-count-button').onclick=async()=>{await refreshLibraryMetrics();$('junction-list-search').value='';renderJunctionList();if(!$('junction-list-dialog').open)$('junction-list-dialog').showModal();$('junction-list-search').focus();};
@@ -2573,12 +2586,12 @@ showView(JunctionHome.resolveView(location.hash.slice(1)));
 (async()=>{const splash=window.JunctionHomeController;
   try{
     splash.status('Checking your account…');await JunctionAccount.ready;
-    splash.status('Loading your instance…');const [workspace,runs]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons')]);
+    splash.status('Loading your instance…');const [workspace,runs,builds]=await Promise.all([api('/api/workspace'),api('/api/workspace/comparisons'),api('/api/build-list')]);
     sandbox.preferences=workspace.data;state.plannerOverrides=readPlannerOverrides();state.uploadRuleOverrides=readUploadRules();
     const draft=workspace.data.draft;
     if(draft)$('enzyme').value=['BsaI','BsmBI','BsmBI + BsaI'].includes(draft.enzyme)?draft.enzyme:'BsaI';
     splash.status('Loading fragments, backbones and rules…');await refresh();
-    splash.status('Restoring build plans…');await loadBuildList();
+    splash.status('Restoring build plans…');applyBuildList(builds);
     splash.status('Restoring worksheets and comparison files…');await restoreSandbox(workspace.data,runs.items,workspace.context_version||0);
     splash.status('Loading saved worksheets and Workbenches…');
     await api('/api/worksheets/bootstrap',jsonBody({})).catch(error=>toast('Worksheet migration: '+error.message));

@@ -148,3 +148,12 @@ test('opening a Workbench after a worksheet brings back the full splash',()=>{
   assert.equal(p.nodes['worksheet-load-toast'].classList.contains('visible'),false);
   assert.equal(p.nodes['home-intro-status'].textContent,'Loading Workbench…');assert.ok(p.backgrounds.every(n=>n.inert));
 });
+
+test('instance switches unlock immediately after restoration even with motion enabled',()=>{
+  const p=page({href:'https://junction.test/?instance=123#build',active:false});
+  assert.ok(p.backgrounds.every(node=>node.inert));
+  p.controller.ready();
+  assert.ok(p.backgrounds.every(node=>!node.inert));
+  assert.equal(p.target.focused,1);
+  assert.equal(new URL(p.win.location.href).searchParams.has('instance'),false);
+});

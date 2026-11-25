@@ -32,6 +32,41 @@ class WorksheetTests(unittest.TestCase):
     def save(self,scope,name=None):
         r=self.client.post('/api/worksheets',json={'scope':scope,'name':name or scope+' worksheet'});self.assertEqual(r.status_code,200,r.text);return r.json()
 
+    def test_startup_overview_matches_lists_and_save_rejects_a_stale_target(self):
+        snapshot=self.client.get('/api/workspace').json()
+        first=self.save('build','First')
+        overview=self.client.get('/api/worksheets/overview').json()
+        for scope,listing in overview.items():
+            self.assertEqual(listing,self.client.get('/api/worksheets',params={'scope':scope}).json())
+        self.assertEqual(set(overview),{'build','design','compare','mrna'})
+        save={'scope':'build','name':'Renamed','context_version':snapshot['context_version']}
+        self.assertEqual(self.client.post('/api/worksheets',json=save).status_code,409)
+        self.assertEqual(self.client.post('/api/worksheets',json=save|{'id':first['id']}).status_code,200)
+        self.assertEqual(self.client.post('/api/worksheets/new',json={'scope':'build'}).status_code,200)
+        self.assertEqual(self.client.post('/api/worksheets',json=save|{'id':first['id']}).status_code,409)
+
+    def test_explicit_save_commits_pending_workspace_and_preserves_other_drafts(self):
+        previous=self.client.get('/api/workspace').json()
+        data=previous['data']|{'mrna':{'draft':{'records':[{'name':'Latest edit','sequence':'ABC'}]}}}
+        body={'scope':'mrna','name':'Saved batch','context_version':previous['context_version'],
+              'workspace':{'data':data,'context_version':previous['context_version']}}
+        saved=self.client.post('/api/worksheets',json=body)
+        self.assertEqual(saved.status_code,200,saved.text)
+        identifier=saved.json()['id']
+        current=self.client.get('/api/workspace').json()['data']
+        self.assertEqual(current['mrna'],data['mrna'])
+        self.assertEqual(current['worksheet_ids']['mrna'],identifier)
+        with store.connection() as db:
+            drafts={row['scope']:json.loads(row['payload']) for row in db.execute('SELECT * FROM worksheet_drafts')}
+        self.assertEqual(drafts['mrna']['workspace']['mrna'],data['mrna'])
+        self.assertEqual(drafts['design']['workspace']['design']['activeId'],self.design['id'])
+        self.assertEqual(drafts['design']['workspace']['design']['designs'],[self.design|{'backbone_id':None}])
+        data['mrna']['draft']['records'][0]['name']='Stale tab'
+        self.assertEqual(self.client.post('/api/worksheets',json=body).status_code,409)
+        self.assertEqual(self.client.get('/api/workspace').json()['data'],current)
+        self.assertEqual(self.client.post('/api/worksheets',json=body|{'id':identifier}).status_code,200)
+        self.assertEqual(self.client.get('/api/workspace').json()['data']['mrna'],data['mrna'])
+
     def test_mrna_worksheets_restore_inputs_results_exports_and_keep_other_pages(self):
         mrna={'draft':{'records':[{'name':'Gene A','sequence':'ATGAAATAA'}],'fields':{'name':'RNA Alpha'}},
             'result':{'rows':[]},'exports':{'stage':'both','kind':'fragments'},'tab':'export',

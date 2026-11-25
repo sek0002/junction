@@ -48,3 +48,15 @@ test('a failed pending save prevents the switch and can be retried on resume',as
   sandbox.start({});const saving=sandbox.flush();await assert.rejects(saving,/offline/);
   await assert.rejects(sandbox.stop(),/offline/);fail=false;sandbox.start();await sandbox.flush();assert.equal(writes,2);
 });
+test('save waits for autosave, skips duplicate writes, and persists a queued undo',async()=>{
+  let name='A',release;
+  const writes=[];
+  const sandbox=create({capture:()=>({name}),request:async(url,body)=>{
+    writes.push(body.data.name);
+    if(writes.length===1)await new Promise(resolve=>release=resolve);
+  }});
+  sandbox.start({name});name='B';const autosave=sandbox.flush();await pause();
+  const duplicate=sandbox.flush();name='A';const undo=sandbox.flush();
+  release();await Promise.all([autosave,duplicate,undo]);
+  assert.deepEqual(writes,['B','A']);
+});

@@ -8,13 +8,22 @@
       return JSON.stringify(value);
     }
     function schedule(){if(!ready)return;clearTimeout(timer);timer=setTimeout(()=>{flush().catch(report);},delay);}
-    async function flush(){
-      if(!ready)return;clearTimeout(timer);
+    function write(persist){
+      clearTimeout(timer);
       const encoded=encode();
-      if(encoded===last)return chain;
-      chain=chain.catch(()=>{}).then(async()=>{await request('/api/workspace',JSON.parse(encoded));last=encoded;});return chain;
+      chain=chain.catch(()=>{}).then(async()=>{
+        const snapshot=encoded===last?null:JSON.parse(encoded);
+        const result=await persist(snapshot);
+        last=encoded;
+        return result;
+      });
+      return chain;
     }
-    return {schedule,flush,body:data=>JSON.parse(encode(data)),start(data){last=data===undefined?null:encode(data);ready=true;},stop(){ready=false;clearTimeout(timer);return chain;},get ready(){return ready;}};
+    function flush(){
+      if(!ready)return Promise.resolve();
+      return write(snapshot=>snapshot?request('/api/workspace',snapshot):undefined);
+    }
+    return {schedule,flush,write,body:data=>JSON.parse(encode(data)),start(data){last=data===undefined?null:encode(data);ready=true;},stop(){ready=false;clearTimeout(timer);return chain;},get ready(){return ready;}};
   }
   if(typeof module==='object'&&module.exports)module.exports={create};else root.SandboxState={create};
 })(typeof window==='object'?window:globalThis);

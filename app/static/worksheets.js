@@ -4,8 +4,8 @@
   const scopes={build:'Assembly',design:'Design',compare:'Compare',mrna:'mRNA'};
   const paths={save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z"/><path d="M7 3v6h10V3M7 21v-8h10v8"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-3M9 14l6 3"/>',new:'<path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9ZM14 3v6h6M8 15h8M12 11v8"/>',remove:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',edit:'<path d="m16 3 5 5L8 21H3v-5ZM13 6l5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>'};
   const icon=kind=>'<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[kind]+'</svg>';
-  function setup(win,doc,{api,flush,pause,resume,reload,download,notify,nameFor,changed,setCurrent}){
-    const $=id=>doc.getElementById(id);let scope=null,locked=false,afterSaveNew=false,exportSource=null,removeTarget=null;
+  function setup(win,doc,{api,flush,pause,resume,reload,download,notify,nameFor,changed,setCurrent,context,saveWorksheet}){
+    const $=id=>doc.getElementById(id);let scope=null,locked=false,saveTarget=null,afterSaveNew=false,exportSource=null,removeTarget=null;
     const records={},active={},loads={},hasContent={};
     const post=(url,body={})=>api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     function render(kind){
@@ -16,19 +16,30 @@
       doc.querySelectorAll(`[data-worksheet-delete="${kind}"]`).forEach(button=>button.disabled=locked||!current);
       if(kind===scope){$('worksheet-save').disabled=$('worksheet-share').disabled=$('worksheet-new').disabled=locked||!scope;}
     }
-    async function load(kind){
-      const revision=(loads[kind]||0)+1;loads[kind]=revision;const result=await api('/api/worksheets?scope='+kind);if(loads[kind]!==revision)return;records[kind]=result.items;active[kind]=result.current;hasContent[kind]=result.has_content;setCurrent?.(kind,result.current?.id||null);render(kind);changed?.();
+    function applyListing(kind,result){
+      records[kind]=result.items;active[kind]=result.current;hasContent[kind]=result.has_content;
+      setCurrent?.(kind,result.current?.id||null);render(kind);
     }
-    async function loadAll(){await Promise.all(Object.keys(scopes).map(load));}
+    function revision(kind){return loads[kind]=(loads[kind]||0)+1;}
+    async function load(kind){
+      const token=revision(kind),result=await api('/api/worksheets?scope='+kind);
+      if(token===loads[kind]){applyListing(kind,result);changed?.();}
+    }
+    async function loadAll(){
+      const tokens=Object.fromEntries(Object.keys(scopes).map(kind=>[kind,revision(kind)]));
+      const overview=await api('/api/worksheets/overview');
+      for(const kind of Object.keys(scopes))if(tokens[kind]===loads[kind])applyListing(kind,overview[kind]);
+      changed?.();
+    }
     function setScope(view){scope=scopes[view]?view:null;
       for(const action of ['save','share','new']){$('worksheet-'+action).disabled=!scope;$('worksheet-'+action).title=(scope?scopes[scope]+' worksheet':'Open Assembly, Design, Compare or mRNA')+' · '+action;}
-      if(scope)load(scope).catch(error=>notify(error.message));
+      if(scope&&win.JunctionSandbox?.ready)load(scope).catch(error=>notify(error.message));
     }
     function menuClose(){if($('workbench-menu-toggle').getAttribute('aria-expanded')==='true')$('workbench-menu-toggle').click();}
     function lock(value){locked=value;Object.keys(scopes).forEach(render);doc.querySelectorAll('[data-worksheet-save],[data-worksheet-new],[data-worksheet-share]').forEach(button=>button.disabled=value);$('worksheet-save-submit').disabled=value;}
     async function saveDialog(kind=scope,{thenNew=false}={}){
       if(!kind||locked)return;scope=kind;menuClose();afterSaveNew=thenNew;
-      try{await flush();await load(kind);$('worksheet-save-title').textContent='Save '+scopes[kind]+' worksheet';$('worksheet-save-name').value=active[kind]?.name||nameFor(kind);$('worksheet-save-notes').value=active[kind]?.notes||'';$('worksheet-save-error').textContent='';$('worksheet-save-dialog').showModal();$('worksheet-save-name').focus();}catch(error){notify(error.message);}
+      try{if(!records[kind])await load(kind);if(kind!==scope||$('worksheet-save-dialog').open)return;saveTarget={scope:kind,id:active[kind]?.id||null,context_version:context()};$('worksheet-save-title').textContent='Save '+scopes[kind]+' worksheet';$('worksheet-save-name').value=active[kind]?.name||nameFor(kind);$('worksheet-save-notes').value=active[kind]?.notes||'';$('worksheet-save-error').textContent='';$('worksheet-save-dialog').showModal();$('worksheet-save-name').focus();}catch(error){notify(error.message);}
     }
     async function startNew(kind,discard=false){
       if(locked)return;lock(true);menuClose();
@@ -59,13 +70,23 @@
       }catch(error){notify(error.message);}finally{$('instance-export-submit').disabled=false;}
     });
     $('worksheet-save-form').addEventListener('submit',async event=>{
-      event.preventDefault();if(locked||!scope)return;lock(true);$('worksheet-save-error').textContent='';
-      try{if(scope==='design'){$('design-name').value=$('worksheet-save-name').value.trim();$('design-name').dispatchEvent(new Event('input',{bubbles:true}));}await flush();await post('/api/worksheets',{scope,id:active[scope]?.id||null,name:$('worksheet-save-name').value.trim(),notes:$('worksheet-save-notes').value});await load(scope);$('worksheet-save-dialog').close();notify('Worksheet saved');lock(false);if(afterSaveNew){afterSaveNew=false;await startNew(scope);}}
-      catch(error){$('worksheet-save-error').textContent=error.message;lock(false);}
+      event.preventDefault();if(locked||!saveTarget)return;
+      const target=saveTarget,name=$('worksheet-save-name').value.trim(),notes=$('worksheet-save-notes').value;
+      lock(true);$('worksheet-save-error').textContent='';$('worksheet-save-submit').textContent='Saving…';
+      try{
+        if(target.scope==='design'){$('design-name').value=name;$('design-name').dispatchEvent(new Event('input',{bubbles:true}));}
+        const saved=await saveWorksheet({...target,name,notes});
+        revision(target.scope);
+        records[target.scope]=[saved,...records[target.scope].filter(item=>item.id!==saved.id)];
+        active[target.scope]=saved;setCurrent?.(target.scope,saved.id);changed?.();
+        $('worksheet-save-dialog').close();notify('Worksheet saved');lock(false);
+        if(afterSaveNew){afterSaveNew=false;await startNew(target.scope);}
+      }catch(error){$('worksheet-save-error').textContent=error.message;lock(false);}
+      finally{$('worksheet-save-submit').textContent='Save';}
     });
     for(const action of ['save','share','new'])$('worksheet-'+action).innerHTML=icon(action);
     $('worksheet-save').onclick=()=>saveDialog();$('worksheet-share').onclick=()=>share();$('worksheet-new').onclick=()=>newPage();
-    $('worksheet-save-close').onclick=()=>$('worksheet-save-dialog').close();
+    $('worksheet-save-close').onclick=()=>{if(!locked)$('worksheet-save-dialog').close();};
     $('worksheet-new-cancel').onclick=()=>$('worksheet-new-dialog').close();
     $('worksheet-new-save').onclick=()=>{$('worksheet-new-dialog').close();saveDialog(scope,{thenNew:true});};
     $('worksheet-new-discard').onclick=()=>{$('worksheet-new-dialog').close();startNew(scope,true);};

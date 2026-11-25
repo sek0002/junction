@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from . import database as store
 from .auth import user_id
+from .workspace import Workspace, write_workspace
 from . import workbenches as wb
 
 router=APIRouter(prefix='/api/worksheets')
@@ -20,6 +21,8 @@ FORMAT='junction-worksheet'
 
 class Save(wb.Save):
     scope:Scope
+    context_version:int | None=Field(default=None,ge=0)
+    workspace:Workspace | None=None
 
 
 class New(BaseModel):
@@ -30,9 +33,10 @@ class New(BaseModel):
 def parent(db):return wb.working(db).get('workbench_id')
 
 
-def current(db,scope):
-    identifier=wb.working(db).get('worksheet_ids',{}).get(scope)
-    return db.execute('SELECT * FROM saved_worksheets WHERE id=? AND user_id=? AND scope=? AND workbench_id IS ? AND archived_at IS NULL',(identifier,user_id(),scope,parent(db))).fetchone() if identifier else None
+def current(db,scope,workspace=None):
+    if workspace is None:workspace=wb.working(db)
+    identifier=workspace.get('worksheet_ids',{}).get(scope)
+    return db.execute(f'SELECT {wb.SUMMARY_COLUMNS},scope,workbench_id FROM saved_worksheets WHERE id=? AND user_id=? AND scope=? AND workbench_id IS ? AND archived_at IS NULL',(identifier,user_id(),scope,workspace.get('workbench_id'))).fetchone() if identifier else None
 
 
 def owned(db,identifier):
@@ -75,14 +79,16 @@ def set_current(db,scope,identifier):
     workspace=wb.working(db);workspace.setdefault('worksheet_ids',{})[scope]=identifier;wb.set_working(db,workspace)
 
 
-def capture(db,scope):return subset(wb.capture(db,include_worksheets=False,scope=scope),scope)
+def capture(db,scope,workspace=None):
+    return wb.capture(db,include_worksheets=False,scope=scope,workspace=workspace)
 
 
-def registry(db,live=True):
-    rows=db.execute('SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND archived_at IS NULL ORDER BY created_at,id',(user_id(),parent(db))).fetchall()
-    active=wb.working(db).get('worksheet_ids',{})
+def registry(db,live=True,workspace=None):
+    if workspace is None:workspace=wb.working(db)
+    rows=db.execute('SELECT * FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND archived_at IS NULL ORDER BY created_at,id',(user_id(),workspace.get('workbench_id'))).fetchall()
+    active=workspace.get('worksheet_ids',{})
     return [{'id':row['id'],'scope':row['scope'],'name':row['name'],'notes':row['notes'],
-        'snapshot':capture(db,row['scope']) if live and active.get(row['scope'])==row['id'] else json.loads(row['payload'])} for row in rows]
+        'snapshot':capture(db,row['scope'],workspace) if live and active.get(row['scope'])==row['id'] else json.loads(row['payload'])} for row in rows]
 
 
 def restore_registry(db,data,workbench_id):
@@ -107,29 +113,65 @@ def reparent_on_save(db,data,identifier):
     return restore_registry(db,data,identifier)
 
 
+def worksheet_listing(db,workspace,scope,rows,archived=False):
+    items=[summary(row) for row in rows]
+    identifier=workspace.get('worksheet_ids',{}).get(scope)
+    if archived and identifier:
+        row=current(db,scope,workspace)
+        active=summary(row) if row else None
+    else:
+        active=next((item for item in items if item['id']==identifier),None)
+    return {'items':items,'current':active,'has_content':has_working_content(db,scope,workspace)}
+
+
+@router.get('/overview')
+def worksheet_overview():
+    with store.connection() as db:
+        migrate_recovered(db)
+        workspace=wb.working(db)
+        rows=db.execute(f'SELECT {wb.SUMMARY_COLUMNS},scope FROM saved_worksheets '
+                        'WHERE user_id=? AND workbench_id IS ? AND archived_at IS NULL ORDER BY updated_at DESC,id',
+                        (user_id(),workspace.get('workbench_id')))
+        by_scope={scope:[] for scope in KEYS}
+        for row in rows:by_scope[row['scope']].append(row)
+        return {scope:worksheet_listing(db,workspace,scope,items) for scope,items in by_scope.items()}
+
+
 @router.get('')
 def list_worksheets(scope:Scope,archived:bool=False):
     with store.connection() as db:
         migrate_recovered(db)
         workspace=wb.working(db)
-        owner=(user_id(),workspace.get('workbench_id'),scope)
-        columns=wb.SUMMARY_COLUMNS+',scope'
-        query=f'SELECT {columns} FROM saved_worksheets WHERE user_id=? AND workbench_id IS ? AND scope=?'
-        rows=db.execute(query+' AND (archived_at IS NOT NULL)=? ORDER BY updated_at DESC,id',(*owner,archived))
-        items=[summary(row) for row in rows]
-        identifier=workspace.get('worksheet_ids',{}).get(scope)
-        active=next((item for item in items if item['id']==identifier),None) if not archived else None
-        if archived and identifier:
-            row=db.execute(query+' AND id=? AND archived_at IS NULL',(*owner,identifier)).fetchone()
-            if row:active=summary(row)
-        has_content=has_working_content(db,scope,workspace)
-    return {'items':items,'current':active,'has_content':has_content}
+        rows=db.execute(f'SELECT {wb.SUMMARY_COLUMNS},scope FROM saved_worksheets '
+                        'WHERE user_id=? AND workbench_id IS ? AND scope=? AND (archived_at IS NOT NULL)=? '
+                        'ORDER BY updated_at DESC,id',(user_id(),workspace.get('workbench_id'),scope,archived))
+        return worksheet_listing(db,workspace,scope,rows,archived)
 
 
 @router.post('')
 def save_worksheet(payload:Save):
     with store.connection() as db:
-        db.execute('BEGIN IMMEDIATE');row=save_record(db,payload.name,payload.notes,payload.scope,capture(db,payload.scope),payload.id);set_current(db,payload.scope,row['id'])
+        db.execute('BEGIN IMMEDIATE')
+        if payload.workspace is not None:
+            if payload.context_version is None or payload.workspace.context_version!=payload.context_version:
+                raise HTTPException(422,'The draft and worksheet must have the same instance version.')
+            migrate_recovered(db)
+            workspace=write_workspace(db,payload.workspace)
+        else:
+            workspace=wb.working(db)
+        identifier=workspace.get('worksheet_ids',{}).get(payload.scope)
+        if payload.context_version is not None:
+            version=db.execute('SELECT context_version FROM user_workspaces WHERE user_id=?',(user_id(),)).fetchone()
+            if payload.context_version!=(version[0] if version else 0) or payload.id!=identifier:
+                raise HTTPException(409,'The active worksheet changed. Reload Junction before saving.')
+        data=capture(db,payload.scope,workspace)
+        if payload.workspace is not None:
+            preserve_scopes(db,workspace,skip=payload.scope)
+            if not identifier:save_draft(db,payload.scope,data,workspace)
+        row=save_record(db,payload.name,payload.notes,payload.scope,data,payload.id)
+        if identifier!=row['id']:
+            workspace.setdefault('worksheet_ids',{})[payload.scope]=row['id']
+            wb.set_working(db,workspace)
     return summary(row)
 
 
@@ -249,9 +291,10 @@ def has_working_content(db,scope,workspace):
     return meaningful({'workspace':workspace,'builds':[]},scope)
 
 
-def save_draft(db,scope,data):
+def save_draft(db,scope,data,workspace=None):
+    workbench=parent(db) if workspace is None else workspace.get('workbench_id')
     db.execute('INSERT INTO worksheet_drafts(user_id,workbench_key,scope,payload) VALUES(?,?,?,?) ON CONFLICT(user_id,workbench_key,scope) DO UPDATE SET payload=excluded.payload,updated_at=CURRENT_TIMESTAMP',
-        (user_id(),parent(db) or '',scope,wb.encode(data)))
+        (user_id(),workbench or '',scope,wb.encode(data)))
 
 
 def migrate_recovered(db):
@@ -266,26 +309,33 @@ def migrate_recovered(db):
         db.execute('UPDATE saved_worksheets SET archived_at=CURRENT_TIMESTAMP WHERE id=?',(row['id'],))
 
 
-def preserve(db,scope):
-    record=current(db,scope);data=capture(db,scope)
+def preserve(db,scope,workspace=None):
+    if workspace is None:workspace=wb.working(db)
+    record=current(db,scope,workspace);data=capture(db,scope,workspace)
     if record:save_record(db,record['name'],record['notes'],scope,data,record['id'])
-    else:save_draft(db,scope,data)
+    else:save_draft(db,scope,data,workspace)
 
 
 def autosave(db):
     migrate_recovered(db)
+    preserve_scopes(db,wb.working(db))
+
+
+def preserve_scopes(db,workspace,skip=None):
     for scope in KEYS:
-        try:preserve(db,scope)
+        if scope==skip:continue
+        try:preserve(db,scope,workspace)
         except HTTPException as error:
             # Incomplete fields (e.g. a two-base overhang being typed) still
             # persist in user_workspaces; publish a snapshot once valid again.
             if error.status_code!=422:raise
 
 
-def draft_registry(db):
-    result={row['scope']:json.loads(row['payload']) for row in db.execute('SELECT scope,payload FROM worksheet_drafts WHERE user_id=? AND workbench_key=?',(user_id(),parent(db) or ''))}
+def draft_registry(db,workspace=None):
+    if workspace is None:workspace=wb.working(db)
+    result={row['scope']:json.loads(row['payload']) for row in db.execute('SELECT scope,payload FROM worksheet_drafts WHERE user_id=? AND workbench_key=?',(user_id(),workspace.get('workbench_id') or ''))}
     for scope in KEYS:
-        if not current(db,scope):result[scope]=capture(db,scope)
+        if not current(db,scope,workspace):result[scope]=capture(db,scope,workspace)
     return result
 
 

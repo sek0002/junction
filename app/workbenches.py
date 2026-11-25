@@ -186,17 +186,20 @@ def working(db):
     return json.loads(row['data']) if row else {}
 
 
-def capture(db,include_worksheets=True,scope=None):
-    workspace=working(db);workspace.pop('workbench_id',None);active={key:value for key,value in workspace.pop('worksheet_ids',{}).items() if key in ('build','design','compare','mrna') and isinstance(value,str) and value}
+def capture(db,include_worksheets=True,scope=None,*,workspace=None):
+    source=working(db) if workspace is None else workspace
+    workspace=dict(source)
+    workspace.pop('workbench_id',None);active={key:value for key,value in workspace.pop('worksheet_ids',{}).items() if key in ('build','design','compare','mrna') and isinstance(value,str) and value}
     if scope:
         from .worksheets import KEYS
         workspace={key:value for key,value in workspace.items() if key in KEYS[scope]}
+        workspace['view']=scope
         if scope=='design' and workspace.get('design'):
             designs=workspace['design'];selected=next((item for item in designs.get('designs',[]) if item.get('id')==designs.get('activeId')),None)
             if selected:workspace['design']={'designs':[selected],'activeId':selected['id']}
-    builds=[dict(row,request=json.loads(row['request'])) for row in db.execute('SELECT id,request FROM build_list WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),))]
-    comparisons=[dict(row,result=json.loads(row['result']) if row['result'] else None) for row in db.execute('SELECT id,filename,source,enzyme,result,error FROM comparison_runs WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),))]
-    data={'workspace':workspace,'builds':builds if scope in (None,'build') else [],'comparisons':comparisons if scope in (None,'compare') else [],'inventory':{'fragments':[],'plasmids':[]}}
+    builds=[dict(row,request=json.loads(row['request'])) for row in db.execute('SELECT id,request FROM build_list WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),))] if scope in (None,'build') else []
+    comparisons=[dict(row,result=json.loads(row['result']) if row['result'] else None) for row in db.execute('SELECT id,filename,source,enzyme,result,error FROM comparison_runs WHERE user_id=? AND removed_at IS NULL ORDER BY id',(user_id(),))] if scope in (None,'compare') else []
+    data={'workspace':workspace,'builds':builds,'comparisons':comparisons,'inventory':{'fragments':[],'plasmids':[]}}
     fragments,plasmids=references(data)
     for kind,ids in [('fragments',fragments),('plasmids',plasmids)]:
         for identifier in sorted(ids):
@@ -209,7 +212,7 @@ def capture(db,include_worksheets=True,scope=None):
             data['inventory'][kind].append(record)
     if include_worksheets:
         from .worksheets import registry,draft_registry
-        data['worksheets']=registry(db);data['worksheet_active']=active;data['worksheet_drafts']=draft_registry(db)
+        data['worksheets']=registry(db,workspace=source);data['worksheet_active']=active;data['worksheet_drafts']=draft_registry(db,source)
     return checked(data)
 
 

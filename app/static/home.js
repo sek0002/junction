@@ -58,10 +58,11 @@
     function ready(message='Ready'){
       if(!playing)return;
       loading=false;failed=false;intro.setAttribute('aria-busy','false');intro.setAttribute('aria-label','Junction ready');
+      const switchingInstance=new URL(win.location.href).searchParams.has('instance');
       setStatus(message);consumeWelcome(win);
       if(compact){finish({focus:true,immediate:true});return;}
       skip.hidden=false;skip.disabled=false;
-      const remaining=reduced.matches?0:Math.max(0,1300-(clock()-started));
+      const remaining=reduced.matches||switchingInstance?0:Math.max(0,1300-(clock()-started));
       if(!remaining)finish({focus:true,immediate:reduced.matches});
       else timer=win.setTimeout(()=>finish({focus:true}),remaining);
     }
