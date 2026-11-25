@@ -243,3 +243,17 @@
 }
 .mrna-fragment-ends code.incompatible { outline:1px solid currentColor; }
 .mrna-fragment-open [data-junction-error][hidden], .mrna-fragment-ends [data-rc][hidden] { display:none; }
+
+.mrna-enzyme-entry { position:relative; display:block; min-width:0; }
+.mrna-enzyme-ink { position:absolute; inset:1px; padding:0 9px; display:flex; align-items:center; pointer-events:none; }
+#mrna-enzyme-tokens { width:100%; overflow:hidden; white-space:pre; font:inherit; }
+#mrna .mrna-enzyme-entry.has-ink input { color:transparent; caret-color:var(--ink); }
+.mrna-enzyme-entry:not(.has-ink) .mrna-enzyme-ink { visibility:hidden; }
+.enzyme-known { color:var(--green); }
+.enzyme-partial { color:var(--amber); text-decoration:underline dotted; }
+.enzyme-unknown { color:var(--red); text-decoration:underline wavy; }
+#mrna-enzyme-status:not(.mrna-order-status) { display:block; margin:-6px 0 10px; color:var(--muted); }
+@media (forced-colors:active) {
+  #mrna .mrna-enzyme-entry.has-ink input { color:CanvasText; }
+  .mrna-enzyme-ink { visibility:hidden; }
+}

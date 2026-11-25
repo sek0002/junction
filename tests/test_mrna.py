@@ -28,6 +28,15 @@ class ScientificTests(unittest.TestCase):
         with self.assertRaises(ValidationError):Batch(records=[Record(name='duplicate',sequence=SEQUENCE)]*2)
         self.assertEqual(Record(name='RNA',sequence='aug gaa uaa').sequence,'ATGGAATAA')
 
+    def test_exclusion_recognizes_degenerate_and_reverse_sites_at_cds_ends(self):
+        from app.mrna_restrictions import check_cds_exclusions
+        params=Parameters(avoid_restriction_sites=['sfii','BsMbI','BSMBI']).model_dump()
+        self.assertEqual(params['avoid_restriction_sites'],['SfiI','BsmBI'])
+        for sequence,location in [('ATGGGCCAACGTGGCC','SfiI.*4–16'),
+                                  ('GAGACGTAA','BsmBI.*1–6')]:
+            with self.assertRaisesRegex(ValueError,location):check_cds_exclusions(sequence,params)
+        check_cds_exclusions('ATGGAGATGTAA',params)
+
     def test_homopolymer_count_has_explicit_definition(self):
         metrics=homopolymer_metrics('ATGAAAACCTAA')
         self.assertEqual(metrics['homopolymer_nt'],8)
@@ -121,6 +130,37 @@ class PrivateJobTests(unittest.TestCase):
             if data['status'] not in ['queued','running']:return data
             time.sleep(.15)
         self.fail('Local mRNA job did not finish in time')
+
+    @unittest.skipUnless(Path(runtime_config()['python']).is_file(),'Optional scientific runtime')
+    def test_excluded_enzymes_in_actual_job_and_export(self):
+        sequence='ATG'+'CGTCTC'+'GAGACG'+'GGTCTC'+'GAGACC'+'GCT'*9+'TAA'
+        record={'name':'RE check','sequence':sequence}
+        settings={'gc_global_min':0,'gc_global_max':1,'gc_window_min':0,'gc_window_max':1,
+                  'avoid_repeat_length':None,'avoid_poly_a':None,'avoid_poly_t':None,'avoid_poly_c':None,'avoid_poly_g':None}
+        payload={'mode':'design','records':[record],'parameters':settings}
+        settings['avoid_restriction_sites']=['unknownEnzyme']
+        invalid=self.alice.post('/api/mrna/jobs',json=payload)
+        self.assertEqual(invalid.status_code,422)
+        self.assertIn('Unknown restriction enzyme',invalid.text)
+        settings.update(avoid_restriction_sites=['bsmbi'],avoid_manufacture_restriction_sites=True)
+        reply=self.alice.post('/api/mrna/jobs',json=payload)
+        self.assertEqual(reply.status_code,202,reply.text)
+        job=self.wait(reply.json()['id'])
+        self.assertFalse(job['result']['errors'],job['result']['errors'])
+        original,designed=job['result']['rows']
+        self.assertEqual(original['cds'],sequence)
+        self.assertEqual(designed['protein'],original['protein'])
+        fasta=self.alice.get('/api/mrna/jobs/'+job['id']+'/export?format=fasta').text
+        exported=''.join(fasta.split('>')[-1].splitlines()[1:]).replace('U','T')
+        self.assertEqual(exported,designed['transcript'])
+        for motif in ('CGTCTC','GAGACG','GGTCTC','GAGACC'):
+            self.assertNotIn(motif,exported)
+        record['preserve_regions']=[[4,15]]
+        locked=self.alice.post('/api/mrna/jobs',json=payload)
+        self.assertEqual(locked.status_code,202,locked.text)
+        result=self.wait(locked.json()['id'])['result']
+        self.assertTrue(result['errors'])
+        self.assertEqual([r['strategy'] for r in result['rows']],['input'])
 
     def test_auth_validation_and_private_drafts(self):
         anon=TestClient(app);self.assertEqual(anon.get('/api/mrna/jobs').status_code,401);anon.close()

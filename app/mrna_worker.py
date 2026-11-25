@@ -11,10 +11,12 @@ import subprocess
 import sys
 from pathlib import Path
 try:
+    from .mrna_restrictions import canonical_names, check_cds_exclusions, supported_names
     from .mrna_fragments import project_fragments
     from .sequence_engine import active_enzymes
     from .mrna_optimization import mutable_regions, optimize_cds
 except ImportError:
+    from mrna_restrictions import canonical_names, check_cds_exclusions, supported_names
     from mrna_fragments import project_fragments
     from sequence_engine import active_enzymes
     from mrna_optimization import mutable_regions, optimize_cds
@@ -51,7 +53,9 @@ def design_quality(sequence, parameters):
     from mrnarchitect.optimize.engine import build_constraints_and_objectives
     from mrnarchitect.optimize.models import OptimizationConfig
     metrics=homopolymer_metrics(sequence)
-    config=dict(parameters);config['gc_window_size']=min(config['gc_window_size'],len(sequence))
+    config=dict(parameters)
+    config['avoid_restriction_sites']=canonical_names(config['avoid_restriction_sites'])
+    config['gc_window_size']=min(config['gc_window_size'],len(sequence))
     config=msgspec.convert(config,type=OptimizationConfig)
     hard,objectives=build_constraints_and_objectives(sequence,config)
     allowed={'EnforceGCContent','AvoidPattern','AvoidHairpins','UniquifyAllKmers'}
@@ -103,7 +107,7 @@ def run(data):
     if data['action']=='capabilities':
         from mrnarchitect.constants.sequences import EGFP, LUCIFERASE
         presets=json.loads((Path(__file__).parent/'data/mrna/elements.json').read_text())
-        return {'ready':True,'versions':versions,'models':{'mRNArchitect':True,'dnachisel':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
+        return {'ready':True,'restriction_enzymes':supported_names(),'versions':versions,'models':{'mRNArchitect':True,'dnachisel':True,'viennarna':True,'degscore':degscore_ready,'csc':Path(config['csc']).is_file(),'ribonn':bool(config.get('ribonn_command'))},'message':'Local mRNArchitect '+versions['mRNArchitect'],'elements':presets, 'examples':{'eGFP':EGFP,'Luciferase':LUCIFERASE}}
     if data['action']=='match':
         try:from .mrna_matching import match_batch
         except ImportError:from mrna_matching import match_batch
@@ -119,8 +123,8 @@ def run(data):
         if not all(math.isfinite(x) for x in values):raise ValueError('DegScore returned a non-finite position score.')
         return {'available':True,'scores':values,'model':'DegScore 2.1','total':float(model.degscore)}
     batch=data['batch'];record=data['record'];params=dict(record.get('parameters') or batch['parameters']);organism=params['organism']
-    if record.get('assembly'):
-        params['avoid_restriction_sites']=list(dict.fromkeys(params['avoid_restriction_sites']+list(active_enzymes(record['assembly']['enzyme']))))
+    required=active_enzymes(record['assembly']['enzyme']) if record.get('assembly') else ()
+    params['avoid_restriction_sites']=canonical_names([*params['avoid_restriction_sites'],*required])
     np.random.seed(batch['seed']+data['index']);random.seed(batch['seed']+data['index'])
     sequence=record['sequence']
     if record['kind']=='protein':sequence=Sequence.reverse_translate(sequence,organism)
@@ -140,6 +144,8 @@ def run(data):
         degclass=DegScore;versions['DegScore']='2.1'
     rows=[];errors=[]
     def score(cds,strategy,number,report=None,label_number=None):
+        if number:
+            check_cds_exclusions(cds,params)
         transcript=five+cds+three+'A'*batch['poly_a'];foldseq=cds if batch['fold_scope']=='cds' else transcript
         md=RNA.md();md.temperature=batch['temperature']
         folding=RNA.fold_compound(foldseq.replace('T','U'),md)
@@ -218,8 +224,13 @@ def run(data):
         if designed is not None:
             if str(Sequence(designed).amino_acid_sequence)!=protein:raise ValueError('Matched optimisation did not preserve the encoded protein.')
             if any(designed[a-1:b]!=sequence[a-1:b] for a,b in record['preserve_regions']):raise ValueError('Matched optimisation changed an original protected region.')
-            score(designed,'Matched '+params['objective'].upper(),batch['candidates']+1 if batch.get('include_individual_optimisations') else 1,data.get('matched_report'),label_number=1)
-            rows[-1]['fragment_matching']=True
+            number=batch['candidates']+1 if batch.get('include_individual_optimisations') else 1
+            try:
+                score(designed,'Matched '+params['objective'].upper(),number,data.get('matched_report'),label_number=1)
+            except ValueError as error:
+                errors.append({'name':record['name'],'candidate':number,'error':str(error)})
+            else:
+                rows[-1]['fragment_matching']=True
     return {'rows':rows,'errors':errors}
 
 

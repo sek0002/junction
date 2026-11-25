@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator, field_validator
 from . import database as store
 from .auth import user_id
+from .mrna_restrictions import canonical_names, supported_names
 from .mrna_fragments import InvalidAssembly, fragment_ends, prepare_assembly, project_fragments
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,14 +79,26 @@ class Parameters(BaseModel):
     avoid_restriction_sites: list[str] = Field(default_factory=list, max_length=30)
     avoid_sequences: list[str] = Field(default_factory=list, max_length=30)
 
+    @field_validator('avoid_restriction_sites')
+    @classmethod
+    def restriction_names(cls, names):
+        names = [name.strip() for name in names]
+        if any(not name.isalnum() or len(name)>30 for name in names):
+            raise ValueError('Use restriction enzyme names such as BsaI.')
+        try:
+            return canonical_names(names)
+        except ModuleNotFoundError as error:
+            # Minimal web installations defer catalogue validation to the scientific worker.
+            if error.name != 'Bio':
+                raise
+            return names
+
     @model_validator(mode='after')
     def ordered(self):
         if self.gc_global_min > self.gc_global_max or self.gc_window_min > self.gc_window_max:
             raise ValueError('Minimum GC must not exceed maximum GC.')
         if bool(self.hairpin_stem_size) != bool(self.hairpin_window):
             raise ValueError('Set both hairpin stem size and window, or leave both empty.')
-        for site in self.avoid_restriction_sites:
-            if not site.isalnum() or len(site)>30: raise ValueError('Use restriction enzyme names such as BsaI.')
         for motif in self.avoid_sequences:
             if not motif or len(motif)>300 or set(motif.upper())-set('ACGTURYSWKMBDHVN'):
                 raise ValueError('Avoid sequences must use IUPAC nucleotide notation.')
@@ -449,8 +462,13 @@ def capabilities_cached(python, source, degscore, command):
 @router.get('/capabilities')
 def capabilities():
     c=runtime_config()
-    return {**capabilities_cached(c['python'],c['source'],c['degscore'],c['ribonn_command']),
-            'utrs': json.loads((Path(__file__).parent / 'data/mrna/utrs.json').read_text())}
+    result=dict(capabilities_cached(c['python'],c['source'],c['degscore'],c['ribonn_command']))
+    if 'restriction_enzymes' not in result:
+        try:
+            result['restriction_enzymes']=supported_names()
+        except ModuleNotFoundError as error:
+            if error.name!='Bio':raise
+    return {**result,'utrs': json.loads((Path(__file__).parent / 'data/mrna/utrs.json').read_text())}
 
 
 class StabilityRequest(BaseModel):

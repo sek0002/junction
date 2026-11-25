@@ -109,6 +109,16 @@ class MatchingTests(unittest.TestCase):
         self.assertTrue(all(not d['accepted'] and d['reason'] for d in result['report']['decisions']))
         self.assertEqual(result['errors'],[])
 
+    def test_match_library_rechecks_exclusions_on_successful_solver_output(self):
+        batch=batch_fixture()
+        for record in batch['records']:record['parameters']['avoid_restriction_sites']=['mwoi']
+        def unchecked(sequence,params,locks,seed):
+            return {'sequence':sequence,'report':{}}
+        result=match_batch(batch,solve=unchecked,translate=translate,metric=metric)
+        self.assertEqual(result['sequences'],[None,None])
+        self.assertEqual(result['report']['library'],[])
+        self.assertTrue(all('Excluded MwoI' in e['error'] for e in result['errors']))
+
     def test_budget_does_not_claim_uncomputed_records(self):
         result=match_batch(batch_fixture(),solve=solver(),translate=translate,metric=metric,max_solves=1)
         self.assertTrue(result['report']['search_limit_reached']);self.assertEqual(result['report']['optimiser_calls'],1)

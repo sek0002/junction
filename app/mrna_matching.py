@@ -7,9 +7,11 @@ import math
 import time
 
 try:
+    from .mrna_restrictions import canonical_names, check_cds_exclusions
     from .mrna_fragments import prepare_assembly, project_fragments
     from .sequence_engine import reverse_complement, active_enzymes
 except ImportError:
+    from mrna_restrictions import canonical_names, check_cds_exclusions
     from mrna_fragments import prepare_assembly, project_fragments
     from sequence_engine import reverse_complement, active_enzymes
 
@@ -149,7 +151,7 @@ def match_batch(batch, *, solve=None, translate=None, metric=None, consensus=Non
     params=[];sites=[];proteins=[];preserved=[]
     for i,record in enumerate(records):
         p=deepcopy(record.get('parameters') or batch['parameters'])
-        p['avoid_restriction_sites']=list(dict.fromkeys(p['avoid_restriction_sites']+list(active_enzymes(record['assembly']['enzyme']))))
+        p['avoid_restriction_sites']=canonical_names([*p['avoid_restriction_sites'],*active_enzymes(record['assembly']['enzyme'])])
         params.append(p);sites.append(donor_sites(record,translate));proteins.append(translate(record['sequence']))
         prepared=prepare_assembly(record['assembly'])
         stops=[[i+1,i+3] for i in range(0,len(record['sequence']),3) if translate(record['sequence'][i:i+3])=='*']
@@ -173,6 +175,7 @@ def match_batch(batch, *, solve=None, translate=None, metric=None, consensus=Non
             raise ValueError('Shared fragment optimisation changed a locked region.')
         if any(designed[a-1:b]!=original[a-1:b] for a,b in immutable[index]):
             raise ValueError('Shared fragment optimisation changed an original protected region.')
+        check_cds_exclusions(designed,params[index])
         project_fragments(records[index]['assembly'],designed)
         if not math.isfinite(metric(designed,params[index])):raise ValueError('Codon objective score is unavailable.')
         result['report']={**result['report'],'matching_seed':seed}
