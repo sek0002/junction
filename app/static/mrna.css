@@ -223,3 +223,16 @@
   overflow:auto;
   font-variant-numeric:tabular-nums;
 }
+
+.mrna-fragment-parts .mrna-fragment-grip {
+  touch-action:none;
+  cursor:grab;
+  color:var(--muted);
+  background:transparent;
+  border:0;
+  padding:4px;
+  white-space:nowrap;
+}
+.mrna-fragment-parts .drag-source { opacity:.55; }
+.mrna-fragment-parts .drop-target { outline:2px dashed var(--green); outline-offset:1px; }
+.mrna-order-status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }

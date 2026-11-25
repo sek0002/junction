@@ -12,6 +12,93 @@
   const details=new Map(),tip=$('tooltip');let tipAnchor=null,tipIndex=null;
   const rc=s=>String(s||'').split('').reverse().map(c=>({A:'T',T:'A',G:'C',C:'G'}[c]||c)).join('');
   function hideTooltip(){tipAnchor=null;tip.classList.add('hidden');}
+  const list=$('parts');
+  let draggedId=null, touchPointer=null, dropCard=null;
+  function indicateDrop(card){
+    if(card===dropCard)return;
+    dropCard?.classList.remove('drop-target');
+    dropCard=card;
+    dropCard?.classList.add('drop-target');
+  }
+  function finishDrag(){
+    indicateDrop(null);
+    draggedId=null;
+    touchPointer=null;
+    list.querySelector('.drag-source')?.classList.remove('drag-source');
+  }
+  function beginDrag(card){
+    hideTooltip();
+    draggedId=Number(card.dataset.partId);
+    card.classList.add('drag-source');
+  }
+  function targetCard(node){
+    const card=node?.closest('[data-part-id]');
+    return card?.parentNode===list && Number(card.dataset.partId)!==draggedId?card:null;
+  }
+  function movePart(id,to,focusHandle=false){
+    const from=parts.findIndex(p=>p.id===id);
+    if(from<0||to<0||to>=parts.length||from===to)return;
+    const [part]=parts.splice(from,1);
+    parts.splice(to,0,part);
+    invalidate(true);
+    matches=[];
+    render();
+    search();
+    onChange();
+    if(focusHandle)list.children[to].querySelector('[data-reorder]').focus();
+    $('order-status').textContent=part.name+' moved to position '+(to+1)+' of '+parts.length+'.';
+  }
+  list.addEventListener('dragstart',event=>{
+    const card=event.target.closest('[data-part-id]');
+    if(!card||parts.length<2||touchPointer!==null){event.preventDefault();return;}
+    beginDrag(card);
+    event.dataTransfer.effectAllowed='move';
+    event.dataTransfer.setData('text/plain',String(draggedId));
+  });
+  list.addEventListener('dragover',event=>{
+    if(draggedId===null)return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect='move';
+    indicateDrop(targetCard(event.target));
+  });
+  list.addEventListener('dragleave',event=>{
+    if(!list.contains(event.relatedTarget))indicateDrop(null);
+  });
+  list.addEventListener('drop',event=>{
+    if(draggedId===null)return;
+    event.preventDefault();
+    const target=targetCard(event.target),id=draggedId;
+    finishDrag();
+    if(target)movePart(id,Number(target.dataset.partPreview));
+  });
+  list.addEventListener('dragend',finishDrag);
+  list.addEventListener('pointerdown',event=>{
+    const handle=event.target.closest('[data-reorder]');
+    if(!handle||event.pointerType==='mouse'||!event.isPrimary||parts.length<2)return;
+    event.preventDefault();
+    beginDrag(handle.closest('[data-part-id]'));
+    touchPointer=event.pointerId;
+    list.setPointerCapture(touchPointer);
+  });
+  list.addEventListener('pointermove',event=>{
+    if(event.pointerId===touchPointer)indicateDrop(targetCard(doc.elementFromPoint(event.clientX,event.clientY)));
+  });
+  list.addEventListener('pointerup',event=>{
+    if(event.pointerId!==touchPointer)return;
+    const target=targetCard(doc.elementFromPoint(event.clientX,event.clientY)),id=draggedId;
+    finishDrag();
+    if(target)movePart(id,Number(target.dataset.partPreview));
+  });
+  list.addEventListener('lostpointercapture',event=>{if(event.pointerId===touchPointer)finishDrag();});
+  list.addEventListener('keydown',event=>{
+    const handle=event.target.closest('[data-reorder]');
+    if(!handle)return;
+    const step={ArrowUp:-1,ArrowLeft:-1,ArrowDown:1,ArrowRight:1}[event.key];
+    if(!step)return;
+    event.preventDefault();
+    const card=handle.closest('[data-part-id]');
+    movePart(Number(card.dataset.partId),Number(card.dataset.partPreview)+step,true);
+  });
   function endLabels(p,index){const info=details.get($('enzyme').value+':'+p.id),orientation=preview?.fragment_map?.[index]?.orientation??p.orientation??1,left=info?.digest?.left_overhang||p.left,right=info?.digest?.right_overhang||p.right,source=info?1:p.orientation??1;return orientation!==source?[rc(right),rc(left)]:[left,right];}
   function tooltipContent(index){
    if(index===null)return `<b>${escape($('name').value||'Fragment assembly')}</b><small>${escape($('enzyme').value)} · ${parts.length} fragments in ligation order</small><ol>${parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li><div><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small></div><code>5′ ${escape(left||'…')}<br>3′ ${escape(right||'…')}</code></li>`;}).join('')}</ol>${preview?`<small>CDS ${preview.cds_start}–${preview.cds_end} · frame ${preview.frame>0?'+':''}${preview.frame} · ${preview.sequence.length} nt</small>`:'<small>Preview assembly to resolve orientations and CDS.</small>'}`;
@@ -20,7 +107,7 @@
   }
   function positionTooltip(){if(!tipAnchor?.isConnected){hideTooltip();return;}const r=tipAnchor.getBoundingClientRect(),b=tip.getBoundingClientRect();tip.style.left=Math.max(12,Math.min(r.left,win.innerWidth-b.width-12))+'px';tip.style.top=Math.max(12,Math.min(r.bottom+8+b.height<=win.innerHeight-12?r.bottom+8:r.top-b.height-8,win.innerHeight-b.height-12))+'px';}
   function showTooltip(anchor,index){tipAnchor=anchor;tipIndex=index;tip.innerHTML=tooltipContent(index);tip.classList.remove('hidden');positionTooltip();const part=parts[index];if(index===null||!part)return;const key=$('enzyme').value+':'+part.id;if(details.has(key))return;request('/api/fragments/'+part.id+'?enzyme='+encodeURIComponent($('enzyme').value)).then(info=>{details.set(key,info);if(tipAnchor===anchor&&tipIndex===index&&anchor.isConnected){tip.innerHTML=tooltipContent(index);positionTooltip();}}).catch(()=>{});}
-  for(const event of ['pointerover','focusin'])$('parts').addEventListener(event,e=>{const card=e.target.closest('[data-part-preview]');if(card&&!(e.relatedTarget&&card.contains(e.relatedTarget)))showTooltip(card,Number(card.dataset.partPreview));});
+  for(const event of ['pointerover','focusin'])$('parts').addEventListener(event,e=>{const card=e.target.closest('[data-part-preview]');if(card&&draggedId===null&&!(e.relatedTarget&&card.contains(e.relatedTarget))&&!e.target.closest('[data-reorder]'))showTooltip(card,Number(card.dataset.partPreview));});
   for(const event of ['pointerout','focusout'])$('parts').addEventListener(event,e=>{const card=e.target.closest('[data-part-preview]');if(card&&!(e.relatedTarget&&card.contains(e.relatedTarget)))hideTooltip();});
   $('parts').addEventListener('keydown',e=>{if(e.key==='Escape')hideTooltip();});
   doc.addEventListener('keydown',e=>{if(e.key==='Escape')hideTooltip();});
@@ -32,7 +119,7 @@
    $('matches').innerHTML=matches.length?matches.map(p=>`<button type="button" class="mrna-fragment-option" data-fragment="${p.id}" ${parts.some(x=>x.id===p.id)?'disabled':''}><span><strong>${escape(p.name)}</strong><small>${Number(p.physical_length||p.length||0).toLocaleString()} bp · ${escape(p.digest?.left_overhang)} → ${escape(p.digest?.right_overhang)}</small></span><span>Add</span></button>`).join(''):'<p class="small muted">No matching compatible fragments.</p>';
   }
   function render(){
-   hideTooltip();$('parts').innerHTML=parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li data-part-preview="${i}"><span class="mrna-fragment-number">${i+1}</span><button class="mrna-fragment-open" type="button" data-preview-toggle aria-describedby="mrna-assembly-tooltip"><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small><span class="mrna-fragment-ends"><code>${escape(left||'5′')}</code> → <code>${escape(right||'3′')}</code>${preview?.fragment_map?.[i]?.orientation<0?'<b>RC</b>':''}</span></button><div><button type="button" data-remove="${i}" aria-label="Remove ${escape(p.name)}">×</button></div></li>`;}).join('');
+   finishDrag();hideTooltip();$('parts').innerHTML=parts.map((p,i)=>{const [left,right]=endLabels(p,i);return `<li data-part-preview="${i}" data-part-id="${p.id}" draggable="${parts.length>1}"><button type="button" class="mrna-fragment-grip" data-reorder aria-label="Reorder ${escape(p.name)}, position ${i+1} of ${parts.length}. Use arrow keys to move." title="Drag to reorder, or use the arrow keys" ${parts.length<2?'disabled':''}><span aria-hidden="true">⠿</span> ${i+1}</button><button class="mrna-fragment-open" type="button" data-preview-toggle aria-describedby="mrna-assembly-tooltip"><strong>${escape(p.name)}</strong><small>${p.length?p.length.toLocaleString()+' bp':''}</small><span class="mrna-fragment-ends"><code>${escape(left||'5′')}</code> → <code>${escape(right||'3′')}</code>${preview?.fragment_map?.[i]?.orientation<0?'<b>RC</b>':''}</span></button><div><button type="button" data-remove="${i}" aria-label="Remove ${escape(p.name)}">×</button></div></li>`;}).join('');
    $('empty').hidden=parts.length>0;
    $('count').textContent=`${parts.length} / 32 fragments`;$('clear').disabled=!parts.length;const last=parts[parts.length-1];$('next').textContent=last?endLabels(last,parts.length-1)[1]||'Any overhang':'Any overhang';
    renderMatches();
